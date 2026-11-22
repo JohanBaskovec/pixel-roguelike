@@ -121,8 +121,8 @@ benchmark all link.
 - Read element properties from the property tables (`g_elem_density[id]`, etc.), which fit in L1.
   Do not chase pointers.
 - Movement rules use integer and comparison logic, with densities from the quantised table. Most
-  floating point belongs in the heat pass. The one planned exception is gas buoyancy reading
-  temperature (M3).
+  floating point belongs in the heat pass. The one planned exception is fluid buoyancy reading
+  temperature (convection, M3).
 - Never iterate the whole world when only dirty chunks or rects need work.
 - Never let a cell move more than 32 px per tick (the threading invariant above).
 - Randomness comes only from the per-chunk RNG, seeded from `(world_seed, tick, chunk_x, chunk_y)`.

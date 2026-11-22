@@ -45,7 +45,7 @@ Ordered by impact.
 5. **Branch-light inner loops.** Skip `STATIC` and `NONE` with one table lookup. Dispatch the
    remaining behaviours through a `switch`, never through function pointers.
 6. **Integer movement logic.** Quantised densities and an integer RNG. No floating point in the
-   movement pass, apart from M3 gas buoyancy.
+   movement pass, apart from M3 fluid buoyancy (convection).
 7. **Upload only dirty chunks** to the texture.
 8. **No allocation after startup.** All buffers are allocated once and aligned to 64 bytes.
    Per-chunk metadata is padded to cache lines to avoid false sharing between workers.

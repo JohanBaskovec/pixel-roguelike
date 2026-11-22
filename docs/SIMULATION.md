@@ -140,20 +140,42 @@ T_i'   = T_i + Σ_j Q_ij / C_i
   `HEAT_EPSILON_K`, or while something moved in it. Other chunks skip the heat pass. The heat pass
   may also run every N ticks with a proportionally larger `dt`, within the stability limit.
 
-### Why a time-scale factor is needed
+### Conduction alone is slow; convection does most of the work
 
-With real values at 5 cm cells, heat diffuses one cell (≈ `dx²/α`) in about **5 hours** through
-water (α ≈ 1.4 × 10⁻⁷ m²/s) and about **2 minutes** through iron (α ≈ 2.3 × 10⁻⁵ m²/s). That is
-realistic but unplayable. `HEAT_TIME_SCALE` (a single global, tuned in M3) speeds up all
-conduction equally. **Relative behaviour stays realistic** (heat spreads through iron ~160×
-faster than through water); only the absolute pace changes. Like every other deviation, it is documented in
-`ELEMENTS.md`.
+**Pure conduction** spreads heat about `√(α·t)`. In still water (α ≈ 1.4 × 10⁻⁷ m²/s) that is
+≈ 3 mm in 1 minute, ≈ 1 cm in 10 minutes, and ≈ 2.3 cm in an hour. The time scale for a whole 5 cm
+cell to equalise (`dx²/α`) is a few hours. Through iron (α ≈ 2.3 × 10⁻⁵ m²/s) it is about 2 minutes.
+These values are correct. They match, for example, lakes that keep a warm surface layer over cold
+water for months.
+
+They do **not** match everyday experience. A pot heats in minutes, and an ice cube melts quickly in
+a drink, because of **convection**: warm fluid gets lighter, rises, and mixes. In a falling-sand
+simulation, settled liquid does not move, so without explicit convection a pool would conduct heat
+like a solid and feel absurdly slow. **Convection must therefore be simulated** (see below). It is
+not something to fake by cranking up conduction.
+
+After convection is in place, `HEAT_TIME_SCALE` (a single global, tuned in M3) may still be needed
+to make conduction through solids playable. It speeds up all conduction equally. **Relative
+behaviour stays realistic** (heat spreads through iron ~160× faster than through water); only the
+absolute pace changes. Like every other deviation, it is documented in `ELEMENTS.md`. Tune it
+*after* convection works, because the needed value will be much smaller.
 
 ### Convection
 
 - Moving cells carry their temperature, so heat is advected by flowing water and gas.
-- Gas density depends on temperature: `ρ(T) = ρ_ref · T_ref / T`. Hot gas becomes buoyant, rises,
-  cools and sinks, so convection currents emerge without any special code.
+- **Gases:** density depends on temperature, `ρ(T) = ρ_ref · T_ref / T` (ideal gas). Hot gas
+  becomes buoyant, rises, cools and sinks. The existing gas buoyancy swaps produce convection
+  currents once they use `ρ(T)`.
+- **Liquids:** two cells of the *same* liquid stacked vertically swap with a probability that grows
+  with their density difference, when the lower one is lighter (warmer). Liquid density uses a
+  per-element thermal expansion coefficient. Water's is ≈ 2.1 × 10⁻⁴ /K at 20 °C, and water is
+  **densest at 4 °C**. A small density curve for water in the element table gives realistic
+  results for free: ponds freeze from the top, and the bottom water stays at 4 °C.
+- **Sleeping:** a chunk with a vertical temperature inversion in a fluid (warm under cold, beyond
+  `HEAT_EPSILON_K`) stays active. A stably stratified fluid sleeps.
+- **Fallback, only if profiling forces it:** give fluids an effective conductivity
+  `k_eff = Nu · k` (Nusselt-number multiplier), the standard engineering shortcut for convection.
+  It is cheaper but has no visible flow. Record it in `DECISIONS.md` if used.
 
 ### Phase changes and latent heat
 

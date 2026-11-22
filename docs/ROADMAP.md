@@ -86,6 +86,9 @@ desktop. Thread-count determinism test passes.
 - [ ] Heat conduction between neighbouring cells; energy-conserving; stable (see SIMULATION.md)
 - [ ] Moving cells carry their temperature, so convection emerges from movement
 - [ ] Hot gas is less dense (ideal-gas scaling), so warm air rises
+- [ ] Liquid convection: warm liquid swaps upward through colder liquid of the same kind; water
+      is densest at 4 °C. Test: a pool heated from below warms throughout within seconds to
+      minutes, not hours
 - [ ] Phase changes with latent heat: water ↔ ice, water ↔ steam (new element: steam)
 - [ ] Temperature overlay view (`T`), and heat/cool brushes
 - [ ] Hot cells glow (blackbody tint)
