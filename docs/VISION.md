@@ -38,6 +38,11 @@ switches tools and elements and controls time (pause, step, speed).
   in ONI. This is a deliberate deviation from realism.
 - Later: hot cells glow (blackbody colour), a temperature overlay view, simple lighting.
 
+## Decided physics choices
+
+- Vacuum is a perfect insulator; there is no heat radiation (D-017).
+- Water pressure uses a pressure field while keeping one element per pixel (D-018, milestone M2b).
+
 ## Open design questions
 
 These are intentionally unresolved. Record answers in `DECISIONS.md` when they are made.

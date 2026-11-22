@@ -28,9 +28,9 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 **M1 – Sandbox box is implemented.** A dirt box filled with void, a toolbar to paint water,
 oxygen, CO2, hydrogen, dirt, rock, iron and ice (or erase), single-threaded chunked simulation,
-tests and a benchmark. The next milestone is **M2 – Performance foundation** (threads, camera,
-bigger world). See `docs/ROADMAP.md`, including the M1 acceptance notes on what is still
-unverified.
+tests and a benchmark. The next milestones are **M2 – Performance foundation** (threads, camera,
+bigger world), then **M2b – Water pressure**. See `docs/ROADMAP.md`, including the M1 acceptance
+notes on what is still unverified.
 
 ## Stack
 

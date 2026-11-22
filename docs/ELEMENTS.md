@@ -82,8 +82,9 @@ Keep this list complete.
 2. Heat conduction is uniformly sped up by `HEAT_TIME_SCALE` (M3).
 3. M1–M3 gas is one particle per pixel at fixed density, with no pressure, until M4.
 4. Liquids are incompressible and have no hydrostatic pressure (communicating vessels do not
-   equalise). A pool's surface row shimmers slightly (surface wander, SIMULATION.md).
-5. Vacuum does not radiate heat.
+   equalise), until M2b. A pool's surface row shimmers slightly, and very wide pools keep a
+   gentle slope (about one cell per 32), also until M2b.
+5. No heat radiation: vacuum is a perfect insulator (D-017).
 
 ## Adding an element (checklist)
 

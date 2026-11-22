@@ -98,6 +98,21 @@ renders through Xvfb at a steady 59–60 FPS with vsync).
 **Acceptance:** 4096 × 2048 world, 60 ticks/s with about 2 M cells active, on a 6–8-core
 desktop. Thread-count determinism test passes.
 
+## M2b – Water pressure (D-018)
+
+Done after M2, because the pressure pass must follow M2's threading rules.
+
+- [ ] Per-cell pressure (hydraulic head) field for liquids, updated by a local relaxation pass
+      (reads within 32 cells), only over awake liquid
+- [ ] Liquid moves toward lower head: sideways on level-looking surfaces (replaces the random
+      wander), and upward when the head exceeds the cell's height (communicating vessels)
+- [ ] Settled pools sleep completely: no surface shimmer
+- [ ] Pressure overlay view (`P`)
+- [ ] Tests: a U-tube balances to within one cell; a poured pool ends level to within one cell
+      across the whole basin (no 32-cell slope); a dam holds a taller column than a puddle;
+      settled pools sleep
+- [ ] Benchmark before/after recorded
+
 ## M3 – Temperature
 
 - [ ] Heat conduction between neighbouring cells; energy-conserving; stable (see SIMULATION.md)

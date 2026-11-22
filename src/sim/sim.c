@@ -135,30 +135,40 @@ static void update_liquid(TickCtx *c, int x, int y) {
         return;
     }
 
-    // 3. Flow sideways. A pressured cell flows into any open space. A surface cell only flows
-    //    toward a drop (a cell it can fall into) seen within LIQUID_LOOKAHEAD; without one it is
-    //    level. Either way it moves at most `spread` cells this tick. Current direction first.
-    //    A pressured cell may also pass through cells of its own liquid that are falling (a
-    //    stream pouring down beside it): it joins the stream instead of treating it as a wall.
-    //    Without this, a stream just across a chunk border blocks the flow, because the
-    //    neighbouring chunk is scanned completely before this one.
+    // 3. Flow sideways, current direction first, then the other.
+    //    Pressured cell: flows up to `spread` cells into any open space. It may pass through
+    //    cells of its own liquid that are falling (a stream pouring down beside it), joining the
+    //    stream instead of treating it as a wall. Without this, a stream just across a chunk
+    //    border blocks the flow, because the neighbouring chunk is scanned completely first.
+    //    Surface cell: flows only toward a drop (a cell it can fall into) seen within
+    //    LIQUID_LOOKAHEAD; without one it is level. It looks through its own liquid, so the whole
+    //    top row of a step flows down to the next step, not just the step's edge cell (otherwise
+    //    poured water piles into a stepped mound). Through open space it moves at most `spread`
+    //    cells; past its own liquid it moves straight to the drop.
     for (int attempt = 0; attempt < 2; attempt++) {
         int land = 0;
         bool drop = false;
+        bool passed_own = false;
         int limit = pressured ? spread : LIQUID_LOOKAHEAD;
         for (int s = 1; s <= limit; s++) {
             int nx = x + dir * s;
             if (!can_displace(w, nx, y, d)) {
-                if (pressured && liquid_in_transit(w, nx, y, cell->element)) {
+                bool own = pressured ? liquid_in_transit(w, nx, y, cell->element)
+                                     : world_elem(w, nx, y) == cell->element;
+                if (own) {
+                    passed_own = true;
                     continue;
                 }
                 break;
             }
-            if (s <= spread) {
+            if (pressured && s <= spread) {
                 land = s;
             }
             if (can_displace(w, nx, y + 1, d)) {
                 drop = true;
+                if (!pressured) {
+                    land = passed_own ? s : PR_MIN(s, spread);
+                }
                 break;
             }
         }

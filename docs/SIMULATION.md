@@ -78,8 +78,10 @@ update_liquid(x, y):
     2. diagonal    (surface cells only) slide down-left/down-right, random order
     3. sideways    pressured: flow up to SPREAD cells into any open space, passing through
                               falling cells of its own liquid (joining a stream)
-                   surface:   flow up to SPREAD cells, but only toward a drop (a cell it could
-                              fall into) seen within LIQUID_LOOKAHEAD (32) cells
+                   surface:   flow only toward a drop (a cell it could fall into) seen within
+                              LIQUID_LOOKAHEAD (32) cells, looking through its own liquid;
+                              up to SPREAD cells through open space, or straight to the drop
+                              when it looked past its own liquid
                    current flow direction first (aux bit 7), then the other
     2b. diagonal   (pressured cells) as 2, if sideways failed
     4. wander      no drop in sight but open space beside: move one cell with probability
@@ -98,6 +100,9 @@ Why each part exists:
 - **Drop rule.** Surface cells flow only toward somewhere lower. Without this, the partial top row
   of every pool would slide back and forth forever and never sleep. With it, a surface is level to
   within one cell over the 32-cell lookahead.
+- **Looking through its own liquid.** Otherwise only the edge cell of each step on a slope could
+  move (its neighbours block each other), and poured water piled into a stepped mound faster than
+  it could flow away. With it, the whole top row of a step flows down at once.
 - **Wander.** Two level stretches wider than the lookahead can differ by one cell. Occasional
   random steps along the surface even those out over time, at the cost of a gentle shimmer: the
   surface row of a pool stays awake, while its interior sleeps.
@@ -107,10 +112,29 @@ Why each part exists:
   the rows are interleaved, so the curtain has gaps. Without this rule, spreading water froze at
   chunk borders.
 
-**Known limitations (accepted for M1):**
+**Known limitations (until M2b, water pressure):**
 - There is no true hydrostatic pressure, so a U-tube does not equalise.
-- Very wide basins level by the slow wander only.
-- Revisit in M4 (liquid pressure) if the design needs either.
+- A surface can keep a gentle slope of about one cell per 32 cells. Beyond the lookahead, only the
+  slow wander levels it.
+
+### Liquid pressure (M2b, design notes; D-018)
+
+- Each liquid cell gets a **hydraulic head** `h`: the height its water "wants" to reach. In a
+  body at rest, `h` is the same everywhere: the height of the free surface.
+- **Relaxation pass**, over awake liquid only, reading within 32 cells:
+  - a free-surface cell (not liquid above) has `h` = its own height;
+  - an interior cell takes the average of its liquid neighbours' `h`;
+  - several sub-steps per tick, so information travels further than one cell per tick.
+  Jacobi-style double-buffering keeps the result independent of thread scheduling.
+- **Movement from head:**
+  - a surface cell with open space beside it, but no drop in sight, moves toward the side whose
+    head (sampled up to 32 cells away in the row below) is lower. This replaces the random wander,
+    and stops entirely when the difference is below a threshold, so settled pools sleep;
+  - a liquid cell with void or lighter fluid above it moves **up** when its head exceeds its own
+    height by more than one cell (U-tubes, fountains, dams that burst).
+- **To work out during implementation:** how holes left inside a body are refilled (from high
+  head, not by gravity alone); sleep thresholds that avoid flicker; how fast very large bodies
+  balance; sharing the buffer with the M4 gas mass.
 
 ### Gases (M1 particle model)
 
@@ -165,7 +189,7 @@ Q_ij   = G_ij · (T_j − T_i) · dt · HEAT_TIME_SCALE
 T_i'   = T_i + Σ_j Q_ij / C_i
 ```
 
-- **Void has k = 0.** Vacuum insulates. Radiation may come later.
+- **Void has k = 0.** Vacuum insulates perfectly; there is no heat radiation (D-017).
 - **Jacobi double-buffering.** Read `temp[cur]` and write `temp[next]`. Every cell computes the
   same `Q_ij` for a given pair (a symmetric function of i and j), so **energy is conserved** and
   the result does not depend on thread scheduling.

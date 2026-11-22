@@ -141,6 +141,9 @@ to watch).
 - **Consequences:** Pools level to within one cell and their interiors sleep. The surface row
   shimmers and stays awake. Behaviour no longer depends on where chunk borders fall (covered by
   manual checks; a dedicated test is a good M2 addition).
+- **Amendment:** Surface cells look through their own liquid when searching for a drop, so the
+  whole top row of a step flows down, not just its edge cell. Poured water had been piling into a
+  stepped mound. Test: `test_poured_water_spreads`.
 
 ## D-015 — Rotate the checkerboard phase order every tick
 
@@ -157,3 +160,33 @@ to watch).
 - **Consequences:** The build is faster and smaller. Re-enable a subsystem when a feature needs it
   (audio, for example). On Linux, building SDL needs the X11/Wayland development packages listed
   in `README.md`.
+
+## D-017 — No heat radiation: vacuum is a perfect insulator
+
+- **Status:** Accepted (project owner's choice)
+- **Context:** Real objects lose heat by radiating infrared light, even through vacuum. This
+  matters most at high temperatures. Modelling it costs from cheap (losing heat to the
+  surroundings) to very expensive (surfaces exchanging heat with every surface they can see).
+- **Decision:** No radiation. Heat moves only by conduction between touching cells and by moving
+  matter (convection). Void holds no heat and passes none.
+- **Consequences:** A layer of vacuum insulates perfectly (as in ONI, where this is a known player
+  strategy). A hot object surrounded by vacuum never cools. Revisit only if gameplay needs hot
+  things to cool in the open.
+
+## D-018 — Water pressure as a pressure field over single-element pixels (Option A)
+
+- **Status:** Accepted (project owner's choice); scheduled as milestone M2b
+- **Context:** Liquid rules only look within 32 cells (threading invariant). So there is no
+  hydrostatic pressure: U-tubes do not balance, dams push no harder than a puddle, and a poured
+  pool keeps a gentle slope of about one cell per 32 cells. Surfaces also need a random "wander"
+  that makes them shimmer. The alternative considered was ONI-style liquid *amounts* per cell
+  (Option B). It was rejected because it breaks "every pixel is one element" and needs
+  partial-cell rendering.
+- **Decision:** Keep one element per pixel. Add a per-cell pressure (hydraulic head) field for
+  liquids, updated by a local relaxation pass that only reads within 32 cells. Liquid moves
+  toward lower head, including upward when the head is high enough. Design notes are in
+  `SIMULATION.md` → Liquid pressure.
+- **Consequences:** One extra float per cell (to be shared with the M4 gas mass) and one extra
+  pass over active liquid. Pressure travels a bounded distance per tick, so very large bodies
+  balance over seconds rather than instantly. The surface wander, and with it the shimmer, goes
+  away.

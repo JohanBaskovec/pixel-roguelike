@@ -15,6 +15,7 @@ void test_counts_conserved(void);
 void test_deterministic(void);
 void test_settled_world_sleeps(void);
 void test_no_diagonal_leak(void);
+void test_poured_water_spreads(void);
 
 void test_solids_never_move(void) {
     World *w = test_world_box(64, 64, 1);
@@ -211,5 +212,32 @@ void test_no_diagonal_leak(void) {
         below += test_cell_is(w, x, 8, ELEM_WATER);
     }
     EXPECT_EQ(below, 0);
+    world_destroy(w);
+}
+
+void test_poured_water_spreads(void) {
+    // Hold the brush still, like a player pouring. The water must spread across the floor, not
+    // pile into a stepped mound. (Before surface cells could look through their own liquid,
+    // this left 21% of the floor dry and a peak of 25 cells; flat is about 10.)
+    World *w = test_world_box(512, 192, 10);
+    for (int t = 0; t < 400; t++) {
+        Edit e = {256, 20, 256, 20, 6, EDIT_CIRCLE, ELEM_WATER, 0};
+        sim_apply_edit(w, &e);
+        sim_tick(w, NULL);
+    }
+    sim_run_ticks(w, 300);
+    int covered = 0, max_h = 0;
+    for (int x = 1; x < 511; x++) {
+        covered += test_cell_is(w, x, 190, ELEM_WATER);
+        int h = 0;
+        for (int y = 1; y < 191; y++) {
+            h += test_cell_is(w, x, y, ELEM_WATER);
+        }
+        max_h = PR_MAX(max_h, h);
+    }
+    int flat = (int)(test_count(w, ELEM_WATER) / 510);
+    EXPECT(covered >= 510 * 95 / 100);
+    // Allow the gentle slope left by the 32-cell lookahead (removed by water pressure, M2b).
+    EXPECT(max_h <= flat + 6);
     world_destroy(w);
 }

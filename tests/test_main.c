@@ -13,6 +13,7 @@ void test_counts_conserved(void);
 void test_deterministic(void);
 void test_settled_world_sleeps(void);
 void test_no_diagonal_leak(void);
+void test_poured_water_spreads(void);
 void test_edit_single_pixel(void);
 void test_edit_circle_area(void);
 void test_edit_stroke_has_no_gaps(void);
@@ -38,6 +39,7 @@ int main(void) {
     RUN(test_deterministic);
     RUN(test_settled_world_sleeps);
     RUN(test_no_diagonal_leak);
+    RUN(test_poured_water_spreads);
     RUN(test_edit_single_pixel);
     RUN(test_edit_circle_area);
     RUN(test_edit_stroke_has_no_gaps);
