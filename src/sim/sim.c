@@ -15,7 +15,8 @@ typedef struct TickCtx {
 } TickCtx;
 
 // Gravity: liquids gain 1/16 px/tick of fall speed with this probability (x/65536) each tick.
-// 0.87/16 px/tick^2 * 60^2 * 0.05 m = 9.8 m/s^2 at 5 cm per pixel.
+// 0.87/16 px/tick^2 * 60^2 * 0.05 m = 9.8 m/s^2 at 5 cm per pixel. Random rather than on fixed
+// ticks: cells released together would otherwise fall as rigid horizontal lines.
 #define GRAVITY_INC_P16 57000u
 #define FALL_SPEED_MAX  127 // 1/16 px/tick units; ~8 px/tick
 
@@ -106,24 +107,41 @@ static void update_liquid(TickCtx *c, int x, int y) {
     int speed = cell->aux & 0x7F;
     int dir = (cell->aux & 0x80) ? 1 : -1;
 
-    // 1. Fall, accelerating under gravity.
-    if (can_displace(w, x, y + 1, d)) {
+    // 1. Fall, accelerating under gravity. A cell whose way down is blocked by its own liquid
+    //    that is itself falling waits in mid-air (keeping its speed) instead of landing on it.
+    //    Otherwise, where the chunk below is scanned after this one, the stream's leading cells
+    //    have not moved yet; the cells behind would "land" on them and spread sideways, and a
+    //    falling stream would bulge below every chunk border.
+    bool below_open = can_displace(w, x, y + 1, d);
+    if (below_open || liquid_in_transit(w, x, y + 1, cell->element)) {
         if (speed < FALL_SPEED_MAX && rng_chance16(&c->rng, GRAVITY_INC_P16)) {
             speed++;
         }
         int steps = 1 + (speed >> 4);
-        int cy = y + 1;
-        while (--steps > 0 && can_displace(w, x, cy + 1, d)) {
-            cy++;
+        int target = 0;
+        for (int ny = y + 1; ny <= y + MAX_MOVE && steps > 0; ny++) {
+            if (can_displace(w, x, ny, d)) {
+                target = ny;
+                steps--;
+            } else {
+                break;
+            }
         }
-        swap_cells(c, x, y, x, cy);
-        cell_ptr(w, x, cy)->aux = (uint8_t)((dir > 0 ? 0x80 : 0) | speed);
+        if (target == 0) {
+            cell->aux = (uint8_t)((dir > 0 ? 0x80 : 0) | speed);
+            world_keep_alive(w, x, y); // jammed behind falling liquid: wait, still falling
+            return;
+        }
+        swap_cells(c, x, y, x, target);
+        cell_ptr(w, x, target)->aux = (uint8_t)((dir > 0 ? 0x80 : 0) | speed);
         return;
     }
 
-    // Landing: fall speed turns into extra sideways spread this tick.
+    // Landing: fall speed turns into extra sideways spread this tick, and is reset, so a resting
+    // cell never counts as "in transit".
     int spread = g_elem_spread[cell->element] + (speed >> 4);
     spread = PR_MIN(spread, MAX_MOVE);
+    cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
 
     // A cell with liquid on top of it is under pressure: it is pushed out sideways into any open
     // space (this is what makes a heap of water spread out instead of slumping like sand), and

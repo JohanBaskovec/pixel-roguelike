@@ -73,7 +73,8 @@ buoyancy uses temperature-adjusted density (see Heat → Convection).
 
 ```
 update_liquid(x, y):
-    1. fall        if it can displace the cell below: fall, accelerating under gravity
+    1. fall        if it can displace the cell below: fall, accelerating under gravity;
+                   if the cell below is its own liquid, still falling: wait in mid-air
     pressured = (the cell above is a liquid)
     2. diagonal    (surface cells only) slide down-left/down-right, random order
     3. sideways    pressured: flow up to SPREAD cells into any open space, passing through
@@ -106,6 +107,15 @@ Why each part exists:
 - **Wander.** Two level stretches wider than the lookahead can differ by one cell. Occasional
   random steps along the surface even those out over time, at the cost of a gentle shimmer: the
   surface row of a pool stays awake, while its interior sleeps.
+- **Waiting behind a falling stream.** Where the chunk below is scanned after this one, the
+  leading cells of a falling stream have not moved yet when the cells behind them look down. If
+  those cells "landed" on them, they would spread sideways, and the stream bulged below every
+  chunk border (every 64 px). They wait instead, keeping their speed. Test:
+  `test_falling_stream_has_no_chunk_bulges`.
+- **Falling streams break into spray.** Each falling cell gains speed at random (87% chance per
+  tick), so a long stream spreads into droplets. That matches real streams falling many metres
+  (Plateau–Rayleigh break-up), and the stream is coherent near its source. Deterministic gravity
+  was tried and rejected: cells released together then fell as rigid horizontal lines.
 - **Joining a stream.** The neighbouring chunk is scanned completely before this one. So a stream
   of water falling just across a chunk border has already moved down one cell, as a continuous
   curtain, by the time this chunk's cells look at it. They would see a wall. Inside a single chunk

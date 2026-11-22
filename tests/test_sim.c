@@ -16,6 +16,7 @@ void test_deterministic(void);
 void test_settled_world_sleeps(void);
 void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
+void test_falling_stream_has_no_chunk_bulges(void);
 
 void test_solids_never_move(void) {
     World *w = test_world_box(64, 64, 1);
@@ -239,5 +240,44 @@ void test_poured_water_spreads(void) {
     EXPECT(covered >= 510 * 95 / 100);
     // Allow the gentle slope left by the 32-cell lookahead (removed by water pressure, M2b).
     EXPECT(max_h <= flat + 6);
+    world_destroy(w);
+}
+
+void test_falling_stream_has_no_chunk_bulges(void) {
+    // A poured stream used to bulge below every chunk border: where the chunk below is scanned
+    // later, falling cells "landed" on the stream's unmoved leading cells and spread sideways.
+    // Compare the stream's average width near chunk borders with its width mid-chunk.
+    World *w = test_world_box(192, 512, 11);
+    static double width[512];
+    int samples = 0;
+    for (int t = 0; t < 320; t++) {
+        Edit e = {96, 20, 96, 20, 6, EDIT_CIRCLE, ELEM_WATER, 0};
+        sim_apply_edit(w, &e);
+        sim_tick(w, NULL);
+        if (t >= 170) {
+            samples++;
+            for (int y = 64; y < 448; y++) {
+                for (int x = 1; x < 191; x++) {
+                    width[y] += test_cell_is(w, x, y, ELEM_WATER);
+                }
+            }
+        }
+    }
+    double near = 0.0, mid = 0.0;
+    int n_near = 0, n_mid = 0;
+    for (int y = 64; y < 448; y++) {
+        int d = y & (CHUNK_SIZE - 1);
+        int dist = d < CHUNK_SIZE / 2 ? d : CHUNK_SIZE - d;
+        if (dist <= 4) {
+            near += width[y];
+            n_near++;
+        } else if (dist >= 16) {
+            mid += width[y];
+            n_mid++;
+        }
+    }
+    double ratio = (near / n_near) / (mid / n_mid);
+    EXPECT(samples > 0);
+    EXPECT(ratio < 1.2); // was about 1.6 with the bulges
     world_destroy(w);
 }

@@ -87,7 +87,8 @@ renders through Xvfb at a steady 59–60 FPS with vsync).
       Debug)
 - [ ] Dirty rects propagate across chunk borders; chunks sleep and wake correctly
 - [ ] Deterministic per-chunk RNG; test that 1 thread and N threads produce the same world
-- [ ] Test that spreading water behaves the same wherever chunk borders fall (D-014)
+- [ ] Test that spreading water behaves the same wherever chunk borders fall (D-014). Falling
+      streams are covered already (`test_falling_stream_has_no_chunk_bulges`)
 - [ ] Experiment: a permanent 1-cell wall ring at the world edge to drop bounds checks from
       neighbour reads
 - [ ] Texture upload of dirty chunks only

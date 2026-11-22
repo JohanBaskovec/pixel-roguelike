@@ -144,6 +144,9 @@ to watch).
 - **Amendment:** Surface cells look through their own liquid when searching for a drop, so the
   whole top row of a step flows down, not just its edge cell. Poured water had been piling into a
   stepped mound. Test: `test_poured_water_spreads`.
+- **Amendment 2:** A falling cell blocked by its own falling liquid waits in mid-air instead of
+  landing, because poured streams bulged below every chunk border. Test:
+  `test_falling_stream_has_no_chunk_bulges`.
 
 ## D-015 — Rotate the checkerboard phase order every tick
 
