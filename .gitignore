@@ -17,4 +17,5 @@ compile_commands.json
 # Profiling / crash output
 perf.data*
 *.trace
-core
+/core
+core.[0-9]*

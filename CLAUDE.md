@@ -26,9 +26,11 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 ## Current status
 
-Documentation only; no code exists yet. The next milestone is **M1 – Sandbox box**: a box with dirt
-walls, filled with void, plus toolbar buttons to paint gases, walls and water. See
-`docs/ROADMAP.md`.
+**M1 – Sandbox box is implemented.** A dirt box filled with void, a toolbar to paint water,
+oxygen, CO2, hydrogen, dirt, rock, iron and ice (or erase), single-threaded chunked simulation,
+tests and a benchmark. The next milestone is **M2 – Performance foundation** (threads, camera,
+bigger world). See `docs/ROADMAP.md`, including the M1 acceptance notes on what is still
+unverified.
 
 ## Stack
 
@@ -41,7 +43,7 @@ walls, filled with void, plus toolbar buttons to paint gases, walls and water. S
 - Targets: Linux, Windows, macOS (desktop only).
 - Adding any other dependency requires an entry in `docs/DECISIONS.md` first.
 
-## Commands (available once M1 lands)
+## Commands
 
 ```bash
 cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release
@@ -59,8 +61,16 @@ ctest --test-dir build/debug --output-on-failure
 ./build/release/pr-bench            # headless simulation benchmark, prints ns/cell and ms/tick
 ```
 
-Planned CMake options: `PR_SANITIZE` (ASan+UBSan), `PR_NATIVE` (`-march=native`, off by default),
-`PR_USE_SYSTEM_SDL`, `PR_BUILD_TESTS` (on), `PR_BUILD_BENCH` (on).
+```bash
+# Headless visual check (e.g. under Xvfb): deterministic 1 tick/frame, save the last frame
+./build/release/pixel-roguelike --demo --frames 300 --screenshot out.bmp
+```
+
+CMake options: `PR_SANITIZE` (ASan+UBSan), `PR_NATIVE` (`-march=native`, off by default),
+`PR_USE_SYSTEM_SDL`, `PR_BUILD_TESTS` (on), `PR_BUILD_BENCH` (on), `PR_WERROR` (CI).
+
+On Linux, building SDL3 from source needs the X11/Wayland development packages listed in
+`README.md`. The first configure downloads SDL (about 25 s to build on 4 cores).
 
 ## Doc map
 
@@ -95,17 +105,20 @@ Planned CMake options: `PR_SANITIZE` (ASan+UBSan), `PR_NATIVE` (`-march=native`,
 
 Details: `docs/ARCHITECTURE.md`.
 
-## Source layout (planned)
+## Source layout
 
 ```
-src/core/     common types, asserts, RNG, thread pool, profiler (SDL threads/atomics allowed)
-src/sim/      world, chunks, elements, movement rules, heat. HEADLESS: no SDL video/render/events
-src/render/   world -> texture, overlays
-src/ui/       immediate-mode widgets, toolbar, HUD
-src/game/     input, tools (brush), edit queue, app state
-src/main.c    SDL init, main loop
-tests/        unit and behaviour tests (CTest), on tiny worlds
-bench/        headless benchmark executable
+src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h
+              (M2: thread pool, profiler). SDL threads/atomics allowed
+src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
+              sim (movement rules, tick), edit (brush strokes, edit queue), scene (box, demo,
+              bench). HEADLESS: no SDL video/render/events
+src/render/   world -> texture (colour LUT, dirty-chunk upload)
+src/ui/       immediate-mode widgets (button, panel, text)
+src/game/     app: input, toolbar, brush strokes, HUD, fixed-timestep frame
+src/main.c    argument parsing, SDL init, main loop
+tests/        behaviour tests (CTest) on tiny worlds; test_util.c builds worlds from ASCII
+bench/        pr-bench, headless benchmark
 docs/         design and engineering docs
 ```
 
@@ -124,7 +137,8 @@ benchmark all link.
   floating point belongs in the heat pass. The one planned exception is fluid buoyancy reading
   temperature (convection, M3).
 - Never iterate the whole world when only dirty chunks or rects need work.
-- Never let a cell move more than 32 px per tick (the threading invariant above).
+- Never let a cell move, or a rule read, more than 32 px from the cell being updated (the
+  threading invariant above). Do multi-cell moves as one swap to the destination.
 - Randomness comes only from the per-chunk RNG, seeded from `(world_seed, tick, chunk_x, chunk_y)`.
   Never use `rand()`, and never let worker threads touch a global RNG. Results must be identical
   for any thread count.

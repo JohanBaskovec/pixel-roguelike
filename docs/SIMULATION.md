@@ -30,76 +30,114 @@ matter leaves it.
 
 ## Movement pass
 
-### Scan order and the clock bit
+### Scan order, phases and the tick stamp
 
+- Chunks are processed in the 4-phase checkerboard (`ARCHITECTURE.md`). The phase that goes
+  first rotates every tick, so no chunk group always gets first pick of free space at its borders.
 - Within each chunk's dirty rect, rows are processed **bottom to top**. Within a row, the
   horizontal direction **alternates every tick**, so nothing drifts systematically to one side.
-- `world.clock` flips every tick. When a cell is moved or updated, its flags' clock bit is set to
-  the current clock. A cell whose clock bit already equals the current clock is skipped. This
-  stops a rising gas, which moves into a row that has not been processed yet, from being updated
-  twice in one tick.
-- `STATIC` and `NONE` cells are skipped immediately.
+- Each cell has a `stamp` byte: the low 8 bits of the tick in which it was last updated or
+  moved. A cell whose stamp equals the current tick's stamp is skipped. This stops a rising gas,
+  which moves into a row that has not been processed yet, from being updated twice in one tick.
+  A long-sleeping cell can, by chance (1 in 256), carry the current stamp when it wakes; it then
+  waits one extra tick. That is harmless and deterministic. Painted cells get a stamp that
+  guarantees they are simulated in the next tick.
+- `STATIC` and `NONE` cells are skipped with a single table lookup.
 
-### The "can enter" test (density swaps)
+### Reach: rules may read and write only within `MAX_MOVE` (32 cells)
 
-A moving cell **A** may move into target cell **B** if:
+This is the threading invariant from `ARCHITECTURE.md`, and it applies to **reads** as well as
+moves: lookaheads are capped at 32 cells. A multi-cell move is done as **one swap** from start to
+destination. The cells passed over are void (left unchanged) or a lighter fluid that trades
+places with the mover, so the result looks the same and costs one swap instead of many.
 
-1. B is **void** → move (A goes to B's position; B's position becomes void), or
-2. B is a **fluid** (liquid or gas), not static, and the densities favour it:
-   - moving **down**: `density(A) > density(B)`
-   - moving **up**: `density(A) < density(B)`
-   - moving **sideways**: allowed into void or into a fluid lighter than A (liquids), or into
-     another gas with the mixing probability (gases; see below)
+### The "can displace" test (density swaps)
 
-   → **swap** A and B, together with their temperatures (and masses from M4).
+A moving cell **A** may move into target cell **B**, going down or sideways, if:
 
-Static cells are never displaced. Cells beyond the world edge count as static.
+1. B is **void** → move (B's position becomes void), or
+2. B is a **fluid** (liquid or gas) that is **lighter** than A → **swap** A and B, together with
+   their temperatures (and masses from M4).
 
-Density comparisons in the movement pass use a pre-quantised integer table
-(`g_elem_density_q`). From M3, gas buoyancy uses temperature-adjusted density (see Heat →
-Convection).
+Moving **up** is the gas buoyancy rule below. Static cells are never displaced. Cells beyond the
+world edge read as the pseudo element `ELEM_OUT`, which behaves as static.
+
+**Diagonal moves may not squeeze between two blocking cells.** A diagonal step is refused when
+both orthogonal neighbours it passes between are static. Otherwise matter leaks through
+1-pixel-thin diagonal walls.
+
+Density comparisons use a pre-quantised integer table (`g_elem_density_q`, g/m³). From M3, gas
+buoyancy uses temperature-adjusted density (see Heat → Convection).
 
 ### Liquids
 
 ```
 update_liquid(x, y):
-    if can_enter(down):                      fall
-    else if can_enter(down-left/down-right): move diagonally (random order when both are free)
-    else:                                    spread sideways up to DISPERSION[e] cells in the
-                                             current flow direction (aux bit), stopping at the
-                                             first cell it cannot enter; flip the direction when
-                                             blocked
+    1. fall        if it can displace the cell below: fall, accelerating under gravity
+    pressured = (the cell above is a liquid)
+    2. diagonal    (surface cells only) slide down-left/down-right, random order
+    3. sideways    pressured: flow up to SPREAD cells into any open space, passing through
+                              falling cells of its own liquid (joining a stream)
+                   surface:   flow up to SPREAD cells, but only toward a drop (a cell it could
+                              fall into) seen within LIQUID_LOOKAHEAD (32) cells
+                   current flow direction first (aux bit 7), then the other
+    2b. diagonal   (pressured cells) as 2, if sideways failed
+    4. wander      no drop in sight but open space beside: move one cell with probability
+                   P_LIQUID_WANDER and stay awake; otherwise
+    5. settle      enclosed: do not wake. The cell sleeps
 ```
 
-- **Fall speed.** M1 may start at 1 px/tick. The stretch goal is to accumulate a vertical velocity
-  in `aux` (fixed point, adding `g` each tick while airborne), fall that many cells (stopping at
-  the first obstacle), and reset the velocity on landing. It is always clamped to `MAX_MOVE` = 32.
-- **Dispersion** (water ≈ 5) controls how fast a liquid levels out. It is clamped to `MAX_MOVE`.
-- **Known limitations of naive falling sand**, accepted for M1:
-  - Wide basins level slowly.
-  - There is no hydrostatic pressure, so a U-tube does not equalise.
-  - Revisit in M4 (liquid pressure) if the design needs either.
+Why each part exists:
+
+- **Fall speed.** `aux` bits 0–6 hold a fall speed in 1/16 px/tick. It grows by 1 with
+  probability 0.87 per tick, which is ≈ 9.8 m/s² at 5 cm/px. The cell falls `1 + speed/16` cells
+  per tick, up to ~8 px/tick. On landing, the speed is added to the sideways spread for that tick
+  (a splash).
+- **Pressure.** A cell with liquid on top of it is pushed out sideways into any open space. That
+  makes a heap of water spread out instead of slumping like sand. Surface cells have no such push.
+- **Drop rule.** Surface cells flow only toward somewhere lower. Without this, the partial top row
+  of every pool would slide back and forth forever and never sleep. With it, a surface is level to
+  within one cell over the 32-cell lookahead.
+- **Wander.** Two level stretches wider than the lookahead can differ by one cell. Occasional
+  random steps along the surface even those out over time, at the cost of a gentle shimmer: the
+  surface row of a pool stays awake, while its interior sleeps.
+- **Joining a stream.** The neighbouring chunk is scanned completely before this one. So a stream
+  of water falling just across a chunk border has already moved down one cell, as a continuous
+  curtain, by the time this chunk's cells look at it. They would see a wall. Inside a single chunk
+  the rows are interleaved, so the curtain has gaps. Without this rule, spreading water froze at
+  chunk borders.
+
+**Known limitations (accepted for M1):**
+- There is no true hydrostatic pressure, so a U-tube does not equalise.
+- Very wide basins level by the slow wander only.
+- Revisit in M4 (liquid pressure) if the design needs either.
 
 ### Gases (M1 particle model)
 
 One gas particle per pixel. A gas cell tries the following, in order:
 
 1. **Buoyancy against other fluids.** If the cell above is a fluid that is denser than this gas →
-   swap with probability `p_buoy = clamp(K_BUOY * (ρ_above - ρ_self) / (ρ_above + ρ_self))`.
-   The cell below being a lighter fluid is handled symmetrically by that cell's own update.
+   swap with probability `p_buoy = K_BUOY * (ρ_above - ρ_self) / (ρ_above + ρ_self)`, from the
+   precomputed table `g_buoy_p`.
 2. **Random walk.** Pick one of the 8 neighbours using the chunk RNG.
-   - If it is **void** → move there. This is expansion. There is **no gravity bias against void**:
-     with one particle per pixel, a gas that "fell" into vacuum would look like powder.
-   - If it is **another gas** → swap with a small mixing probability `P_GAS_MIX`, which is higher
-     when the swap moves the denser gas downward. This gives partial mixing on top of
-     stratification.
-   - If it is the same gas → nothing (the swap would be invisible). Mark nothing dirty.
-3. Gases never displace liquids sideways or downward; liquids sink through gas by their own
-   update.
+   - If it is **void** → keep stepping in that direction through void for up to `SPREAD` cells
+     (per gas; lighter gases spread further), then move there in one swap. This is expansion.
+     There is **no gravity bias against void**: with one particle per pixel, a gas that "fell"
+     into vacuum would look like powder. Physically this is right too: over the height of a room,
+     gravity barely changes a gas's density.
+   - If it is **another gas** → swap with mixing probability `P_GAS_MIX`, or `P_GAS_MIX / 4` when
+     the swap would move the denser gas up. This gives partial mixing on top of stratification.
+   - If it is the same gas → nothing.
+3. **Did not move.** Stay awake only if a move is still possible: a neighbour is void or a
+   different gas, or a denser fluid sits above. A region filled with a single gas sleeps.
 
-Expected emergent results: CO2 (1.98 kg/m³) pools under O2 (1.43 kg/m³), H2 (0.09 kg/m³)
-rises to the ceiling, and water rains down through all of them. All constants (`K_BUOY`,
-`P_GAS_MIX`) are tunable in `sim/rules.c` and recorded in `ELEMENTS.md` when they change.
+Gases never displace liquids sideways or downward; liquids sink through gas by their own update.
+
+Expected emergent results: CO2 (1.98 kg/m³) pools under O2 (1.43 kg/m³), H2 (0.09 kg/m³) rises
+above both, and water rains down through all of them. Gas painted into vacuum spreads out as a
+thinning cloud of particles and never "fills" the box. That is the particle-model limitation
+that M4 removes. All constants live at the top of `src/sim/sim.c` and in `src/sim/elements.h`.
+Their current values are in `ELEMENTS.md`.
 
 ### Gases from M4: mass and pressure
 
@@ -193,8 +231,10 @@ Boiling points are at 1 atm until pressure exists (M4). After that they may depe
 
 ## Randomness
 
-- RNG: a small fast generator (PCG32 or xorshift-family) per chunk job, seeded with
-  `splitmix64(world.seed ^ tick ^ (cx << 32 | cy))`.
+- RNG: xorshift32 (`src/core/rng.h`), one per chunk job, reseeded at the start of every chunk
+  update from `splitmix64(world.seed ^ splitmix64(tick) ^ (cx << 32 | cy))`.
+- Player edits use their own generator, seeded from the world seed, the tick and the stroke
+  position, so an edit stream replays identically.
 - Use it for: random direction choices, swap probabilities, and the `shade` of new cells.
 - Never use `rand()`. Never share an RNG between threads. Never let the outcome depend on thread
   count (see `ARCHITECTURE.md` → Determinism).

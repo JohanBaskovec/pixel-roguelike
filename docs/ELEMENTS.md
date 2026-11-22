@@ -16,16 +16,20 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 3 | Iron | STATIC | 7874 | 449 | 80 | melts 1811 K → molten iron (M5) | `#8A8F96` | 1 |
 | 4 | Ice | STATIC | 917 | 2100 | 2.2 | melts 273.15 K → water, L = 334 kJ/kg | `#BFE6F5` | 1 |
 | 5 | Water | LIQUID | 1000 | 4186 | 0.6 | freezes 273.15 K → ice; boils 373.15 K → steam, L = 2257 kJ/kg | `#2A5DB0` α 0.85 | 1 |
-| 6 | Oxygen (O₂) | GAS | 1.429 | 918 | 0.026 | condenses 90.2 K (liquid O₂, later) | `#9CC8F0` α 0.18 | 1 |
-| 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice (later) | `#5A5A5A` α 0.30 | 1 |
-| 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.15 | 1 |
+| 6 | Oxygen (O₂) | GAS | 1.429 | 918 | 0.026 | condenses 90.2 K (liquid O₂, later) | `#9CC8F0` α 0.43 | 1 |
+| 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice (later) | `#7A7A7A` α 0.55 | 1 |
+| 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.43 | 1 |
 | 9 | Steam | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses 373.15 K → water | `#E6ECF2` α 0.25 | 3 |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
   2 (wet).
 - **Gas colours** are a deliberate deviation, since real gases are invisible. The α is the blend
-  over the background at full concentration. From M4 it scales with mass.
+  of one gas pixel over the void background. It is high enough that a thin cloud of single
+  particles is still readable. From M4 it scales with mass.
+- **Per-pixel variation:** every element's brightness varies by up to ± its `shade_var` (0–255
+  scale; void 3, dirt 18, rock 14, iron 8, ice 10, water 10, gases 30), so materials look
+  textured.
 - **Molar masses** (needed from M4): O₂ 0.032, CO₂ 0.044, H₂ 0.002, H₂O 0.018 kg/mol.
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately once heat
@@ -48,18 +52,27 @@ pairwise flow limiter (`SIMULATION.md` → Stability).
 
 ## Simulation tuning constants
 
-Per-element movement constants. These are game-feel values, not physics.
+Movement constants. These are game-feel values, not physics.
 
-| Element | Dispersion (liquids, cells/tick) | Notes |
+| Element | `spread` (cells/tick) | Meaning |
 |---|---|---|
-| Water | 5 | Clamped to `MAX_MOVE` = 32 |
+| Water | 5 | Sideways dispersion. Landing speed adds to it for one tick |
+| Oxygen | 3 | Random-walk step length into void |
+| CO₂ | 2 | Heavier molecules, slower spread |
+| Hydrogen | 6 | Lighter molecules, faster spread |
 
-| Global | Value | Meaning |
-|---|---|---|
-| `K_BUOY` | TBD in M1 | Scales the buoyancy swap probability between fluids |
-| `P_GAS_MIX` | TBD in M1 | Base probability that two different gases swap during a random walk |
-| `HEAT_TIME_SCALE` | TBD in M3 | Global speed-up of conduction (see SIMULATION.md) |
-| `HEAT_EPSILON_K` | TBD in M3 | Temperature difference below which a chunk may sleep thermally |
+All are clamped to `MAX_MOVE` = 32.
+
+| Global | Value | Where | Meaning |
+|---|---|---|---|
+| `K_BUOY` | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
+| `P_GAS_MIX` | 1/16 | `sim/elements.h` | Probability that two different gases swap during a random walk (÷4 against stratification) |
+| `GRAVITY_INC_P16` | 0.87 | `sim/sim.c` | Chance per tick a falling liquid gains 1/16 px/tick of speed (≈ 9.8 m/s² at 5 cm/px) |
+| `FALL_SPEED_MAX` | 127/16 px/tick | `sim/sim.c` | Terminal fall speed, about 8 px/tick (24 m/s) |
+| `LIQUID_LOOKAHEAD` | 32 | `sim/sim.c` | How far a surface liquid cell looks sideways for a drop (= `MAX_MOVE`) |
+| `P_LIQUID_WANDER` | 1/4 | `sim/sim.c` | Chance a level surface cell with open space beside it steps sideways |
+| `HEAT_TIME_SCALE` | TBD in M3 | | Global speed-up of conduction (see SIMULATION.md) |
+| `HEAT_EPSILON_K` | TBD in M3 | | Temperature difference below which a chunk may sleep thermally |
 
 ## Gameplay deviations from reality
 
@@ -69,7 +82,7 @@ Keep this list complete.
 2. Heat conduction is uniformly sped up by `HEAT_TIME_SCALE` (M3).
 3. M1–M3 gas is one particle per pixel at fixed density, with no pressure, until M4.
 4. Liquids are incompressible and have no hydrostatic pressure (communicating vessels do not
-   equalise).
+   equalise). A pool's surface row shimmers slightly (surface wander, SIMULATION.md).
 5. Vacuum does not radiate heat.
 
 ## Adding an element (checklist)

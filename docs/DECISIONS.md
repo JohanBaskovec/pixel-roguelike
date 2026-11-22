@@ -116,3 +116,44 @@ to watch).
   video/render/event usage. The game, tests and benchmark link against it.
 - **Consequences:** Tests and benchmarks run in CI without a display. This keeps simulation logic
   out of rendering and UI code.
+
+## D-013 — 8-bit tick stamp instead of a 1-bit clock
+
+- **Status:** Accepted (M1)
+- **Context:** A 1-bit clock, flipped every tick, marks cells already updated in this tick. A cell
+  that slept for an odd number of ticks wakes with the "already updated" bit set half the time.
+  It then skips a tick, which tears falling columns into stripes.
+- **Decision:** `Cell.stamp` holds the low 8 bits of the tick in which the cell was last updated
+  or moved. Painted cells get `tick - 1`.
+- **Consequences:** A woken cell is wrongly skipped only if it last moved a multiple of 256 ticks
+  ago (1 in 256), and then only for one tick. This costs no memory, since the byte was reserved as
+  flags.
+
+## D-014 — Liquid rules shaped by sleeping and chunk scanning
+
+- **Status:** Accepted (M1)
+- **Context:** Classic falling-sand liquid rules either jitter forever (pools never sleep) or pile
+  up like sand. Scanning the world chunk by chunk also made a falling stream just across a chunk
+  border act as a wall, so spreading water froze at chunk borders.
+- **Decision:** Pressured cells (liquid above them) flow into any open space beside them. Surface
+  cells flow only toward a drop within 32 cells, otherwise wander occasionally. Pressured cells may
+  pass through falling cells of their own liquid. Details in `SIMULATION.md` → Liquids.
+- **Consequences:** Pools level to within one cell and their interiors sleep. The surface row
+  shimmers and stays awake. Behaviour no longer depends on where chunk borders fall (covered by
+  manual checks; a dedicated test is a good M2 addition).
+
+## D-015 — Rotate the checkerboard phase order every tick
+
+- **Status:** Accepted (M1); amends D-006
+- **Decision:** The first of the 4 phases is `tick & 3`.
+- **Consequences:** No chunk group always gets first pick of the free space at its borders. The
+  result is still deterministic for any thread count.
+
+## D-016 — SDL3 3.4.18, with unused subsystems disabled
+
+- **Status:** Accepted (M1); refines D-003
+- **Decision:** Pin `release-3.4.18`. Build SDL without the audio, camera, joystick, haptic,
+  HIDAPI, sensor and power subsystems.
+- **Consequences:** The build is faster and smaller. Re-enable a subsystem when a feature needs it
+  (audio, for example). On Linux, building SDL needs the X11/Wayland development packages listed
+  in `README.md`.

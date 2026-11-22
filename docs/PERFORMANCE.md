@@ -53,6 +53,7 @@ Ordered by impact.
    heat-active chunks.
 
 Planned experiments, decided by data only:
+- A permanent 1-cell wall ring at the world edge, so neighbour reads need no bounds check.
 - Chunk-major memory layout instead of row-major.
 - Full SoA for `Cell`.
 - Atomics vs per-worker deferred lists for cross-chunk dirty marking.
@@ -83,4 +84,17 @@ Rules
 
 | Date | Commit | Machine (CPU, cores) | Compiler | World | Threads | ns/updated cell | ms/tick p50 / p99 | Change |
 |---|---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | — | *No measurements yet (M1 baseline pending)* |
+| 2026-11-22 | M1 | Cloud VM, Xeon @ 2.1 GHz (4 vCPU) | gcc 13.3 -O3 | 1024×768 bench scene | 1 | 62.2 | 13.6 / 19.3 | First M1 version |
+| 2026-11-22 | M1 | same | gcc 13.3 -O3 | 1024×768 bench scene | 1 | 57.8 | 12.5 / 18.7 | Multi-cell moves as one swap; paired dirty-rect wake |
+| 2026-11-22 | M1 | same | gcc 13.3 -O3 | 1024×768 bench scene | 1 | 58.3 | 12.7 / 19.1 | Final M1 liquid rules (pressure, lookahead, wander, streams): ~231k updated cells/tick |
+| 2026-11-22 | M1 | same | clang 18 -O3 | 1024×768 bench scene | 1 | 58.1 | 14.0 / 17.3 | Same code, Clang |
+
+Notes on the M1 baseline:
+- The bench scene is a worst case: 65% of the box is a random mix of water, three gases and
+  vacuum, so almost every cell moves every tick.
+- This VM is slow: a trivial dependent-ALU loop runs about 2–3× slower than on a current desktop
+  CPU. Expect roughly 20–30 ns/cell on a desktop.
+- Callgrind attributes most of the time to swaps and dirty-rect bookkeeping. What remains is
+  dominated by unpredictable branches (random walk directions), which is inherent to the
+  automaton. The big lever is multithreading (M2).
+- In the demo scene, the in-game HUD shows 2–5 ms/tick for 30–50k updated cells.

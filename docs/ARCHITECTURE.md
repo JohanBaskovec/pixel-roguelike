@@ -35,26 +35,28 @@ Fixed timestep for the simulation; rendering runs as fast as vsync allows.
 const double TICK_DT = 1.0 / 60.0;
 const int    MAX_TICKS_PER_FRAME = 4;      // stops a spiral of death: the sim slows down instead
 
-while (app.running) {
-    input_poll(&app);                      // SDL events -> input state
-    game_update(&app);                     // tools read input and push edits into the edit queue
+while (running) {
+    while (SDL_PollEvent(&ev)) app_handle_event(&app, &ev);  // mouse events build brush strokes
+    // app_frame():
+    sim_apply_edits(world, &app.edits);    // main thread, between ticks
     accumulator += frame_time;
     int ticks = 0;
     while (accumulator >= TICK_DT && ticks < MAX_TICKS_PER_FRAME) {
-        if (!app.paused || app.step_once) {
-            sim_apply_edits(world, &app.edits);   // main thread, between ticks
-            sim_tick(world);                      // movement pass, then heat pass (M3)
-        }
+        sim_tick(world, &stats);           // movement pass, then heat pass (M3)
         accumulator -= TICK_DT; ticks++;
     }
     if (ticks == MAX_TICKS_PER_FRAME) accumulator = 0;  // drop the backlog
-    render_world(&app.renderer, world);    // upload dirty chunks, draw the texture
-    ui_frame(&app);                        // toolbar, HUD, brush outline
+    render_upload(); render_draw();        // upload render-dirty chunks, draw the texture
+    draw_panel();                          // toolbar, HUD, brush outline
     SDL_RenderPresent(renderer);
 }
 ```
 
 While paused, edits are still applied each frame, so the user can paint into a frozen world.
+
+`--frames N` runs exactly one tick per frame and quits after N frames, so a run is
+deterministic. With `--screenshot file.bmp` it saves the last frame. This is used for headless
+checks (for example under Xvfb). `--demo` starts from a demo scene instead of the empty box.
 
 ## World data layout
 
@@ -67,29 +69,30 @@ typedef uint8_t ElementId;           // 0 = ELEM_VOID; up to 255 elements
 
 typedef struct Cell {
     ElementId element;
-    uint8_t   flags;                 // bit 0: clock (tick parity when last updated); others reserved
+    uint8_t   stamp;                 // low 8 bits of the tick in which it was last updated/moved
     uint8_t   shade;                 // random at creation; colour variation; moves with the cell
-    uint8_t   aux;                   // per-element scratch (e.g. liquid flow direction, lifetime)
+    uint8_t   aux;                   // per-behaviour scratch. Liquids: bit 7 flow direction,
+                                     // bits 0-6 fall speed (1/16 px/tick)
 } Cell;                              // 4 bytes
 
+typedef struct DirtyRect { int16_t min_x, min_y, max_x, max_y; } DirtyRect;  // chunk-local, inclusive
+
 typedef struct Chunk {
-    // dirty rect for the current tick and for the next tick, in chunk-local coordinates
-    int16_t cur_min_x, cur_min_y, cur_max_x, cur_max_y;
-    int16_t next_min_x, next_min_y, next_max_x, next_max_y;
-    uint8_t render_dirty;            // needs re-upload to the texture
-    uint8_t heat_active;             // has temperature gradients above epsilon (M3)
-} Chunk;                             // padded/aligned to avoid false sharing (M2)
+    DirtyRect cur;                   // cells to process in the running tick
+    DirtyRect next;                  // cells woken for the following tick
+    uint8_t   render_dirty;          // needs re-upload to the texture
+    uint8_t   pad[15];               // 32 bytes; M3 adds heat_active
+} Chunk;
 
 typedef struct World {
     int32_t   width, height;         // cells; multiples of CHUNK_SIZE
     int32_t   chunks_x, chunks_y;
     Cell     *cells;                 // width*height, row-major, 64-byte aligned
-    float    *temp[2];               // Kelvin; double-buffered for the heat pass (M3); temp[cur] is live
-    float    *mass;                  // kg per cell; added in M4 for gases
+    float    *temp;                  // Kelvin; M3 adds a second buffer for the heat pass
     Chunk    *chunks;
     uint64_t  seed;
     uint64_t  tick;
-} World;
+} World;                             // M4 adds float *mass (kg per cell) for gases
 ```
 
 **Why a hybrid SoA.** The movement pass mostly reads `element` and `flags`, so a 4-byte `Cell`
@@ -106,24 +109,27 @@ would be a contained change behind `world_index()`.
 definition table in `sim/elements.c`:
 
 ```c
-extern const uint8_t  g_elem_behavior[256];   // BEHAVIOR_NONE / STATIC / POWDER / LIQUID / GAS
-extern const uint16_t g_elem_density_q[256];  // quantised density used for comparisons in movement rules
-extern const float    g_elem_density[256];    // kg/m^3
-extern const float    g_elem_heat_cap[256];   // J/(kg*K)
-extern const float    g_elem_conduct[256];    // W/(m*K)
-extern const uint32_t g_elem_color[256];      // base RGBA
-// ... phase-change thresholds, etc.
+extern const ElementDef g_elem_defs[ELEM_COUNT];   // the one definition table
+extern uint8_t  g_elem_behavior[256];   // BEHAVIOR_NONE / STATIC / POWDER / LIQUID / GAS
+extern uint32_t g_elem_density_q[256];  // density in g/m^3, for integer comparisons
+extern uint8_t  g_elem_spread[256];     // liquid dispersion / gas step, cells per tick
+extern uint16_t g_buoy_p[ELEM_COUNT][ELEM_COUNT];  // buoyancy swap probability, x/65536
 ```
+
+`elements_init()` builds the lookup tables (`world_create` calls it). They have 256 entries, so
+any cell's element indexes them without a bounds check. Unknown IDs, and the pseudo element
+`ELEM_OUT` (returned for coordinates outside the world), behave as static walls.
 
 ## Simulation tick
 
 ```
 sim_tick(world):
-    world.clock ^= 1
-    movement pass over dirty chunks      (M1: one thread, chunk order; M2: 4-phase checkerboard)
-    heat pass over heat-active chunks    (M3)
-    phase changes                        (M3; part of the heat pass)
-    swap chunk dirty rects: cur <- next, next <- empty
+    stamp = tick & 0xFF
+    every chunk: cur <- next, next <- empty        (wakes from edits and the last tick)
+    movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
+        the first phase rotates with the tick      (M1: one thread; M2: parallel per phase)
+    heat pass over heat-active chunks              (M3)
+    phase changes                                  (M3; part of the heat pass)
     tick++
 ```
 
@@ -133,8 +139,10 @@ Rule details are in `SIMULATION.md`.
 
 Each chunk tracks a rectangle of cells that may change this tick. When a cell changes (it moves,
 swaps or changes element), the code expands the *next* dirty rect of every chunk touched by that
-cell's 3×3 neighbourhood. If nothing changes inside a chunk during a tick, its next rect is empty
-and the chunk sleeps until something wakes it: a neighbour's change, a player edit, or (M3) heat.
+cell's 3×3 neighbourhood (`world_wake_cell`, `world_wake_pair`). A cell that did not move but
+still could (a probabilistic move that failed) keeps only itself awake (`world_keep_alive`). If
+nothing changes inside a chunk during a tick, its next rect is empty and the chunk sleeps until
+something wakes it: a neighbour's change, a player edit, or (M3) heat.
 
 ### Parallel movement: 4-phase checkerboard *(M2)*
 
@@ -146,8 +154,9 @@ During its phase, a worker owns its chunk and may also read and write up to `MAX
 into the neighbouring chunks. Two chunks in the same phase always have one full chunk (64 px)
 between them. Each worker reaches at most 32 px into that gap, so their regions never overlap.
 
-**Invariant: no single tick may move a cell more than 32 px from its start**, in any direction.
-Liquid spreading, gas drift and any future projectile must clamp to this. Debug builds assert it.
+**Invariant: no single tick may move a cell more than 32 px from its start, and no rule may read
+further than 32 px from the cell it updates**, in any direction. Liquid spreading and lookahead,
+gas drift and any future projectile must clamp to this. Debug builds assert it on every swap.
 
 Dirty-rect updates that land in a neighbouring chunk go through either SDL atomics (min/max via
 compare-and-swap) or a per-worker deferred list merged after the phase. Pick whichever benchmarks
@@ -159,35 +168,47 @@ Running the same world with the same seed and the same edit stream gives a bit-i
 whatever the thread count. This requires:
 
 - Each chunk job seeds its RNG from `hash(world.seed, world.tick, cx, cy)`.
+- The phase order depends only on the tick.
 - A cell is updated only by the job that owns its chunk in that phase, in a fixed scan order.
 - Floating-point code (heat) is written so that per-cell results do not depend on scheduling
   (Jacobi double-buffering, no reductions whose order depends on threads).
 
 ## Player edits
 
-The brush never writes into the world directly. `game/tools.c` turns mouse input into
-`Edit { shape, x0, y0, x1, y1, radius, element }` records (a stroke segment from the previous
-mouse position to the current one). It pushes them into an `EditQueue`. `sim_apply_edits()`
-rasterises them on the main thread between ticks:
+The brush never writes into the world directly. `game/app.c` turns mouse events into
+`Edit { x0, y0, x1, y1, radius, shape, element, only_void }` stroke segments:
 
-- For each covered cell: set `element`, randomise `shade`, set the temperature to the element's
-  default temperature (or keep it, depending on the tool), and set the clock bit so the cell does
-  not move in the same tick.
-- Expand the dirty rects (movement and render) of the affected chunks.
+- button down: start a stroke with a dot;
+- each motion event: a segment from the previous position to the new one;
+- button up: a final segment to the release point, then the stroke ends;
+- button held still: the same dot is re-applied every frame, so liquids pour.
 
-Painting is pixel-precise. Brush radius 0 means a single pixel. A stroke segment is rasterised as
-a capsule, which is the circle swept along the segment, so fast mouse moves leave no gaps.
+Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushed first).
+`sim_apply_edits()` rasterises them on the main thread between ticks:
+
+- Long segments are split into pieces of at most `max(4, radius)` cells, so each piece's bounding
+  box stays small.
+- A cell is covered if its centre is within `radius + 0.5` of the segment (circle brush, a
+  capsule) or the swept square touches it (square brush, a Liang–Barsky test). Radius 0 is a
+  single pixel, and fast strokes leave no gaps.
+- Each covered cell gets the element, a random `shade`, a random flow direction, the element's
+  spawn temperature, and a stamp that guarantees it is simulated in the next tick.
+  `only_void` (Shift) skips non-void cells.
+- The bounding box is woken (movement and render).
 
 ## Rendering
 
 - One `SDL_Texture` (`SDL_PIXELFORMAT_RGBA8888`, `SDL_TEXTUREACCESS_STREAMING`), the same size as
   the world, or the same size as the visible window into the world once a camera exists (M2).
-- For each chunk with `render_dirty`, convert its cells to RGBA:
-  `color = shade_variation(g_elem_color[e], shade)`. Gases are blended over the void colour at a
-  per-gas alpha. Then upload that rect (`SDL_UpdateTexture` with a sub-rect; M2 may batch rows with
-  `SDL_LockTexture` instead).
-- Draw the texture with `SDL_SCALEMODE_NEAREST`, scaled to fit the window with the aspect ratio
-  kept.
+- A lookup table `lut[element][shade]` holds the final colour: the base colour varied by shade,
+  then blended over the void colour by the element's alpha (gases, water). Conversion is one
+  table load per cell.
+- For each chunk with `render_dirty`, convert its cells. If more than a quarter of the chunks are
+  dirty, upload the whole texture once; otherwise upload each dirty chunk's rect
+  (`SDL_UpdateTexture` with a sub-rect).
+- Draw the texture with `SDL_SCALEMODE_NEAREST`, scaled to fit the area right of the toolbar with
+  the aspect ratio kept. The scale is rounded down to an integer when it is ≥ 1, so all pixels are
+  the same size.
 - Overlays (temperature, pressure) are alternative colour mappings in the same conversion step.
 - If we need shaders (glow, lighting, smooth gas rendering), move to the SDL3 GPU API. Record that
   in `DECISIONS.md`.
