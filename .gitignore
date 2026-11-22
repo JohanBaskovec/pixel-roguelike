@@ -1,0 +1,20 @@
+# Build output
+build/
+out/
+cmake-build-*/
+
+# CMake / tooling
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Profiling / crash output
+perf.data*
+*.trace
+core
