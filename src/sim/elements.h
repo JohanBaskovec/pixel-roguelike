@@ -47,9 +47,9 @@ typedef struct ElementDef {
 #define MAX_MOVE_CELLS 32 // CHUNK_SIZE / 2; the threading invariant (docs/ARCHITECTURE.md)
 
 // Physical scale and heat (docs/SIMULATION.md -> Units and scale, Heat pass).
-#define CELL_SIZE_M     0.05f // one pixel is a 5 cm cube
-#define CELL_VOLUME_M3  (CELL_SIZE_M * CELL_SIZE_M * CELL_SIZE_M)
-#define TICK_SECONDS    (1.0f / 60.0f)
+#define CELL_SIZE_M    0.05f // one pixel is a 5 cm cube
+#define CELL_VOLUME_M3 (CELL_SIZE_M * CELL_SIZE_M * CELL_SIZE_M)
+#define TICK_SECONDS   (1.0f / 60.0f)
 // Conduction runs this much faster than reality (a deviation, docs/ELEMENTS.md), so heat moves
 // through solids at a playable pace. Gases get a much smaller speed-up: in air, convection (which
 // runs in real time) must stay faster than conduction, or warm air diffuses away instead of
