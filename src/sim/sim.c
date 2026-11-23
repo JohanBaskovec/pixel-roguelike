@@ -86,6 +86,20 @@ static inline bool liquid_in_transit(const World *w, int x, int y, ElementId e) 
     return t.element == e && (t.aux & 0x7F) != 0;
 }
 
+// Is the cell below (x, y) part of a falling column of liquid `e` that still has room to fall?
+// Looks down through falling cells of `e`, within MAX_MOVE, for an open cell.
+static inline bool falling_column_below(const World *w, int x, int y, ElementId e, uint32_t d) {
+    for (int ny = y + 1; ny <= y + MAX_MOVE; ny++) {
+        if (can_displace(w, x, ny, d)) {
+            return ny > y + 1;
+        }
+        if (!liquid_in_transit(w, x, ny, e)) {
+            return false;
+        }
+    }
+    return false;
+}
+
 static inline bool liquid_try_diagonal(TickCtx *c, int x, int y, uint32_t d) {
     World *w = c->w;
     int first = rng_bit(&c->rng) ? 1 : -1;
@@ -108,12 +122,14 @@ static void update_liquid(TickCtx *c, int x, int y) {
     int dir = (cell->aux & 0x80) ? 1 : -1;
 
     // 1. Fall, accelerating under gravity. A cell whose way down is blocked by its own liquid
-    //    that is itself falling waits in mid-air (keeping its speed) instead of landing on it.
-    //    Otherwise, where the chunk below is scanned after this one, the stream's leading cells
-    //    have not moved yet; the cells behind would "land" on them and spread sideways, and a
-    //    falling stream would bulge below every chunk border.
+    //    that is falling, with open space further down, waits in mid-air (keeping its speed)
+    //    instead of landing: that column is moving. This happens where the chunk below is
+    //    scanned after this one, and landing there made a falling stream bulge below every chunk
+    //    border. If the falling column below ends on something that does not move, it is a real
+    //    jam (a stream pouring in faster than the pool drains), and the cell lands and spreads as
+    //    usual; waiting there would stack the stream into a standing tower.
     bool below_open = can_displace(w, x, y + 1, d);
-    if (below_open || liquid_in_transit(w, x, y + 1, cell->element)) {
+    if (below_open || falling_column_below(w, x, y, cell->element, d)) {
         if (speed < FALL_SPEED_MAX && rng_chance16(&c->rng, GRAVITY_INC_P16)) {
             speed++;
         }
@@ -153,40 +169,47 @@ static void update_liquid(TickCtx *c, int x, int y) {
         return;
     }
 
-    // 3. Flow sideways, current direction first, then the other.
-    //    Pressured cell: flows up to `spread` cells into any open space. It may pass through
-    //    cells of its own liquid that are falling (a stream pouring down beside it), joining the
-    //    stream instead of treating it as a wall. Without this, a stream just across a chunk
-    //    border blocks the flow, because the neighbouring chunk is scanned completely first.
-    //    Surface cell: flows only toward a drop (a cell it can fall into) seen within
-    //    LIQUID_LOOKAHEAD; without one it is level. It looks through its own liquid, so the whole
-    //    top row of a step flows down to the next step, not just the step's edge cell (otherwise
-    //    poured water piles into a stepped mound). Through open space it moves at most `spread`
-    //    cells; past its own liquid it moves straight to the drop.
+    // 3. Flow sideways, current direction first, then the other. Both kinds of cell look
+    //    through their own liquid, up to LIQUID_LOOKAHEAD cells along the row.
+    //    Pressured cell (liquid on top of it): moves into open space. Through open space it moves
+    //    at most `spread` cells; past its own liquid it moves straight to the first open cell.
+    //    So water held up in a stack (poured against a wall, or behind a falling stream) drains
+    //    along its whole height, not only from its top; the gap it leaves bubbles up through the
+    //    stack, lowering it. Without this, a stream poured beside a wall built a standing tower.
+    //    Surface cell: flows only toward a drop (a cell it can fall into); without one it is
+    //    level. Looking through its own liquid lets the whole top row of a step flow down to the
+    //    next step, not just the step's edge cell (otherwise poured water piles into a stepped
+    //    mound). Past its own liquid it moves straight to the drop.
     for (int attempt = 0; attempt < 2; attempt++) {
         int land = 0;
         bool drop = false;
         bool passed_own = false;
-        int limit = pressured ? spread : LIQUID_LOOKAHEAD;
-        for (int s = 1; s <= limit; s++) {
+        for (int s = 1; s <= LIQUID_LOOKAHEAD; s++) {
             int nx = x + dir * s;
             if (!can_displace(w, nx, y, d)) {
-                bool own = pressured ? liquid_in_transit(w, nx, y, cell->element)
-                                     : world_elem(w, nx, y) == cell->element;
-                if (own) {
+                if (world_elem(w, nx, y) == cell->element) {
                     passed_own = true;
                     continue;
                 }
                 break;
             }
-            if (pressured && s <= spread) {
-                land = s;
+            if (pressured) {
+                if (passed_own) {
+                    land = s;
+                    break;
+                }
+                if (s <= spread) {
+                    land = s;
+                }
             }
             if (can_displace(w, nx, y + 1, d)) {
                 drop = true;
                 if (!pressured) {
                     land = passed_own ? s : PR_MIN(s, spread);
                 }
+                break;
+            }
+            if (pressured && s >= spread) {
                 break;
             }
         }

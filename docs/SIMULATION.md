@@ -74,11 +74,12 @@ buoyancy uses temperature-adjusted density (see Heat → Convection).
 ```
 update_liquid(x, y):
     1. fall        if it can displace the cell below: fall, accelerating under gravity;
-                   if the cell below is its own liquid, still falling: wait in mid-air
+                   if the cell below is its own liquid, still falling, with open space further
+                   down: wait in mid-air
     pressured = (the cell above is a liquid)
     2. diagonal    (surface cells only) slide down-left/down-right, random order
-    3. sideways    pressured: flow up to SPREAD cells into any open space, passing through
-                              falling cells of its own liquid (joining a stream)
+    3. sideways    pressured: flow up to SPREAD cells into open space; or, looking through its
+                              own liquid (up to 32 cells), move straight to the first open cell
                    surface:   flow only toward a drop (a cell it could fall into) seen within
                               LIQUID_LOOKAHEAD (32) cells, looking through its own liquid;
                               up to SPREAD cells through open space, or straight to the drop
@@ -111,16 +112,19 @@ Why each part exists:
   leading cells of a falling stream have not moved yet when the cells behind them look down. If
   those cells "landed" on them, they would spread sideways, and the stream bulged below every
   chunk border (every 64 px). They wait instead, keeping their speed. Test:
-  `test_falling_stream_has_no_chunk_bulges`.
+  `test_falling_stream_has_no_chunk_bulges`. They wait only if the falling column below them
+  ends in open space. If it ends on something that does not move, it is a real jam, and they
+  land as usual; otherwise a stream pouring into a pool would stack up into a tower.
+- **Pressured cells look through their own liquid.** Water stacked up where a stream lands
+  (especially against a wall) could otherwise only drain from the top of the stack, and the
+  stack grew into a standing tower. Now every pressured cell within 32 cells of open space can
+  move out; the gap it leaves bubbles up through the stack, lowering it. This also covers a
+  falling stream next to a pool, which used to block the pool's edge like a wall at chunk
+  borders. Test: `test_pour_against_wall_makes_no_tower`.
 - **Falling streams break into spray.** Each falling cell gains speed at random (87% chance per
   tick), so a long stream spreads into droplets. That matches real streams falling many metres
   (Plateau–Rayleigh break-up), and the stream is coherent near its source. Deterministic gravity
   was tried and rejected: cells released together then fell as rigid horizontal lines.
-- **Joining a stream.** The neighbouring chunk is scanned completely before this one. So a stream
-  of water falling just across a chunk border has already moved down one cell, as a continuous
-  curtain, by the time this chunk's cells look at it. They would see a wall. Inside a single chunk
-  the rows are interleaved, so the curtain has gaps. Without this rule, spreading water froze at
-  chunk borders.
 
 **Known limitations (until M2b, water pressure):**
 - There is no true hydrostatic pressure, so a U-tube does not equalise.

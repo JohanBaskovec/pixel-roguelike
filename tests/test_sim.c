@@ -17,6 +17,7 @@ void test_settled_world_sleeps(void);
 void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
+void test_pour_against_wall_makes_no_tower(void);
 
 void test_solids_never_move(void) {
     World *w = test_world_box(64, 64, 1);
@@ -279,5 +280,28 @@ void test_falling_stream_has_no_chunk_bulges(void) {
     double ratio = (near / n_near) / (mid / n_mid);
     EXPECT(samples > 0);
     EXPECT(ratio < 1.2); // was about 1.6 with the bulges
+    world_destroy(w);
+}
+
+void test_pour_against_wall_makes_no_tower(void) {
+    // Pouring right beside a wall used to stack settled water into a standing tower against the
+    // wall: it could only drain from its top. Count settled (not falling) water well above the
+    // average pool level near the wall.
+    World *w = test_world_box(1024, 384, 12);
+    for (int t = 0; t < 2400; t++) {
+        Edit e = {990, 30, 990, 30, 8, EDIT_CIRCLE, ELEM_WATER, 0};
+        sim_apply_edit(w, &e);
+        sim_tick(w, NULL);
+    }
+    int flat = (int)(test_count(w, ELEM_WATER) / 1022);
+    int pool_top = 382 - flat;
+    int stacked = 0;
+    for (int y = 1; y < pool_top - 40; y++) {
+        for (int x = 940; x < 1023; x++) {
+            Cell c = w->cells[world_index(w, x, y)];
+            stacked += c.element == ELEM_WATER && (c.aux & 0x7F) == 0;
+        }
+    }
+    EXPECT(stacked < 200);
     world_destroy(w);
 }

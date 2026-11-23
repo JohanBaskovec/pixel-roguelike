@@ -147,6 +147,10 @@ to watch).
 - **Amendment 2:** A falling cell blocked by its own falling liquid waits in mid-air instead of
   landing, because poured streams bulged below every chunk border. Test:
   `test_falling_stream_has_no_chunk_bulges`.
+- **Amendment 3:** That wait applies only if the falling column below ends in open space; in a
+  real jam the cell lands. Pressured cells now look through any of their own liquid (not just
+  falling cells) up to 32 cells for open space. Together these stop a stream poured beside a wall
+  from stacking into a standing tower. Test: `test_pour_against_wall_makes_no_tower`.
 
 ## D-015 — Rotate the checkerboard phase order every tick
 
