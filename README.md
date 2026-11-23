@@ -46,6 +46,7 @@ Tests and benchmark:
 
 ```bash
 ctest --test-dir build/release --output-on-failure
+./build/release/pr-tests sand   # only the tests whose name contains "sand"
 ```
 
 ```bash
@@ -69,6 +70,8 @@ ctest --test-dir build/release --output-on-failure
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Steam, Dirt, Rock, Iron, Ice, Eraser |
 | `N` / `G` | Nitrogen / Air (each cell 21% chance oxygen, else nitrogen), at 1 atm |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
+| `J` | Sand |
+| `X` | Dig: loosens dirt into loose soil and rock into rubble, which fall |
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |

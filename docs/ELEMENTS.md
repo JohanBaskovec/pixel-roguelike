@@ -22,6 +22,9 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 9 | Steam | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses 373.15 K → water | `#E6ECF2` α 0.25 | 3 |
 | 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | `#7C86A8` α 0.16 | 4 |
 | 11 | Body (a creature) | STATIC | 985 | 3500 | 0.5 | none (held at 37 °C) | `#D9A066` | 4c |
+| 12 | Sand | POWDER | 1600 (bulk, dry) | 830 | 0.25 | (melts ≈ 1990 K, later) | `#C2B280` | 5 |
+| 13 | Loose soil (dug dirt) | POWDER | 1200 (bulk) | 800 | 0.3 | none | `#7E5A3A` | 5 |
+| 14 | Rubble (dug rock) | POWDER | 1700 (bulk, broken rock) | 790 | 0.5 | none | `#85858B` | 5 |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -104,6 +107,7 @@ All are clamped to `MAX_MOVE` = 32.
 | `SPLASH_MIN_SPEED` | 2 cells/tick | `sim/sim.c` | Landing speed from which falling liquid may splash |
 | `SPLASH_P16` | 1/4 | `sim/sim.c` | Chance that such a landing splashes |
 | `SPLASH_KEEP_MIN/MAX`, `SPLASH_UP` | 25–60%, 25% | `sim/sim.c` | Share of its speed a splash keeps, sideways and upward |
+| `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
 | `WALK_SPEED` | 1.4 m/s | `sim/creature.c` | Walking speed (half when impaired or in liquid) |
 | `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
 | `BREATH_TICKS` | 257 | `sim/creature.c` | One breath every 4.3 s (14 a minute) |

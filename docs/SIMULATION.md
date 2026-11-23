@@ -23,7 +23,7 @@ Each element has exactly one behaviour, used for dispatch in the movement pass:
 | `STATIC` | never moves on its own; changes only through player edits, phase changes or reactions | dirt, rock, iron, ice | M1 |
 | `LIQUID` | falls, flows diagonally, spreads sideways | water | M1 |
 | `GAS` | drifts, diffuses, stratifies by density | oxygen, CO2, hydrogen, steam | M1 (steam M3) |
-| `POWDER` | falls, slides diagonally, piles up; no sideways spread | sand, rubble | M5 |
+| `POWDER` | falls, slides diagonally, piles up; no sideways spread; sinks slowly in liquids | sand, loose soil, rubble | M5 |
 
 **Void** is vacuum: no mass, no heat capacity, no conduction. It is what a cell becomes when
 matter leaves it.
@@ -120,6 +120,23 @@ Why each part exists:
   tick), so a long stream spreads into droplets. That matches real streams falling many metres
   (Plateau–Rayleigh break-up), and the stream is coherent near its source. Deterministic gravity
   was tried and rejected: cells released together then fell as rigid horizontal lines.
+
+### Powders (M5)
+
+Sand, loose soil (dug dirt) and rubble (dug rock). A powder cell:
+
+1. **Falls** if the cell below is void or gas, accelerating like a falling liquid (fall speed in
+   `aux`), and moving up to `1 + speed/16` cells in one swap. It stops at the first liquid cell.
+2. **Sinks through liquid** (a lighter liquid below it) one cell with probability
+   `POWDER_SINK_P16` (about 0.15 m/s), without accelerating: grains settle slowly in water.
+3. **Landed:** slides diagonally down if that cell and the one beside it are free (void or a
+   lighter fluid) and it does not squeeze between two blocked cells. This piles powders at about
+   45 degrees (tested: no column more than one cell above its neighbour).
+4. Otherwise it is **at rest** and sleeps.
+
+Liquids and gases cannot enter powder (no porosity), and creatures stand on it. **Digging** (the
+Dig tool) loosens solids in place: dirt becomes loose soil, rock becomes rubble, keeping their
+temperature; they then fall. Iron and ice are not dug.
 
 ### Liquid pressure (M2b, gas pressure M4; D-018, D-025)
 

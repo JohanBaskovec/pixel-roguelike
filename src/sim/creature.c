@@ -51,9 +51,10 @@
 // scaled the same way.
 #define BODY_POWER_W 100.0f
 
+// Void, gas or liquid (pushed aside); solids and powders stop the body (it stands on sand).
 static inline bool body_can_enter(const World *w, int x, int y) {
-    ElementId e = world_elem(w, x, y);
-    return e != ELEM_OUT && g_elem_behavior[e] != BEHAVIOR_STATIC;
+    uint8_t b = g_elem_behavior[world_elem(w, x, y)];
+    return b == BEHAVIOR_NONE || b >= BEHAVIOR_LIQUID;
 }
 
 // Swaps two cells (matter and the body cell it trades places with), with temperatures and masses.

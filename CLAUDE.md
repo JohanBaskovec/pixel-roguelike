@@ -60,6 +60,7 @@ cmake --build build/release -j
 cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug -DPR_SANITIZE=ON   # ASan + UBSan (GCC/Clang)
 cmake --build build/debug -j
 ctest --test-dir build/debug --output-on-failure
+./build/debug/pr-tests creature   # only tests whose name contains "creature"
 ```
 
 ```bash

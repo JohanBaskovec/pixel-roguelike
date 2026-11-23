@@ -331,7 +331,9 @@ static World *scripted_world_threads(uint64_t seed, JobPool *pool) {
     world_set_job_pool(w, pool);
     for (int t = 0; t < 400; t++) {
         if (t % 20 == 0) {
-            ElementId e = (ElementId)(ELEM_WATER + (t / 20) % 4);
+            static const ElementId k_cycle[5] = {ELEM_WATER, ELEM_OXYGEN, ELEM_CO2, ELEM_HYDROGEN,
+                                                 ELEM_SAND};
+            ElementId e = k_cycle[(t / 20) % 5];
             Edit ed = {30 + t / 2, 20, 60 + t / 3, 40, 8, EDIT_CIRCLE, e, 0, EDIT_PAINT};
             sim_apply_edit(w, &ed);
         }

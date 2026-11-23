@@ -11,6 +11,7 @@ typedef enum EditMode {
     EDIT_PAINT = 0, // put `element` in the cells
     EDIT_HEAT = 1,  // add EDIT_HEAT_STEP_K to every non-void cell, each application
     EDIT_COOL = 2,  // remove EDIT_HEAT_STEP_K
+    EDIT_DIG = 3,   // loosen solids: dirt becomes loose soil, rock becomes rubble (they fall)
 } EditMode;
 
 // Paint element meaning "air": each cell becomes oxygen with probability AIR_O2_FRAC, else

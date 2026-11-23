@@ -1,5 +1,7 @@
 #include "test.h"
 
+#include <string.h>
+
 int g_test_failures = 0;
 const char *g_test_current = "";
 
@@ -47,6 +49,10 @@ void test_creature_breathes_at_real_rates(void);
 void test_creature_suffocates_in_sealed_room(void);
 void test_creature_body_heat(void);
 void test_creatures_same_for_any_thread_count(void);
+void test_sand_piles_up(void);
+void test_sand_sinks_in_water(void);
+void test_digging_makes_rubble(void);
+void test_creature_stands_on_sand(void);
 void test_heater_makes_plume(void);
 void test_pool_heated_from_below_convects(void);
 void test_moved_water_carries_heat(void);
@@ -56,15 +62,23 @@ void test_edit_stroke_has_no_gaps(void);
 void test_edit_only_void(void);
 void test_edit_erase(void);
 
+// Only tests whose name contains this (the first argument), or all.
+static const char *s_filter;
+
 #define RUN(fn)                                                                                    \
     do {                                                                                           \
+        if (s_filter && !strstr(#fn, s_filter)) {                                                  \
+            break;                                                                                 \
+        }                                                                                          \
         int before = g_test_failures;                                                              \
         g_test_current = #fn;                                                                      \
         fn();                                                                                      \
         printf("%s %s\n", g_test_failures == before ? "ok  " : "FAIL", #fn);                       \
     } while (0)
 
-int main(void) {
+// Usage: pr-tests [name-filter]
+int main(int argc, char **argv) {
+    s_filter = argc > 1 ? argv[1] : NULL;
     RUN(test_solids_never_move);
     RUN(test_water_falls_and_levels);
     RUN(test_water_sinks_through_gas);
@@ -110,6 +124,10 @@ int main(void) {
     RUN(test_creature_suffocates_in_sealed_room);
     RUN(test_creature_body_heat);
     RUN(test_creatures_same_for_any_thread_count);
+    RUN(test_sand_piles_up);
+    RUN(test_sand_sinks_in_water);
+    RUN(test_digging_makes_rubble);
+    RUN(test_creature_stands_on_sand);
     RUN(test_pool_heated_from_below_convects);
     RUN(test_moved_water_carries_heat);
     RUN(test_edit_single_pixel);

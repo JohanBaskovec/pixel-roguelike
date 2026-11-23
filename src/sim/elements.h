@@ -18,6 +18,9 @@ enum {
     ELEM_STEAM = 9,
     ELEM_NITROGEN = 10,
     ELEM_BODY = 11, // a creature's body (M4c): solid to matter, moved only by its creature
+    ELEM_SAND = 12,
+    ELEM_SOIL = 13,   // loose soil: dug dirt
+    ELEM_RUBBLE = 14, // dug rock
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.

@@ -891,6 +891,62 @@ static void update_gas(TickCtx *c, int x, int y) {
     }
 }
 
+// ---- Powders (M5): sand, loose soil, rubble. docs/SIMULATION.md -> Powders ----
+
+// In a liquid a powder sinks one cell with this probability (x/65536) per tick (about 0.15 m/s;
+// grains settle slowly in water) instead of falling freely.
+#define POWDER_SINK_P16 3000u
+
+// A powder falls (accelerating like a liquid in void or gas), sinks slowly through liquids,
+// slides diagonally down when blocked (which piles it at about 45 degrees), and sleeps at rest.
+static void update_powder(TickCtx *c, int x, int y) {
+    World *w = c->w;
+    Cell *cell = cell_ptr(w, x, y);
+    uint32_t d = g_elem_density_q[cell->element];
+    int speed = cell->aux & 0x7F;
+
+    if (can_displace(w, x, y + 1, d)) {
+        if (g_elem_behavior[world_elem(w, x, y + 1)] == BEHAVIOR_LIQUID) {
+            // Sinking through liquid: slowly, no acceleration.
+            cell->aux = 1;
+            if (rng_chance16(&c->rng, POWDER_SINK_P16)) {
+                swap_cells(c, x, y, x, y + 1);
+                cell_ptr(w, x, y + 1)->aux = 1;
+            } else {
+                keep_alive(c, x, y);
+            }
+            return;
+        }
+        if (speed < FALL_SPEED_MAX && rng_chance16(&c->rng, GRAVITY_INC_P16)) {
+            speed++;
+        }
+        int steps = 1 + (speed >> 4), target = y;
+        for (int ny = y + 1; ny <= y + MAX_MOVE && steps > 0; ny++) {
+            ElementId t = world_elem(w, x, ny);
+            if (!can_displace(w, x, ny, d) || g_elem_behavior[t] == BEHAVIOR_LIQUID) {
+                break; // stop at liquid: sink from there
+            }
+            target = ny;
+            steps--;
+        }
+        speed = PR_MAX(speed, 1);
+        swap_cells(c, x, y, x, target);
+        cell_ptr(w, x, target)->aux = (uint8_t)speed;
+        return;
+    }
+    cell->aux = 0; // landed
+    int first = rng_bit(&c->rng) ? 1 : -1;
+    for (int k = 0; k < 2; k++) {
+        int dx = k == 0 ? first : -first;
+        if (can_displace(w, x + dx, y + 1, d) && can_displace(w, x + dx, y, d) &&
+            diagonal_open(w, x, y, dx, 1)) {
+            swap_cells(c, x, y, x + dx, y + 1);
+            return;
+        }
+    }
+    // At rest: sleeps (no wake).
+}
+
 static void update_chunk(TickCtx *c) {
     World *w = c->w;
     DirtyRect r = world_chunk(w, c->cx, c->cy)->cur;
@@ -919,6 +975,9 @@ static void update_chunk(TickCtx *c) {
                     break;
                 case BEHAVIOR_GAS:
                     update_gas(c, x, y);
+                    break;
+                case BEHAVIOR_POWDER:
+                    update_powder(c, x, y);
                     break;
                 default:
                     break;

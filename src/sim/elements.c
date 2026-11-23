@@ -16,6 +16,9 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_STEAM]    = {"Steam",          BEHAVIOR_GAS,    0.59f,    2080.0f,  0.025f,  383.15f, 0xE6ECF2, 64,  30,  4},
     [ELEM_NITROGEN] = {"Nitrogen",       BEHAVIOR_GAS,    1.2506f,  1040.0f,  0.026f,  293.15f, 0x7C86A8, 40,  30,  3},
     [ELEM_BODY]     = {"Body",           BEHAVIOR_STATIC, 985.0f,   3500.0f,  0.5f,    310.15f, 0xD9A066, 255, 12,  0},
+    [ELEM_SAND]     = {"Sand",           BEHAVIOR_POWDER, 1600.0f,  830.0f,   0.25f,   293.15f, 0xC2B280, 255, 16,  0},
+    [ELEM_SOIL]     = {"Loose soil",     BEHAVIOR_POWDER, 1200.0f,  800.0f,   0.3f,    293.15f, 0x7E5A3A, 255, 20,  0},
+    [ELEM_RUBBLE]   = {"Rubble",         BEHAVIOR_POWDER, 1700.0f,  790.0f,   0.5f,    293.15f, 0x85858B, 255, 22,  0},
 };
 // clang-format on
 

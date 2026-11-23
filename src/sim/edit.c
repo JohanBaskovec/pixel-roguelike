@@ -89,6 +89,18 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             if (w->cells[i].element == ELEM_BODY && e->mode == EDIT_PAINT) {
                 continue; // creatures' bodies are moved only by their creature
             }
+            if (e->mode == EDIT_DIG) {
+                // Digging loosens the solid: same temperature, now a powder that falls.
+                ElementId el = w->cells[i].element;
+                ElementId to = el == ELEM_DIRT ? ELEM_SOIL : el == ELEM_ROCK ? ELEM_RUBBLE : el;
+                if (to != el) {
+                    w->cells[i].element = to;
+                    w->cells[i].aux = 0;
+                    w->cells[i].stamp = (uint8_t)(w->tick - 1);
+                    written++;
+                }
+                continue;
+            }
             if (e->mode != EDIT_PAINT) {
                 // Heat or cool. The stored temperature may go beyond a phase-change point (that
                 // is latent heat); the physical temperature is what is limited.
