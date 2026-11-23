@@ -3,9 +3,10 @@
 A 2D side-view game where every pixel is simulated: gases, liquids and solids, each with its own
 temperature, density and behaviour. It draws on *Oxygen Not Included* and *Noita*.
 
-**Status:** milestones M1 (sandbox box) and M2 (multithreading, big world, camera) are done. You
-can paint water, gases (oxygen, CO2, hydrogen) and solids (dirt, rock, iron, ice) into a
-4096 × 2048 box with dirt walls and watch them behave.
+**Status:** milestones M1 (sandbox box), M2 (multithreading, big world, camera) and M2b (water
+pressure) are done. You can paint water, gases (oxygen, CO2, hydrogen) and solids (dirt, rock,
+iron, ice) into a 4096 × 2048 box with dirt walls and watch them behave: water levels out, fills
+communicating vessels and pushes out through openings.
 See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Tech
@@ -62,6 +63,7 @@ ctest --test-dir build/release --output-on-failure
 | Middle mouse drag, `WASD` / arrows | Pan the view |
 | `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×) |
 | `Home` | Show the whole world |
+| `P` | Pressure view: water coloured by depth below its surface |
 | `1`–`9` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Dirt, Rock, Iron, Ice, Eraser |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
@@ -69,7 +71,8 @@ ctest --test-dir build/release --output-on-failure
 | `Esc` | Quit |
 
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells
-were updated, active chunks, zoom, and the element and temperature under the cursor.
+were updated, water moved by pressure, active chunks, zoom, and the element, temperature and
+(for water) depth and pressure under the cursor.
 
 ## Documentation
 

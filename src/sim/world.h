@@ -29,19 +29,23 @@ typedef struct Chunk {
     DirtyRect cur;  // cells to process in the running tick
     DirtyRect next; // cells woken for the following tick
     uint8_t render_dirty;
-    uint8_t pad[15]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
+    uint8_t head_dirty;      // relabel this chunk's still liquid for water pressure this tick
+    uint8_t head_dirty_next; // ... next tick
+    uint8_t pad[13]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
 } Chunk;
 
 typedef struct World {
     int32_t width, height; // cells; multiples of CHUNK_SIZE
     int32_t chunks_x, chunks_y;
-    Cell *cells; // width * height, row-major
-    float *temp; // Kelvin, per cell (heat flow arrives in M3, with a second buffer)
+    Cell *cells;    // width * height, row-major
+    float *temp;    // Kelvin, per cell (heat flow arrives in M3, with a second buffer)
+    uint8_t *piece; // water pressure: body piece id of still liquid within its chunk (pressure.h)
     Chunk *chunks;
     uint64_t seed;
     uint64_t tick;
-    JobPool *jobs;     // not owned; NULL runs everything on the calling thread
-    void *sim_scratch; // owned; per-phase job state, allocated by the first sim_tick
+    JobPool *jobs;                  // not owned; NULL runs everything on the calling thread
+    void *sim_scratch;              // owned; per-phase job state, allocated by the first sim_tick
+    struct PressureState *pressure; // owned; water-pressure bodies (pressure.c)
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.
@@ -56,6 +60,17 @@ void world_clear(World *w);
 static inline void world_set_job_pool(World *w, JobPool *pool) {
     w->jobs = pool;
 }
+
+// Still liquid: liquid that is not falling. Only still liquid carries pressure.
+static inline bool cell_is_still_liquid(Cell c) {
+    return g_elem_behavior[c.element] == BEHAVIOR_LIQUID && (c.aux & 0x7F) == 0;
+}
+
+static inline bool world_in_bounds(const World *w, int x, int y);
+
+// Is the still liquid `e` at (x, y) a free surface? True if what is above it could be pushed
+// aside: void, a lighter fluid, or the same liquid falling (a stream is not part of the pool).
+static inline bool liquid_surface_free(const World *w, int x, int y, ElementId e);
 
 static inline bool world_in_bounds(const World *w, int x, int y) {
     return (unsigned)x < (unsigned)w->width && (unsigned)y < (unsigned)w->height;
@@ -100,6 +115,21 @@ static inline void dirty_rect_add(DirtyRect *r, int x0, int y0, int x1, int y1) 
 // Wake every cell in the world-space rect (inclusive, clamped) for the next tick, and mark the
 // chunks it touches for re-render.
 void world_wake_rect(World *w, int x0, int y0, int x1, int y1);
+
+static inline bool liquid_surface_free(const World *w, int x, int y, ElementId e) {
+    if (y <= 0) {
+        return false;
+    }
+    Cell a = w->cells[world_index(w, x, y - 1)];
+    uint8_t b = g_elem_behavior[a.element];
+    if (b == BEHAVIOR_NONE) {
+        return true;
+    }
+    if (b >= BEHAVIOR_LIQUID && g_elem_density_q[a.element] < g_elem_density_q[e]) {
+        return true;
+    }
+    return a.element == e && !cell_is_still_liquid(a);
+}
 
 // Puts a fresh cell of `e` at (x, y), with spawn temperature and random shade. Does not wake.
 void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits);

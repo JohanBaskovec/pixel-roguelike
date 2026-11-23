@@ -151,6 +151,9 @@ to watch).
   real jam the cell lands. Pressured cells now look through any of their own liquid (not just
   falling cells) up to 32 cells for open space. Together these stop a stream poured beside a wall
   from stacking into a standing tower. Test: `test_pour_against_wall_makes_no_tower`.
+- **Superseded in part by D-018 (M2b):** pressured cells no longer flow on their own (water
+  pressure moves water to openings), and the surface wander is removed. The drop rule, looking
+  through its own liquid, and waiting behind falling streams remain.
 
 ## D-015 — Rotate the checkerboard phase order every tick
 
@@ -197,6 +200,15 @@ to watch).
   pass over active liquid. Pressure travels a bounded distance per tick, so very large bodies
   balance over seconds rather than instantly. The surface wander, and with it the shimmer, goes
   away.
+- **Amendment (implementation, M2b):** The head field was built and abandoned: values left over
+  from a dropped surface bounced between chunks and decayed slowly (a small propagation cost made
+  them linger for seconds, a large one made big pools imprecise). Implemented instead: still
+  liquid is labelled into connected bodies (flood fill per changed chunk, union-find across chunk
+  borders every tick); each body knows its top row; a still cell next to an opening at least one
+  row below its body's top requests a transfer, carried out serially after the phase by moving a
+  free-surface cell from the top to the opening. Exact, no stale values, any distance, cheaper.
+  One byte per cell (piece label) instead of a float. Details in `SIMULATION.md` → Liquid
+  pressure.
 
 ## D-019 — Parallel phases with per-job wake buffers
 

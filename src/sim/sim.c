@@ -13,8 +13,11 @@
 
 #include "core/jobs.h"
 #include "core/rng.h"
+#include "sim/pressure.h"
 
 #include <string.h>
+
+#define TICK_MAX_REQUESTS 128 // water-pressure requests per chunk per tick; more retry next tick
 
 // Per-job state. Also holds the job's results (wakes, stats) until they are merged.
 typedef struct TickCtx {
@@ -25,11 +28,14 @@ typedef struct TickCtx {
     int base_x, base_y; // its top-left cell
     DirtyRect wake[9];  // next-tick wakes for the 3x3 chunks around it (chunk-local coords)
     uint8_t render[9];  // ... and whether they need re-rendering
+    uint8_t liquid[9];  // ... and whether liquid moved there (recompute water pressure)
     SimStats stats;
+    int nreq; // water-pressure requests, carried out after the phase
+    PressureRequest req[TICK_MAX_REQUESTS];
 } TickCtx;
 
 // Mark a world-space rect, which must lie in the 3x3 chunks around the job's chunk.
-static void ctx_wake_slow(TickCtx *c, int x0, int y0, int x1, int y1, bool render) {
+static void ctx_wake_slow(TickCtx *c, int x0, int y0, int x1, int y1, bool render, bool liquid) {
     World *w = c->w;
     x0 = PR_MAX(x0, 0);
     y0 = PR_MAX(y0, 0);
@@ -45,25 +51,27 @@ static void ctx_wake_slow(TickCtx *c, int x0, int y0, int x1, int y1, bool rende
             dirty_rect_add(&c->wake[slot], PR_MAX(x0 - bx, 0), PR_MAX(y0 - by, 0),
                            PR_MIN(x1 - bx, CHUNK_SIZE - 1), PR_MIN(y1 - by, CHUNK_SIZE - 1));
             c->render[slot] |= (uint8_t)render;
+            c->liquid[slot] |= (uint8_t)liquid;
         }
     }
 }
 
-static inline void ctx_wake(TickCtx *c, int x0, int y0, int x1, int y1, bool render) {
+static inline void ctx_wake(TickCtx *c, int x0, int y0, int x1, int y1, bool render, bool liquid) {
     int lx0 = x0 - c->base_x, ly0 = y0 - c->base_y;
     int lx1 = x1 - c->base_x, ly1 = y1 - c->base_y;
     if (PR_LIKELY(lx0 >= 0 && ly0 >= 0 && lx1 < CHUNK_SIZE && ly1 < CHUNK_SIZE)) {
         dirty_rect_add(&c->wake[4], lx0, ly0, lx1, ly1);
         c->render[4] |= (uint8_t)render;
+        c->liquid[4] |= (uint8_t)liquid;
     } else {
-        ctx_wake_slow(c, x0, y0, x1, y1, render);
+        ctx_wake_slow(c, x0, y0, x1, y1, render, liquid);
     }
 }
 
 // The cell at (x, y) did not change but may move next tick (e.g. a probabilistic move failed):
 // keep only that cell awake, no re-render.
 static inline void keep_alive(TickCtx *c, int x, int y) {
-    ctx_wake(c, x, y, x, y, false);
+    ctx_wake(c, x, y, x, y, false, false);
 }
 
 #ifndef NDEBUG
@@ -83,8 +91,6 @@ static inline bool in_reach(const TickCtx *c, int x, int y) {
 // How far a liquid looks sideways for somewhere to fall. Must not exceed MAX_MOVE: rules may only
 // read and write within MAX_MOVE of the cell (threading invariant).
 #define LIQUID_LOOKAHEAD MAX_MOVE
-// Chance per tick (x/65536) that a level surface cell with open space beside it wanders one cell.
-#define P_LIQUID_WANDER_16 16384u
 
 static const int8_t k_dir8[8][2] = {
     {-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1},
@@ -115,8 +121,11 @@ static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     w->temp[i0] = w->temp[i1];
     w->temp[i1] = t;
     // Both cells changed: wake their 3x3 neighbourhoods (as one rect) and re-render.
+    // Still liquid moved (or started to fall): its body must be relabelled for water pressure.
+    // Falling liquid passing through does not change any body.
+    bool liquid = cell_is_still_liquid(a) || cell_is_still_liquid(b);
     ctx_wake(c, PR_MIN(x0, x1) - 1, PR_MIN(y0, y1) - 1, PR_MAX(x0, x1) + 1, PR_MAX(y0, y1) + 1,
-             true);
+             true, liquid);
     c->stats.cells_moved++;
 }
 
@@ -211,41 +220,73 @@ static void update_liquid(TickCtx *c, int x, int y) {
             keep_alive(c, x, y); // jammed behind falling liquid: wait, still falling
             return;
         }
+        // A falling cell always has a non-zero speed: only still liquid carries pressure, and a
+        // stream must not count as part of the pool it pours into.
+        speed = PR_MAX(speed, 1);
         swap_cells(c, x, y, x, target);
         cell_ptr(w, x, target)->aux = (uint8_t)((dir > 0 ? 0x80 : 0) | speed);
         return;
     }
 
     // Landing: fall speed turns into extra sideways spread this tick, and is reset, so a resting
-    // cell never counts as "in transit".
+    // cell never counts as "in transit". A landed cell joins a body of still water.
     int spread = g_elem_spread[cell->element] + (speed >> 4);
     spread = PR_MIN(spread, MAX_MOVE);
     cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
+    if (speed > 0) {
+        ctx_wake(c, x, y, x, y, false, true);
+    }
 
-    // A cell with liquid on top of it is under pressure: it is pushed out sideways into any open
-    // space (this is what makes a heap of water spread out instead of slumping like sand), and
-    // that takes precedence over sliding diagonally.
-    bool pressured = g_elem_behavior[world_elem(w, x, y - 1)] == BEHAVIOR_LIQUID;
+    // 2. Water pressure: if the body of still water this cell belongs to has its top surface at
+    //    least one row above an open cell above or beside this cell, ask for one cell of water
+    //    to be moved from that top surface to the open cell (carried out after the phase, see
+    //    pressure.c). This levels pools over any distance, balances U-tubes and makes deep water
+    //    push out of openings.
+    bool labelled = w->piece[world_index(w, x, y)] != 0;
+    int body_top = labelled ? pressure_body_top(w, x, y) : PRESSURE_NO_TOP;
+    if (body_top != PRESSURE_NO_TOP) {
+        const int q[3][2] = {{x, y - 1}, {x + dir, y}, {x - dir, y}};
+        for (int k = 0; k < 3; k++) {
+            int qx = q[k][0], qy = q[k][1];
+            if (body_top <= qy - 1 && can_displace(w, qx, qy, d)) {
+                if (c->nreq < TICK_MAX_REQUESTS) {
+                    c->req[c->nreq++] = (PressureRequest){x, y, qx, qy};
+                } else {
+                    keep_alive(c, x, y); // no room this tick: retry next tick
+                }
+                return;
+            }
+        }
+    }
 
-    // 2. Slide diagonally down (surface cells first; pressured cells after trying sideways).
-    if (!pressured && liquid_try_diagonal(c, x, y, d)) {
+    // A cell with still liquid on top of it is not at the surface: it does not flow on its own
+    // (water pressure moves water to where it is pushed). Falling water on top does not count.
+    bool pressured = !liquid_surface_free(w, x, y, cell->element) &&
+                     g_elem_behavior[world_elem(w, x, y - 1)] == BEHAVIOR_LIQUID;
+
+    // 3. Slide diagonally down.
+    if (liquid_try_diagonal(c, x, y, d)) {
+        return;
+    }
+    bool open_beside = can_displace(w, x - 1, y, d) || can_displace(w, x + 1, y, d);
+    if (pressured) {
+        // Not labelled yet (the cell just landed or moved) but open space beside: look again
+        // next tick, when its body is known.
+        if (!labelled && open_beside) {
+            keep_alive(c, x, y);
+        }
+        cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
         return;
     }
 
-    // 3. Flow sideways, current direction first, then the other. Both kinds of cell look
-    //    through their own liquid, up to LIQUID_LOOKAHEAD cells along the row.
-    //    Pressured cell (liquid on top of it): moves into open space. Through open space it moves
-    //    at most `spread` cells; past its own liquid it moves straight to the first open cell.
-    //    So water held up in a stack (poured against a wall, or behind a falling stream) drains
-    //    along its whole height, not only from its top; the gap it leaves bubbles up through the
-    //    stack, lowering it. Without this, a stream poured beside a wall built a standing tower.
-    //    Surface cell: flows only toward a drop (a cell it can fall into); without one it is
-    //    level. Looking through its own liquid lets the whole top row of a step flow down to the
-    //    next step, not just the step's edge cell (otherwise poured water piles into a stepped
-    //    mound). Past its own liquid it moves straight to the drop.
+    // 4. Surface cell: flow sideways toward a drop (a cell it can fall into) seen within
+    //    LIQUID_LOOKAHEAD, current direction first. It looks through its own liquid, so the whole
+    //    top row of a step flows down to the next step, not just the step's edge cell (otherwise
+    //    poured water piles into a stepped mound). Through open space it moves at most `spread`
+    //    cells; past its own liquid it moves straight to the drop. Without a drop in sight the
+    //    surface is level here; any larger difference further away is water pressure's job.
     for (int attempt = 0; attempt < 2; attempt++) {
         int land = 0;
-        bool drop = false;
         bool passed_own = false;
         for (int s = 1; s <= LIQUID_LOOKAHEAD; s++) {
             int nx = x + dir * s;
@@ -256,27 +297,12 @@ static void update_liquid(TickCtx *c, int x, int y) {
                 }
                 break;
             }
-            if (pressured) {
-                if (passed_own) {
-                    land = s;
-                    break;
-                }
-                if (s <= spread) {
-                    land = s;
-                }
-            }
             if (can_displace(w, nx, y + 1, d)) {
-                drop = true;
-                if (!pressured) {
-                    land = passed_own ? s : PR_MIN(s, spread);
-                }
-                break;
-            }
-            if (pressured && s >= spread) {
+                land = passed_own ? s : PR_MIN(s, spread);
                 break;
             }
         }
-        if (land > 0 && (drop || pressured)) {
+        if (land > 0) {
             int cx = x + dir * land;
             swap_cells(c, x, y, cx, y);
             cell_ptr(w, cx, y)->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
@@ -284,27 +310,10 @@ static void update_liquid(TickCtx *c, int x, int y) {
         }
         dir = -dir;
     }
-
-    if (pressured && liquid_try_diagonal(c, x, y, d)) {
-        return;
+    if (!labelled && open_beside) {
+        keep_alive(c, x, y);
     }
-
-    // 4. No drop in sight, but open space beside: the surface is level to within a step wider
-    //    than the lookahead. Wander one cell now and then so such steps still even out (a gentle
-    //    surface shimmer). Stay awake while that is possible.
-    int wdir = rng_bit(&c->rng) ? 1 : -1;
-    for (int k = 0; k < 2; k++, wdir = -wdir) {
-        if (can_displace(w, x + wdir, y, d)) {
-            if (rng_chance16(&c->rng, P_LIQUID_WANDER_16)) {
-                swap_cells(c, x, y, x + wdir, y);
-                cell_ptr(w, x + wdir, y)->aux = (uint8_t)(wdir > 0 ? 0x80 : 0);
-            } else {
-                keep_alive(c, x, y);
-            }
-            return;
-        }
-    }
-    // Enclosed: settle. No wake, so the cell sleeps.
+    // Settle. No wake, so the cell sleeps.
     cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
 }
 
@@ -447,7 +456,13 @@ void sim_tick(World *w, SimStats *stats) {
     for (int i = 0; i < n; i++) {
         w->chunks[i].cur = w->chunks[i].next;
         dirty_rect_clear(&w->chunks[i].next);
+        w->chunks[i].head_dirty = w->chunks[i].head_dirty_next;
+        w->chunks[i].head_dirty_next = 0;
     }
+
+    // Water pressure: relabel still liquid where it changed and rebuild the bodies. This may add
+    // whole chunks to this tick's dirty rects (where a body's top rose).
+    pressure_update(w);
 
     // 4-phase checkerboard. Chunks of one phase are two chunks apart, so their jobs (each
     // reaching MAX_MOVE = half a chunk beyond its chunk) never touch the same cells. The phase
@@ -493,10 +508,17 @@ void sim_tick(World *w, SimStats *stats) {
                     dirty_rect_add(&chunk->next, r->min_x, r->min_y, r->max_x, r->max_y);
                 }
                 chunk->render_dirty |= c->render[k];
+                chunk->head_dirty_next |= c->liquid[k];
             }
             total.cells_visited += c->stats.cells_visited;
             total.cells_moved += c->stats.cells_moved;
             total.chunks_active += c->stats.chunks_active;
+        }
+        // Water-pressure transfers asked for in this phase, serially, in job order.
+        for (int j = 0; j < jobs; j++) {
+            TickCtx *c = &scratch->ctx[j];
+            total.requests += (uint32_t)c->nreq;
+            total.transfers += (uint32_t)pressure_apply(w, c->req, c->nreq);
         }
     }
 
@@ -504,6 +526,14 @@ void sim_tick(World *w, SimStats *stats) {
     if (stats) {
         *stats = total;
     }
+}
+
+int sim_pressure_depth(const World *w, int x, int y) {
+    if (!world_in_bounds(w, x, y) || !w->piece[world_index(w, x, y)]) {
+        return -1;
+    }
+    int top = pressure_body_top(w, x, y);
+    return top == PRESSURE_NO_TOP ? -1 : PR_MAX(y - top, 0);
 }
 
 void sim_run_ticks(World *w, int n) {

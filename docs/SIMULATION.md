@@ -76,38 +76,37 @@ update_liquid(x, y):
     1. fall        if it can displace the cell below: fall, accelerating under gravity;
                    if the cell below is its own liquid, still falling, with open space further
                    down: wait in mid-air
-    pressured = (the cell above is a liquid)
-    2. diagonal    (surface cells only) slide down-left/down-right, random order
-    3. sideways    pressured: flow up to SPREAD cells into open space; or, looking through its
-                              own liquid (up to 32 cells), move straight to the first open cell
-                   surface:   flow only toward a drop (a cell it could fall into) seen within
-                              LIQUID_LOOKAHEAD (32) cells, looking through its own liquid;
-                              up to SPREAD cells through open space, or straight to the drop
-                              when it looked past its own liquid
+    (the cell is now still: it landed or was resting)
+    2. pressure    if the top surface of its body of still water is at least one row above an
+                   open cell above or beside it: request a transfer to that cell (see Liquid
+                   pressure) and stop
+    3. diagonal    slide down-left/down-right, random order
+    pressured = (the cell above is still liquid of the same kind)
+    4. sideways    (surface cells only) flow toward a drop (a cell it could fall into) seen within
+                   LIQUID_LOOKAHEAD (32) cells, looking through its own liquid; up to SPREAD cells
+                   through open space, or straight to the drop when it looked past its own liquid;
                    current flow direction first (aux bit 7), then the other
-    2b. diagonal   (pressured cells) as 2, if sideways failed
-    4. wander      no drop in sight but open space beside: move one cell with probability
-                   P_LIQUID_WANDER and stay awake; otherwise
-    5. settle      enclosed: do not wake. The cell sleeps
+    5. settle      do not wake: the cell sleeps (unless it is not yet part of a labelled body and
+                   has open space beside it: then look again next tick)
 ```
 
 Why each part exists:
 
 - **Fall speed.** `aux` bits 0–6 hold a fall speed in 1/16 px/tick. It grows by 1 with
   probability 0.87 per tick, which is ≈ 9.8 m/s² at 5 cm/px. The cell falls `1 + speed/16` cells
-  per tick, up to ~8 px/tick. On landing, the speed is added to the sideways spread for that tick
-  (a splash).
-- **Pressure.** A cell with liquid on top of it is pushed out sideways into any open space. That
-  makes a heap of water spread out instead of slumping like sand. Surface cells have no such push.
-- **Drop rule.** Surface cells flow only toward somewhere lower. Without this, the partial top row
-  of every pool would slide back and forth forever and never sleep. With it, a surface is level to
-  within one cell over the 32-cell lookahead.
+  per tick, up to ~8 px/tick. A falling cell always has a speed of at least 1, and the speed is
+  reset on landing, so "speed 0" means **still**. On landing, the speed is added to the sideways
+  spread for that tick (a splash).
+- **Still vs falling.** Only still liquid forms bodies and carries pressure. Falling water (a
+  stream pouring into a pool) is not part of the pool, and water on top of a still cell only
+  counts as "covering" it if it is still too.
+- **Pressure** does all the work of levelling and of pushing water out of openings: see below.
+  A pressured cell (still water on top of it) does not flow on its own.
+- **Drop rule.** Surface cells flow only toward somewhere lower, so a level surface with a
+  partial top row is still and sleeps.
 - **Looking through its own liquid.** Otherwise only the edge cell of each step on a slope could
   move (its neighbours block each other), and poured water piled into a stepped mound faster than
   it could flow away. With it, the whole top row of a step flows down at once.
-- **Wander.** Two level stretches wider than the lookahead can differ by one cell. Occasional
-  random steps along the surface even those out over time, at the cost of a gentle shimmer: the
-  surface row of a pool stays awake, while its interior sleeps.
 - **Waiting behind a falling stream.** Where the chunk below is scanned after this one, the
   leading cells of a falling stream have not moved yet when the cells behind them look down. If
   those cells "landed" on them, they would spread sideways, and the stream bulged below every
@@ -115,40 +114,60 @@ Why each part exists:
   `test_falling_stream_has_no_chunk_bulges`. They wait only if the falling column below them
   ends in open space. If it ends on something that does not move, it is a real jam, and they
   land as usual; otherwise a stream pouring into a pool would stack up into a tower.
-- **Pressured cells look through their own liquid.** Water stacked up where a stream lands
-  (especially against a wall) could otherwise only drain from the top of the stack, and the
-  stack grew into a standing tower. Now every pressured cell within 32 cells of open space can
-  move out; the gap it leaves bubbles up through the stack, lowering it. This also covers a
-  falling stream next to a pool, which used to block the pool's edge like a wall at chunk
-  borders. Test: `test_pour_against_wall_makes_no_tower`.
 - **Falling streams break into spray.** Each falling cell gains speed at random (87% chance per
   tick), so a long stream spreads into droplets. That matches real streams falling many metres
   (Plateau–Rayleigh break-up), and the stream is coherent near its source. Deterministic gravity
   was tried and rejected: cells released together then fell as rigid horizontal lines.
 
-**Known limitations (until M2b, water pressure):**
-- There is no true hydrostatic pressure, so a U-tube does not equalise.
-- A surface can keep a gentle slope of about one cell per 32 cells. Beyond the lookahead, only the
-  slow wander levels it.
+### Liquid pressure (M2b; D-018)
 
-### Liquid pressure (M2b, design notes; D-018)
+Code: `src/sim/pressure.c`.
 
-- Each liquid cell gets a **hydraulic head** `h`: the height its water "wants" to reach. In a
-  body at rest, `h` is the same everywhere: the height of the free surface.
-- **Relaxation pass**, over awake liquid only, reading within 32 cells:
-  - a free-surface cell (not liquid above) has `h` = its own height;
-  - an interior cell takes the average of its liquid neighbours' `h`;
-  - several sub-steps per tick, so information travels further than one cell per tick.
-  Jacobi-style double-buffering keeps the result independent of thread scheduling.
-- **Movement from head:**
-  - a surface cell with open space beside it, but no drop in sight, moves toward the side whose
-    head (sampled up to 32 cells away in the row below) is lower. This replaces the random wander,
-    and stops entirely when the difference is below a threshold, so settled pools sleep;
-  - a liquid cell with void or lighter fluid above it moves **up** when its head exceeds its own
-    height by more than one cell (U-tubes, fountains, dams that burst).
-- **To work out during implementation:** how holes left inside a body are refilled (from high
-  head, not by gravity alone); sleep thresholds that avoid flicker; how fast very large bodies
-  balance; sharing the buffer with the M4 gas mass.
+**Bodies.** Still liquid is grouped into connected bodies (4-connected, same element). Each body
+knows its **top**: the highest row holding one of its free-surface cells (a still cell with void,
+a lighter fluid or falling water above it). A body with no free surface (a sealed container) has
+no top and no pressure.
+
+**The rule.** A still cell P next to an open cell Q (void or lighter fluid; above P or beside it)
+asks for a transfer if its body's top is at least one row above Q. After the phase, transfers
+are carried out serially: a free-surface cell is taken from the body's top row (or, once that
+row is used up this tick, from the next rows down, as long as they are still above Q) and moved
+to Q. So:
+
+- water appears at the opening it is pushed toward, and the surface drops where the water really
+  came from, which is the physically right bookkeeping for an incompressible liquid;
+- pools level to within one cell over **any distance** (a one-cell step never qualifies, so a
+  surface with a partial top row is stable, and settled pools sleep completely);
+- U-tubes and communicating vessels balance; a reservoir drains through an opening in its wall
+  until both sides are level; a heap or a column of water spreads out.
+
+**How bodies are found, every tick, exactly:**
+1. Chunks where still liquid changed (a still cell moved or started to fall, a falling cell
+   landed, an edit, a transfer) are relabelled: a flood fill gives each connected piece within the
+   chunk an id (up to 255 per chunk; further pieces get no pressure until relabelled) and records
+   its highest free-surface row. In parallel, one job per chunk.
+2. A union-find over all pieces joins pieces that touch across chunk borders (a cheap pass over
+   chunk borders; a few thousand nodes). Each root records the body's top and the list of pieces
+   that reach it. This is serial and deterministic.
+3. Chunks whose body top rose get all their cells simulated this tick, since cells next to
+   openings may now be pushed.
+
+Nothing is carried over between ticks except the labels of unchanged chunks, so there are no
+stale values, and a change anywhere in a body is seen everywhere in it in the next tick.
+
+**Earlier design, abandoned.** The first implementation (notes in D-018) propagated a per-cell
+hydraulic-head field between neighbouring chunks. Values left over from a surface that had
+dropped bounced between chunks and decayed only slowly; a small propagation cost made them linger
+for many seconds, a large one made big pools imprecise. Labelling bodies exactly avoids the
+problem altogether, and is also cheaper (no gradient traces).
+
+**Known limitations:**
+- The flow rate through an opening is not physical: it is limited by how many cells request
+  transfers per tick (up to 128 per chunk), not proportional to the square root of the depth.
+- Different liquids do not push each other (only one liquid exists so far).
+- A sealed body has no pressure (closed pipes do not push).
+- Transfers move a cell from the top of the body to the opening in one step. Visually this reads
+  as the surface lowering and the water flowing out, but water does not travel through the body.
 
 ### Gases (M1 particle model)
 

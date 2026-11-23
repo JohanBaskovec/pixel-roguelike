@@ -91,6 +91,7 @@ add_library(pr_sim STATIC
   src/sim/elements.c
   src/sim/world.c
   src/sim/sim.c
+  src/sim/pressure.c
   src/sim/edit.c
   src/sim/scene.c
 )

@@ -202,6 +202,9 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 reset_world(app);
             } else if (k == SDLK_HOME) {
                 camera_fit(app);
+            } else if (k == SDLK_P) {
+                app->wr.pressure_view = !app->wr.pressure_view;
+                render_invalidate(app->world);
             } else if (k == SDLK_ESCAPE) {
                 app->running = false;
             }
@@ -333,6 +336,8 @@ static void draw_panel(App *app) {
     ui_text(ui, x, y, 0xE8E8E8, "Updated  %7llu",
             (unsigned long long)app->last_stats.cells_visited);
     y += 12.0f;
+    ui_text(ui, x, y, 0xE8E8E8, "Pressure %7u", app->last_stats.transfers);
+    y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Chunks   %4u/%d", app->last_stats.chunks_active,
             app->world->chunks_x * app->world->chunks_y);
     y += 12.0f;
@@ -362,6 +367,13 @@ static void draw_panel(App *app) {
         if (e != ELEM_VOID && e != ELEM_OUT) {
             float t = app->world->temp[world_index(app->world, wx, wy)];
             ui_text(ui, x, y, 0xE8E8E8, "%.1f C", (double)(t - 273.15f));
+            y += 12.0f;
+            int depth = sim_pressure_depth(app->world, wx, wy);
+            if (depth >= 0) {
+                // 1000 kg/m^3 * 9.81 m/s^2 * depth * 5 cm, in kPa above the surface's pressure.
+                ui_text(ui, x, y, 0xE8E8E8, "Depth %d (%.1f kPa)", depth,
+                        (double)depth * 0.05 * 9.81 * (double)g_elem_defs[e].density / 1000.0);
+            }
         }
     }
 
@@ -374,6 +386,7 @@ static void draw_panel(App *app) {
         "MMB drag, WASD  pan",
         "Ctrl+wheel  zoom",
         "Home  whole world",
+        "P  pressure view",
         "Space  pause  . step",
         "R  reset   Esc  quit",
     };
@@ -481,6 +494,9 @@ bool app_frame(App *app, double frame_dt) {
     SDL_RenderClear(app->renderer);
     SDL_Rect clip = {(int)app->view.x, (int)app->view.y, (int)app->view.w, (int)app->view.h};
     SDL_SetRenderClipRect(app->renderer, &clip);
+    if (app->wr.pressure_view) {
+        render_invalidate(app->world); // pressure can change anywhere in a body: redraw all
+    }
     draw_world(app);
     draw_brush_outline(app);
     SDL_SetRenderClipRect(app->renderer, NULL);

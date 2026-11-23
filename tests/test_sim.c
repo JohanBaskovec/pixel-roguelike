@@ -20,6 +20,8 @@ void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
 void test_pour_against_wall_makes_no_tower(void);
 void test_same_result_for_any_thread_count(void);
+void test_u_tube_balances(void);
+void test_water_flows_through_hole_until_level(void);
 
 void test_solids_never_move(void) {
     World *w = test_world_box(64, 64, 1);
@@ -185,15 +187,14 @@ void test_settled_world_sleeps(void) {
     EXPECT_EQ(s.chunks_active, 0);
     world_destroy(w);
 
-    // A poured pool (~16 rows deep) settles; only the rows at its surface may stay awake
-    // (shimmer of the partial top row, plus the neighbours it touches). The interior sleeps.
+    // A poured pool settles completely: no cell is updated any more (no surface shimmer).
     w = test_world_box(128, 128, 8);
     Edit e = {64, 40, 64, 40, 25, EDIT_CIRCLE, ELEM_WATER, 0};
-    int64_t n = sim_apply_edit(w, &e);
+    sim_apply_edit(w, &e);
     sim_run_ticks(w, 3000);
     sim_tick(w, &s);
-    EXPECT(s.cells_visited <= 3 * 126);
-    EXPECT(s.cells_visited < (uint64_t)n / 4);
+    EXPECT_EQ(s.cells_visited, 0);
+    EXPECT_EQ(s.chunks_active, 0);
     world_destroy(w);
 }
 
@@ -240,9 +241,18 @@ void test_poured_water_spreads(void) {
         max_h = PR_MAX(max_h, h);
     }
     int flat = (int)(test_count(w, ELEM_WATER) / 510);
-    EXPECT(covered >= 510 * 95 / 100);
-    // Allow the gentle slope left by the 32-cell lookahead (removed by water pressure, M2b).
-    EXPECT(max_h <= flat + 6);
+    int min_h = 1000;
+    for (int x = 1; x < 511; x++) {
+        int h = 0;
+        for (int y = 1; y < 191; y++) {
+            h += test_cell_is(w, x, y, ELEM_WATER);
+        }
+        min_h = PR_MIN(min_h, h);
+    }
+    EXPECT(covered == 510);
+    EXPECT(max_h <= flat + 1);
+    // Water pressure levels the whole basin to within one cell.
+    EXPECT(max_h - min_h <= 1);
     world_destroy(w);
 }
 
@@ -340,4 +350,57 @@ void test_same_result_for_any_thread_count(void) {
     world_destroy(c);
     jobs_destroy(pool4);
     jobs_destroy(pool3);
+}
+
+// Height of the water surface (top row containing water) in columns x0..x1 (+y is down).
+static int surface_y(const World *w, int x0, int x1) {
+    for (int y = 0; y < w->height; y++) {
+        for (int x = x0; x <= x1; x++) {
+            if (test_cell_is(w, x, y, ELEM_WATER)) {
+                return y;
+            }
+        }
+    }
+    return w->height;
+}
+
+static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
+    for (int y = y0; y <= y1; y++) {
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0};
+        sim_apply_edit(w, &ed);
+    }
+}
+
+void test_u_tube_balances(void) {
+    // Two arms joined at the bottom (a dirt divider with a gap under it). Water starts high on the
+    // left and low on the right; pressure must bring both surfaces level (within one cell).
+    World *w = test_world_box(256, 192, 13);
+    fill(w, 127, 1, 129, 160, ELEM_DIRT); // divider, open below y=160
+    fill(w, 1, 60, 126, 190, ELEM_WATER);
+    fill(w, 127, 161, 129, 190, ELEM_WATER);
+    fill(w, 130, 150, 254, 190, ELEM_WATER);
+    int left0 = surface_y(w, 1, 126), right0 = surface_y(w, 130, 254);
+    EXPECT(right0 - left0 > 80);
+    sim_run_ticks(w, 2500);
+    int left = surface_y(w, 1, 126), right = surface_y(w, 130, 254);
+    EXPECT(left > left0 + 30);
+    EXPECT(right < right0 - 30);
+    EXPECT(right - left <= 1 && left - right <= 1);
+    world_destroy(w);
+}
+
+void test_water_flows_through_hole_until_level(void) {
+    // A reservoir behind a wall with a small opening near the bottom: water must flow out through
+    // it into the empty side until both sides are level (within one cell).
+    World *w = test_world_box(256, 192, 14);
+    fill(w, 96, 1, 99, 190, ELEM_DIRT);   // wall
+    fill(w, 96, 176, 99, 183, ELEM_VOID); // 8-cell opening
+    fill(w, 1, 60, 95, 190, ELEM_WATER);
+    int64_t total = test_count(w, ELEM_WATER);
+    sim_run_ticks(w, 3000);
+    int left = surface_y(w, 1, 95), right = surface_y(w, 100, 254);
+    EXPECT(right < w->height); // water got through
+    EXPECT(right - left <= 1 && left - right <= 1);
+    EXPECT_EQ(test_count(w, ELEM_WATER), total);
+    world_destroy(w);
 }

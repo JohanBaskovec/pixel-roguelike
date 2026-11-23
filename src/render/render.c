@@ -1,6 +1,7 @@
 #include "render/render.h"
 
 #include "core/log.h"
+#include "sim/sim.h"
 
 static uint32_t channel(uint32_t c, int shift) {
     return (c >> shift) & 0xFF;
@@ -73,6 +74,32 @@ typedef struct ConvertJob {
     const World *w;
 } ConvertJob;
 
+static uint32_t mix(uint32_t a, uint32_t b, int t, int span) {
+    uint32_t out = 0xFF000000u;
+    for (int shift = 0; shift <= 16; shift += 8) {
+        int ca = (int)((a >> shift) & 0xFF), cb = (int)((b >> shift) & 0xFF);
+        out |= (uint32_t)(ca + (cb - ca) * t / span) << shift;
+    }
+    return out;
+}
+
+// Pressure view: still liquid coloured by depth below its body's top (light cyan at the surface,
+// blue, then purple and red deep down); everything else dimmed.
+static uint32_t pressure_color(const World *w, const WorldRenderer *r, int x, int y, Cell c) {
+    int depth = sim_pressure_depth(w, x, y);
+    if (depth >= 0) {
+        if (depth < 64) {
+            return mix(0x9FEFFF, 0x2850E0, depth, 64);
+        }
+        if (depth < 256) {
+            return mix(0x2850E0, 0x9030C0, depth - 64, 192);
+        }
+        return mix(0x9030C0, 0xF03050, PR_MIN(depth - 256, 512), 512);
+    }
+    uint32_t base = r->lut[c.element][c.shade];
+    return 0xFF000000u | ((base >> 2) & 0x3F3F3F);
+}
+
 static void convert_chunk(void *user, int index) {
     ConvertJob *job = user;
     WorldRenderer *r = job->r;
@@ -80,6 +107,15 @@ static void convert_chunk(void *user, int index) {
     int chunk = r->dirty_list[index];
     int x0 = (chunk % w->chunks_x) << CHUNK_SHIFT;
     int y0 = (chunk / w->chunks_x) << CHUNK_SHIFT;
+    if (r->pressure_view) {
+        for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
+            for (int i = 0; i < CHUNK_SIZE; i++) {
+                r->pixels[(size_t)y * r->width + x0 + i] =
+                    pressure_color(w, r, x0 + i, y, w->cells[world_index(w, x0 + i, y)]);
+            }
+        }
+        return;
+    }
     for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
         const Cell *src = &w->cells[world_index(w, x0, y)];
         uint32_t *dst = &r->pixels[(size_t)y * r->width + x0];

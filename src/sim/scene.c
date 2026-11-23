@@ -36,10 +36,18 @@ void scene_demo(World *w) {
     scene_empty_box(w, SCENE_WALL_THICKNESS);
     int W = w->width, H = w->height;
     Rng rng = rng_from_seed(w->seed ^ 0xDE30ull);
-    // A rock ledge and an iron bowl.
+    // A rock ledge.
     fill_rect(w, W / 8, H / 2, W / 2, H / 2 + 12, ELEM_ROCK, &rng);
-    fill_rect(w, W * 5 / 8, H * 3 / 4, W * 5 / 8 + 8, H - 17, ELEM_IRON, &rng);
-    fill_rect(w, W * 7 / 8 - 8, H * 3 / 4, W * 7 / 8, H - 17, ELEM_IRON, &rng);
+    // An iron U-tube standing on the floor: two arms joined by a channel at the bottom, water high
+    // in the left arm and low in the right. Water pressure brings them level.
+    int x0 = W * 5 / 8, x1 = x0 + W / 6, xm = (x0 + x1) / 2;
+    int y0 = H / 2, y1 = H - 17;
+    fill_rect(w, x0, y0, x1, y1, ELEM_IRON, &rng);
+    fill_rect(w, x0 + 8, y0, xm - 6, y1 - 8, ELEM_VOID, &rng);      // left arm
+    fill_rect(w, xm + 6, y0, x1 - 8, y1 - 8, ELEM_VOID, &rng);      // right arm
+    fill_rect(w, x0 + 8, y1 - 48, x1 - 8, y1 - 8, ELEM_VOID, &rng); // channel
+    fill_rect(w, x0 + 8, y0 + (y1 - y0) / 6, xm - 6, y1 - 8, ELEM_WATER, &rng);
+    fill_rect(w, xm - 6, y1 - 48, x1 - 8, y1 - 8, ELEM_WATER, &rng);
     // Water on the ledge, gases at mixed heights.
     blob(w, W / 4, H / 2 - 60, 50, ELEM_WATER);
     blob(w, W * 3 / 4, H / 4, 60, ELEM_CO2);

@@ -70,7 +70,8 @@ All are clamped to `MAX_MOVE` = 32.
 | `GRAVITY_INC_P16` | 0.87 | `sim/sim.c` | Chance per tick a falling liquid gains 1/16 px/tick of speed (≈ 9.8 m/s² at 5 cm/px) |
 | `FALL_SPEED_MAX` | 127/16 px/tick | `sim/sim.c` | Terminal fall speed, about 8 px/tick (24 m/s) |
 | `LIQUID_LOOKAHEAD` | 32 | `sim/sim.c` | How far a surface liquid cell looks sideways for a drop (= `MAX_MOVE`) |
-| `P_LIQUID_WANDER` | 1/4 | `sim/sim.c` | Chance a level surface cell with open space beside it steps sideways |
+| `TICK_MAX_REQUESTS` | 128 | `sim/sim.c` | Water-pressure transfer requests per chunk per tick |
+| `SOURCE_ROWS` | 8 | `sim/pressure.c` | Rows below a body's top a transfer may take water from once the top row is used up |
 | `HEAT_TIME_SCALE` | TBD in M3 | | Global speed-up of conduction (see SIMULATION.md) |
 | `HEAT_EPSILON_K` | TBD in M3 | | Temperature difference below which a chunk may sleep thermally |
 
@@ -81,9 +82,9 @@ Keep this list complete.
 1. Gases are tinted so they are visible.
 2. Heat conduction is uniformly sped up by `HEAT_TIME_SCALE` (M3).
 3. M1–M3 gas is one particle per pixel at fixed density, with no pressure, until M4.
-4. Liquids are incompressible and have no hydrostatic pressure (communicating vessels do not
-   equalise), until M2b. A pool's surface row shimmers slightly, and very wide pools keep a
-   gentle slope (about one cell per 32), also until M2b.
+4. Liquids are incompressible. Pressure moves water from the top of a body straight to the
+   opening it is pushed toward, and the flow rate through an opening is not proportional to the
+   square root of the depth (see SIMULATION.md → Liquid pressure).
 5. No heat radiation: vacuum is a perfect insulator (D-017).
 
 ## Adding an element (checklist)

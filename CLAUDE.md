@@ -26,11 +26,12 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 ## Current status
 
-**M1 – Sandbox box** and **M2 – Performance foundation** are implemented: a 4096 × 2048 dirt box
-filled with void, a toolbar to paint water, oxygen, CO2, hydrogen, dirt, rock, iron and ice (or
-erase), a multithreaded chunked simulation, a camera (pan/zoom), tests and a benchmark. The next
-milestone is **M2b – Water pressure**. See `docs/ROADMAP.md`, including the acceptance notes on
-what is still unverified (desktop performance).
+**M1 – Sandbox box**, **M2 – Performance foundation** and **M2b – Water pressure** are
+implemented: a 4096 × 2048 dirt box filled with void, a toolbar to paint water, oxygen, CO2,
+hydrogen, dirt, rock, iron and ice (or erase), a multithreaded chunked simulation, water pressure
+(levelling, communicating vessels), a camera (pan/zoom), tests and a benchmark. The next
+milestone is **M3 – Temperature**. See `docs/ROADMAP.md`, including the acceptance notes on what
+is still unverified (desktop performance).
 
 ## Stack
 
@@ -116,8 +117,8 @@ Details: `docs/ARCHITECTURE.md`.
 src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h, jobs (thread
               pool). SDL threads/atomics allowed
 src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
-              sim (movement rules, tick), edit (brush strokes, edit queue), scene (box, demo,
-              bench). HEADLESS: no SDL video/render/events
+              sim (movement rules, tick), pressure (water bodies, transfers), edit (brush
+              strokes, edit queue), scene (box, demo, bench). HEADLESS: no SDL video/render/events
 src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)
 src/ui/       immediate-mode widgets (button, panel, text)
 src/game/     app: input, toolbar, brush strokes, camera, HUD, fixed-timestep frame

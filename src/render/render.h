@@ -13,6 +13,7 @@ typedef struct WorldRenderer {
     uint32_t lut[ELEM_COUNT][256]; // final colour per (element, shade)
     uint32_t chunks_uploaded;      // last frame, for the HUD
     bool smooth;                   // current texture scale mode
+    bool pressure_view;            // colour still liquid by water pressure (depth below its top)
 } WorldRenderer;
 
 bool render_init(WorldRenderer *r, SDL_Renderer *sdl, World *w);

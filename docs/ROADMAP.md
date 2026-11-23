@@ -112,20 +112,25 @@ yet verified on a desktop**. On the 4-vCPU, 2.1 GHz development VM, 2.3 M active
 roughly 2–3× faster and a 6–8-core desktop has twice the threads, which should bring this to
 about 10 ms/tick. Check with `pr-bench --width 4096 --height 2048 --fill 0.7`.
 
-## M2b – Water pressure (D-018)
+## M2b – Water pressure (D-018) ✅
 
-Done after M2, because the pressure pass must follow M2's threading rules.
+- [x] Still liquid grouped into connected bodies, each with its top surface row: labelled per
+      changed chunk (in parallel), joined across chunk borders by a union-find every tick. (The
+      planned head field was built first and replaced; see D-018 amendment)
+- [x] Water moves from a body's top to any opening at least one row below it (above or beside a
+      still cell): pools level over any distance, U-tubes balance, reservoirs drain through
+      openings, heaps spread. The random surface wander is gone
+- [x] Settled pools sleep completely: no surface shimmer
+- [x] Pressure view (`P`) and depth / kPa in the cursor inspector; HUD shows transfers per tick
+- [x] Tests: `test_u_tube_balances` (within one cell), `test_poured_water_spreads` (whole basin
+      level within one cell), `test_water_flows_through_hole_until_level`,
+      `test_settled_world_sleeps` (a poured pool updates zero cells once settled)
+- [x] Benchmark before/after recorded (no measurable change)
+- [x] Demo scene (`--demo`) includes an iron U-tube
 
-- [ ] Per-cell pressure (hydraulic head) field for liquids, updated by a local relaxation pass
-      (reads within 32 cells), only over awake liquid
-- [ ] Liquid moves toward lower head: sideways on level-looking surfaces (replaces the random
-      wander), and upward when the head exceeds the cell's height (communicating vessels)
-- [ ] Settled pools sleep completely: no surface shimmer
-- [ ] Pressure overlay view (`P`)
-- [ ] Tests: a U-tube balances to within one cell; a poured pool ends level to within one cell
-      across the whole basin (no 32-cell slope); a dam holds a taller column than a puddle;
-      settled pools sleep
-- [ ] Benchmark before/after recorded
+Not done (see SIMULATION.md → Liquid pressure → Known limitations): flow rate through openings
+proportional to √depth ("a dam pushes harder"); pressure in sealed bodies; pressure between
+different liquids.
 
 ## M3 – Temperature
 

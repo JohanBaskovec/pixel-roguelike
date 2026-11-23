@@ -92,8 +92,10 @@ typedef struct World {
     Chunk    *chunks;
     uint64_t  seed;
     uint64_t  tick;
+    uint8_t  *piece;                 // water pressure: piece id of still liquid within its chunk
     JobPool  *jobs;                  // not owned; NULL runs single-threaded
     void     *sim_scratch;           // owned; per-phase job contexts
+    struct PressureState *pressure;  // owned; water-pressure pieces, union-find, body tops
 } World;                             // M4 adds float *mass (kg per cell) for gases
 ```
 
@@ -128,8 +130,11 @@ any cell's element indexes them without a bounds check. Unknown IDs, and the pse
 sim_tick(world):
     stamp = tick & 0xFF
     every chunk: cur <- next, next <- empty        (wakes from edits and the last tick)
+    water pressure: relabel chunks whose still liquid changed (parallel), rebuild bodies with a
+        union-find (serial); chunks whose body top rose are added to this tick's rects
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
-        the first phase rotates with the tick; the chunks of a phase run in parallel
+        the first phase rotates with the tick; the chunks of a phase run in parallel;
+        after each phase, the phase's water-pressure transfer requests are applied (serial)
     heat pass over heat-active chunks              (M3)
     phase changes                                  (M3; part of the heat pass)
     tick++
@@ -263,5 +268,7 @@ beyond toolbars and HUDs (`DECISIONS.md` D-009).
 ## Memory
 
 All large buffers are allocated once at world creation with 64-byte alignment
-(`SDL_aligned_alloc`). Nothing is allocated per tick. Example budget at 4096 × 2048 (8.4 M
-cells): cells 32 MB + temperature 2 × 32 MB + mass 32 MB ≈ 128 MB.
+(`SDL_aligned_alloc`). Nothing is allocated per tick. Budget at 4096 × 2048 (8.4 M cells) today:
+cells 32 MB + temperature 32 MB + piece labels 8 MB + water-pressure tables ≈ 14 MB, plus the
+renderer's 32 MB staging buffer and 32 MB texture. M3 adds a second temperature buffer, M4 a
+mass buffer (32 MB each).
