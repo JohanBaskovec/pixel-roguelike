@@ -182,7 +182,8 @@ to Q. So:
   oil's weight (a manometer: 60 cells of oil, 52 cells lower; tested);
 - gas pushes on liquids: a sealed tank with pressurised gas drives water up a pipe until the
   column weighs as much as the gas pressure; air at 1 atm holds water about 207 cells up a tube
-  sealed at the top (a barometer); water flowing into a sealed room of air compresses the air
+  sealed at the top (a barometer; tested at half an atmosphere, 103 cells, to keep the test
+  world small); water flowing into a sealed room of air compresses the air
   until its pressure balances the water (all tested).
 
 **Jets (Torricelli, M4b).** A transfer through an opening **beside** P, where P is covered
@@ -499,10 +500,11 @@ list order, at the start of each tick (before heat and movement).
   smoothed over breaths): O2 below 16 kPa → impaired (slower); O2 below 10 kPa, CO2 above 5 kPa,
   or a breath that found less than half its oxygen → in danger, losing health (dead after 120 s);
   otherwise recovering (600 s to full). Tested: in a sealed 6.3 × 3.1 m room (one cell deep:
-  1 m³ of air), one person at rest reaches danger after about 3.5 hours of game time, from CO2
-  (5 kPa), within 25% of the 4 hours its CO2 output predicts for evenly mixed air (oxygen would
-  last 7.2 hours). Breathed-out CO2 stays mixed in the air (D-030); it is a little more
-  concentrated near the face.
+  1 m³ of air), one person at rest reaches danger after about 4 hours of game time, from CO2
+  (5 kPa), within 5% of what its CO2 output predicts for evenly mixed air (oxygen would last
+  7 hours; the test runs breathing 200× faster, with stirring in proportion). Breathed-out CO2
+  stays mixed in the air (D-030). In a smaller room (3.1 × 3.1 m) the warm breath collects near
+  the head, and danger comes about 30% before the room's average CO2 reaches 5 kPa.
 - **Body heat:** held at 37 °C, giving up to 100 W (×3 walking), scaled by the gas conduction
   speed-up like the heat the body loses (`HEAT_TIME_SCALE_GAS`). Tested: in cold air the body
   stays at 37 °C and warms the air around it.

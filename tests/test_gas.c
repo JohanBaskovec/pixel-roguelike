@@ -241,7 +241,7 @@ void test_gas_mixture_stays_mixed(void) {
     // the same everywhere), so it does not unmix, and it goes to sleep.
     World *w = co2_room(48, co2_half);
     double y0 = test_mean_y(w, ELEM_CO2);
-    sim_run_ticks(w, 3000);
+    sim_run_ticks(w, 1500);
     EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 3.0);
     SimStats st;
     sim_tick(w, &st);
@@ -276,7 +276,7 @@ void test_dilute_co2_stays_in_air(void) {
     // onto the floor cell by cell.
     World *w = co2_room(50, co2_dilute);
     double y0 = test_mean_y(w, ELEM_CO2);
-    sim_run_ticks(w, 3000);
+    sim_run_ticks(w, 1500);
     EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 3.0);
     world_destroy(w);
 }
@@ -377,23 +377,23 @@ void test_pressurised_tank_drives_water_up_a_pipe(void) {
 
 void test_air_holds_water_up_a_vacuum_tube(void) {
     // A barometer: a tube sealed at the top, empty, its open bottom under the surface of a pool in
-    // a room of air at 1 atm. Air pushes water up the tube until the column weighs as much as the
-    // air's pressure: about 207 cells (10.3 m) above the pool at 1 atm (the air expands a little
-    // into the room the pool's water left).
-    World *w = test_world_box(128, 320, 49);
-    fill(w, 1, 1, 126, 318, ELEM_DIRT);
-    fill(w, 1, 150, 126, 318, ELEM_VOID);  // room
-    fill(w, 1, 290, 126, 318, ELEM_WATER); // pool
-    fill(w, 60, 20, 64, 305, ELEM_DIRT);   // tube walls, down into the pool
-    fill(w, 61, 21, 63, 305, ELEM_VOID);   // tube interior: vacuum (water at the bottom below)
-    fill(w, 61, 290, 63, 305, ELEM_WATER);
-    fill_air(w, 1, 150, 59, 289, 1.0f);
-    fill_air(w, 65, 150, 126, 289, 1.0f);
-    sim_run_ticks(w, 2400);
-    int pool = water_top(w, 20, 150, 318), tube = water_top(w, 62, 21, 318);
-    double head = water_head_cells(mean_pressure(w, 1, 150, 59, 289));
+    // a room of air at half an atmosphere. Air pushes water up the tube until the column weighs as
+    // much as the air's pressure: about 103 cells (5.2 m) above the pool (a little less, as the
+    // air expands into the room the pool's water left). (At 1 atm, 10.3 m: twice the world.)
+    World *w = test_world_box(128, 192, 49);
+    fill(w, 1, 1, 126, 190, ELEM_DIRT);
+    fill(w, 1, 80, 126, 190, ELEM_VOID);   // room
+    fill(w, 1, 162, 126, 190, ELEM_WATER); // pool
+    fill(w, 60, 10, 64, 180, ELEM_DIRT);   // tube walls, down into the pool
+    fill(w, 61, 11, 63, 180, ELEM_VOID);   // tube interior: vacuum (water at the bottom below)
+    fill(w, 61, 162, 63, 180, ELEM_WATER);
+    fill_air(w, 1, 80, 59, 161, 0.5f);
+    fill_air(w, 65, 80, 126, 161, 0.5f);
+    sim_run_ticks(w, 1000);
+    int pool = water_top(w, 20, 80, 190), tube = water_top(w, 62, 11, 190);
+    double head = water_head_cells(mean_pressure(w, 1, 80, 59, 161));
     EXPECT(pool > 0 && tube > 0);
-    EXPECT(head > 190.0 && head < 210.0); // 1 atm, a little less as the air expands
+    EXPECT(head > 95.0 && head < 105.0); // 0.5 atm, a little less as the air expands
     EXPECT(fabs((pool - tube) - head) < 4.0);
     world_destroy(w);
 }

@@ -112,11 +112,11 @@ static World *air_room(int width, int height, uint64_t seed) {
 void test_creature_breathes_at_real_rates(void) {
     // At rest: 250 mL/min of O2 used and 200 mL/min of CO2 made (0.333 and 0.368 g/min), taken
     // from and put into the air. Breathing sped up 10x here.
-    World *w = air_room(128, 128, 75);
-    int id = creature_spawn(w, 60, 91);
+    World *w = air_room(128, 64, 75);
+    int id = creature_spawn(w, 60, 27);
     w->creatures[id].metabolism_scale = 10.0f;
     double o2_0 = test_mass(w, ELEM_OXYGEN), co2_0 = test_mass(w, ELEM_CO2);
-    int ticks = 257 * 10; // 10 breaths
+    int ticks = 257 * 5; // 5 breaths
     sim_run_ticks(w, ticks);
     Creature *c = &w->creatures[id];
     double minutes = ticks / 3600.0 * 10.0;
@@ -133,23 +133,30 @@ void test_creature_suffocates_in_sealed_room(void) {
     // A sealed room of air (126 x 62 cells, 6.3 x 3.1 m, one cell deep) with one person at rest.
     // Breathed-out CO2 stays mixed in the air, so (as in real sealed rooms) it is the CO2 that
     // reaches the danger level (5 kPa) first: with 0.368 g/min, about 4 hours of game time for this
-    // much air, while oxygen would take 7.2 hours to fall from 21 to 10 kPa. Sped up 100x here
+    // much air, while oxygen would take 7 hours to fall from 21 to 10 kPa. Sped up 200x here
     // (breathing stirs the room in proportion); the person reaches danger within 25% of the
-    // earlier of the two, and then loses health.
+    // earlier of the two, and then loses health. (In a smaller room the breath, warm, collects
+    // near the head, and the person is in danger well before the room's average says so.)
     World *w = air_room(128, 64, 76);
     int id = creature_spawn(w, 60, 27);
-    w->creatures[id].metabolism_scale = 100.0f;
-    double o2 = test_mass(w, ELEM_OXYGEN);
-    double need = o2 * (1.0 - 10100.0 / (21.0 * 1013.25));         // kg of O2 to use before danger
-    double co2 = o2 * (5070.0 / (21.0 * 1013.25)) * (44.0 / 32.0); // kg of CO2 at 5 kPa
-    double expect = PR_MIN(need / (0.333e-3 / 60.0), co2 / (0.368e-3 / 60.0)) / 100.0 * 60.0;
+    w->creatures[id].metabolism_scale = 200.0f;
+    // Masses from the room's air volume (ideal gas at 20 degC): O2 to use before its partial
+    // pressure falls to 10 kPa, and CO2 that makes 5 kPa.
+    int64_t gas_cells = 0;
+    for (int i = 0; i < w->width * w->height; i++) {
+        gas_cells += g_elem_behavior[w->cells[i].element] == BEHAVIOR_GAS;
+    }
+    double v = (double)gas_cells * (double)CELL_VOLUME_M3, rt = (double)GAS_R * 293.15;
+    double need = test_mass(w, ELEM_OXYGEN) - 10100.0 * v * 0.031999 / rt;
+    double co2 = 5070.0 * v * 0.04401 / rt;
+    double expect = PR_MIN(need / (0.333e-3 / 60.0), co2 / (0.368e-3 / 60.0)) / 200.0 * 60.0;
     int danger_at = -1;
     for (int t = 0; t < (int)(expect * 2.0); t++) {
         sim_tick(w, NULL);
         if (w->creatures[id].state == CREATURE_DANGER && danger_at < 0) {
             danger_at = t;
         }
-        if (danger_at >= 0 && t > danger_at + 600) {
+        if (danger_at >= 0 && t > danger_at + 300) {
             break;
         }
     }
@@ -161,20 +168,20 @@ void test_creature_suffocates_in_sealed_room(void) {
 
 void test_creature_body_heat(void) {
     // In a sealed room of cold air (0 degC), the body stays near 37 degC and warms the air near it.
-    World *w = air_room(128, 128, 77);
+    World *w = air_room(128, 64, 77);
     for (int i = 0; i < w->width * w->height; i++) {
         if (g_elem_behavior[w->cells[i].element] == BEHAVIOR_GAS) {
             w->temp[i] = 273.15f;
         }
     }
-    world_wake_heat(w, 0, 0, 127, 127);
-    int id = creature_spawn(w, 60, 91);
+    world_wake_heat(w, 0, 0, 127, 63);
+    int id = creature_spawn(w, 60, 27);
     w->creatures[id].metabolism_scale = 0.0f;
     sim_run_ticks(w, 1800);
     Creature *c = &w->creatures[id];
     double body = 0.0, near = 0.0, far = 0.0;
     int nn = 0, nf = 0;
-    for (int y = 1; y < 127; y++) {
+    for (int y = 1; y < 63; y++) {
         for (int x = 1; x < 127; x++) {
             size_t i = world_index(w, x, y);
             ElementId e = w->cells[i].element;
@@ -209,7 +216,7 @@ static World *creature_world(JobPool *pool) {
         w->creatures[id].wander = 1;
         w->creatures[id].metabolism_scale = 20.0f;
     }
-    sim_run_ticks(w, 600);
+    sim_run_ticks(w, 300);
     return w;
 }
 
@@ -228,11 +235,11 @@ void test_creatures_same_for_any_thread_count(void) {
 
 // ---- Gas currents: moving matter stirs the air ----
 
-// A sealed room of horizontal stripes of oxygen and nitrogen, 8 cells thick.
-static World *striped_room(uint64_t seed) {
-    World *w = test_world_box(256, 128, seed);
-    for (int y = 1; y <= 126; y++) {
-        fill(w, 1, y, 254, y, ((y / 8) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN);
+// A sealed room (192 x h world) of horizontal stripes of oxygen and nitrogen, 8 cells thick.
+static World *striped_room(uint64_t seed, int h) {
+    World *w = test_world_box(192, h, seed);
+    for (int y = 1; y <= h - 2; y++) {
+        fill(w, 1, y, 190, y, ((y / 8) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN);
     }
     return w;
 }
@@ -255,22 +262,22 @@ void test_walking_stirs_air(void) {
     // mixed much more than in the same room with nobody walking (stripes also mix a little at
     // their edges on their own). Gas mass is conserved, and once it stops, the air calms down
     // about as much as the undisturbed room.
-    World *w = striped_room(79), *still = striped_room(79);
-    int id = creature_spawn(w, 10, 91);
-    int id2 = creature_spawn(still, 10, 91);
+    World *w = striped_room(79, 64), *still = striped_room(79, 64);
+    int id = creature_spawn(w, 10, 27);
+    int id2 = creature_spawn(still, 10, 27);
     w->creatures[id].metabolism_scale = still->creatures[id2].metabolism_scale = 0.0f;
     double o2 = test_mass(w, ELEM_OXYGEN), n2 = test_mass(w, ELEM_NITROGEN);
     w->creatures[id].walk = 1;
     sim_run_ticks(w, 240); // about 110 cells
     sim_run_ticks(still, 240);
     w->creatures[id].walk = 0;
-    int64_t path = out_of_stripe(w, 20, 80, 120, 126);
-    int64_t calm = out_of_stripe(still, 20, 80, 120, 126);
+    int64_t path = out_of_stripe(w, 20, 20, 120, 62);
+    int64_t calm = out_of_stripe(still, 20, 20, 120, 62);
     EXPECT(path > calm * 3 / 2);
     EXPECT(fabs(test_mass(w, ELEM_OXYGEN) - o2) < 1e-4 * o2);
     EXPECT(fabs(test_mass(w, ELEM_NITROGEN) - n2) < 1e-4 * n2);
-    sim_run_ticks(w, 900);
-    sim_run_ticks(still, 900);
+    sim_run_ticks(w, 600);
+    sim_run_ticks(still, 600);
     SimStats st, st2;
     sim_tick(w, &st);
     sim_tick(still, &st2);
@@ -282,7 +289,7 @@ void test_walking_stirs_air(void) {
 void test_falling_sand_stirs_air(void) {
     // Sand falling through the striped room churns the column it falls through, compared with the
     // same room without sand. Gas mass is conserved.
-    World *w = striped_room(80), *still = striped_room(80);
+    World *w = striped_room(80, 128), *still = striped_room(80, 128);
     fill(w, 120, 2, 135, 20, ELEM_SAND);
     fill(still, 120, 2, 135, 20, ELEM_ROCK); // the same cells taken, but nothing falls
     double o2 = test_mass(w, ELEM_OXYGEN);

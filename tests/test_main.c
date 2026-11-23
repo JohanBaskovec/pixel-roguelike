@@ -1,5 +1,7 @@
 #include "test.h"
 
+#include "core/common.h"
+
 #include <string.h>
 
 int g_test_failures = 0;
@@ -83,23 +85,30 @@ void test_edit_stroke_has_no_gaps(void);
 void test_edit_only_void(void);
 void test_edit_erase(void);
 
-// Only tests whose name contains this (the first argument), or all.
+// Only tests whose name contains this (the first argument), or all; with --exact, only the test
+// of exactly that name (how CTest runs each test on its own, in parallel).
 static const char *s_filter;
+static bool s_exact;
+static int s_ran;
 
 #define RUN(fn)                                                                                    \
     do {                                                                                           \
-        if (s_filter && !strstr(#fn, s_filter)) {                                                  \
+        if (s_filter && (s_exact ? strcmp(#fn, s_filter) != 0 : !strstr(#fn, s_filter))) {         \
             break;                                                                                 \
         }                                                                                          \
         int before = g_test_failures;                                                              \
         g_test_current = #fn;                                                                      \
+        double t0 = pr_time_seconds();                                                             \
         fn();                                                                                      \
-        printf("%s %s\n", g_test_failures == before ? "ok  " : "FAIL", #fn);                       \
+        printf("%s %-48s %6.2f s\n", g_test_failures == before ? "ok  " : "FAIL", #fn,             \
+               pr_time_seconds() - t0);                                                            \
+        s_ran++;                                                                                   \
     } while (0)
 
-// Usage: pr-tests [name-filter]
+// Usage: pr-tests [name-filter] | pr-tests --exact name
 int main(int argc, char **argv) {
-    s_filter = argc > 1 ? argv[1] : NULL;
+    s_exact = argc > 2 && strcmp(argv[1], "--exact") == 0;
+    s_filter = s_exact ? argv[2] : argc > 1 ? argv[1] : NULL;
     RUN(test_solids_never_move);
     RUN(test_water_falls_and_levels);
     RUN(test_water_sinks_through_gas);
@@ -177,6 +186,10 @@ int main(int argc, char **argv) {
     RUN(test_edit_stroke_has_no_gaps);
     RUN(test_edit_only_void);
     RUN(test_edit_erase);
+    if (s_exact && s_ran == 0) {
+        printf("No test named %s\n", s_filter);
+        return 1;
+    }
     if (g_test_failures) {
         printf("\n%d check(s) failed\n", g_test_failures);
         return 1;

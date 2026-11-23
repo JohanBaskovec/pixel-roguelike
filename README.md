@@ -45,8 +45,8 @@ Options: `--width N --height N` (world size, rounded up to multiples of 64; defa
 Tests and benchmark:
 
 ```bash
-ctest --test-dir build/release --output-on-failure
-./build/release/pr-tests sand   # only the tests whose name contains "sand"
+ctest --test-dir build/release -j4 --output-on-failure   # each test on its own, 4 at a time
+./build/release/pr-tests sand   # only the tests whose name contains "sand" (with timings)
 ```
 
 ```bash

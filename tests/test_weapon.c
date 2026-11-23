@@ -26,12 +26,12 @@ static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     }
 }
 
-// A room of air (256 x 128 world) with a wall of `wall` filling its right part (x >= 160), and
+// A room of air (192 x 128 world) with a wall of `wall` filling its right part (x >= 160), and
 // the player standing on the floor at the left.
 static World *range(uint64_t seed, ElementId wall, int *player) {
-    World *w = test_world_box(256, 128, seed);
-    fill(w, 1, 1, 254, 126, EDIT_AIR);
-    fill(w, 160, 1, 254, 126, wall);
+    World *w = test_world_box(192, 128, seed);
+    fill(w, 1, 1, 190, 126, EDIT_AIR);
+    fill(w, 160, 1, 190, 126, wall);
     *player = scene_spawn_player(w, 60);
     sim_run_ticks(w, 30);
     return w;
@@ -58,7 +58,7 @@ void test_rifle_digs_dirt(void) {
     World *w = range(101, ELEM_DIRT, &pl);
     EXPECT(pl >= 0);
     int64_t dirt = test_count(w, ELEM_DIRT);
-    shoot(w, pl, 100.0f, 0.0f, 10, 600);
+    shoot(w, pl, 100.0f, 0.0f, 10, 300);
     int64_t soil = test_count(w, ELEM_SOIL);
     EXPECT(soil >= 20);
     EXPECT_EQ(test_count(w, ELEM_DIRT) + soil, dirt);
@@ -81,7 +81,7 @@ void test_bullet_stops_at_iron(void) {
     int pl;
     World *w = range(102, ELEM_IRON, &pl);
     int64_t iron = test_count(w, ELEM_IRON);
-    shoot(w, pl, 100.0f, 0.0f, 5, 600);
+    shoot(w, pl, 100.0f, 0.0f, 5, 300);
     EXPECT_EQ(test_count(w, ELEM_IRON), iron);
     EXPECT_EQ(test_count(w, ELEM_BULLET), 5);
     int64_t at_wall = 0;

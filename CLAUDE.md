@@ -65,8 +65,9 @@ cmake --build build/release -j
 ```bash
 cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug -DPR_SANITIZE=ON   # ASan + UBSan (GCC/Clang)
 cmake --build build/debug -j
-ctest --test-dir build/debug --output-on-failure
-./build/debug/pr-tests creature   # only tests whose name contains "creature"
+ctest --test-dir build/debug -j4 --output-on-failure   # in parallel (one CTest test per test)
+./build/debug/pr-tests creature   # only tests whose name contains "creature" (prints timings)
+ctest --test-dir build/tsan -j4 -R thread_count     # the multithreaded tests, under TSan
 ```
 
 ```bash
@@ -192,7 +193,15 @@ benchmark all link.
 
 - Use Debug + `PR_SANITIZE` for correctness work. Use Release or RelWithDebInfo for performance
   work. **Never quote performance numbers from a Debug build.**
-- Run `ctest` before committing. Run `pr-bench` before committing changes to `src/sim/`.
+- Run `ctest -j4` (Release, then the ASan build) before committing. Run `pr-bench` before
+  committing changes to `src/sim/`. While iterating, run only the tests you touch
+  (`pr-tests <name>`); the full suites take about 12 s (Release) and 1 min (ASan) on 4 cores.
+- After threading changes, run the `thread_count` tests under TSan (`-R thread_count`).
+- Keep tests fast: the smallest world that shows the behaviour (sizes round up to 64) and only
+  the ticks it needs. `pr-tests` prints each test's time; a test over a few seconds in Release
+  needs a reason (CTest runs the slowest last otherwise; it is the critical path).
+- Benchmark comparisons: build the old commit's `pr-bench` too and run old and new alternately
+  (two runs each); `--ticks 200` is enough for the default scene.
 - Mind the world size in tests: `world_create` rounds width and height up to multiples of 64
   (a "128 × 96" box is really 128 × 128).
 - Write a behaviour test for every new rule: set up a tiny world, run N ticks, assert the

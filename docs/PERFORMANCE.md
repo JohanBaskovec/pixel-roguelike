@@ -73,8 +73,11 @@ Planned experiments, decided by data only:
 - **In-game HUD timers**, built on `SDL_GetPerformanceCounter` and averaged over half a second:
   Sim (per tick), Draw (convert + upload of visible dirty chunks, per frame), Frame (all work per
   frame, excluding the wait for vsync).
-- **Races:** build with `-DPR_TSAN=ON` (ThreadSanitizer) and run `pr-tests` and a few
-  `pr-bench --threads 4` ticks after any threading change.
+- **Races:** build with `-DPR_TSAN=ON` (ThreadSanitizer) and run the multithreaded tests
+  (`ctest -R thread_count`) and a few `pr-bench --threads 4` ticks after any threading change.
+- **Tests' speed:** each test is its own CTest test (`ctest -j4` runs them in parallel), the
+  sanitizer build compiles at `-O1`, and tests use the smallest world and fewest ticks that show
+  their behaviour. Release: 75 s → 12 s; ASan + UBSan: about 14 min → 1 min (4 cores, M6a).
 - **External profilers:** `perf` / Hotspot (Linux), Instruments (macOS), and Superluminal or VS
   Profiler (Windows). Use a `RelWithDebInfo` build. Tracy may be added later; it needs a
   `DECISIONS.md` entry because it is a dependency.

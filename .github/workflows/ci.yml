@@ -31,7 +31,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -j4 --output-on-failure
 
       - name: Benchmark smoke run
         run: ./build/pr-bench --width 256 --height 256 --ticks 30 --warmup 5 --threads 4
@@ -58,7 +58,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -j4 --output-on-failure
 
       - name: Benchmark smoke run (4 threads)
         run: ./build/pr-bench --width 512 --height 256 --ticks 30 --warmup 5 --threads 4
@@ -77,4 +77,4 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release -j4 --output-on-failure
