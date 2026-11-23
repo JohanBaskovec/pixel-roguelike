@@ -98,9 +98,19 @@ bool particle_land_now(World *w, Particle *p) {
     return land(w, p, (int)floorf(p->x), (int)floorf(p->y));
 }
 
+// Can particle p fly through (x, y)? What any particle flies through (particle_flies_through),
+// and, for powders in flight (casings, spent bullets, debris, kicked pixels), creatures' bodies:
+// they never land on or against a body, so they never block one; they land on the ground, then
+// lie there like sand.
+static inline bool flies(const World *w, const Particle *p, int x, int y) {
+    return particle_flies_through(w, x, y) ||
+           (g_elem_behavior[p->cell.element] == BEHAVIOR_POWDER &&
+            world_elem(w, x, y) == ELEM_BODY);
+}
+
 bool particle_step(World *w, Particle *p, float fraction) {
     int cx = (int)floorf(p->x), cy = (int)floorf(p->y);
-    if (!particle_flies_through(w, cx, cy)) {
+    if (!flies(w, p, cx, cy)) {
         return land(w, p, cx, cy); // something settled into its cell
     }
     float dx = p->vx * fraction, dy = p->vy * fraction;
@@ -113,9 +123,8 @@ bool particle_step(World *w, Particle *p, float fraction) {
         int tx = (int)floorf(nx), ty = (int)floorf(ny);
         if (tx != cx || ty != cy) {
             // Blocked: the cell itself, or a diagonal step between two blocked cells.
-            bool blocked = !particle_flies_through(w, tx, ty) ||
-                           (tx != cx && ty != cy && !particle_flies_through(w, tx, cy) &&
-                            !particle_flies_through(w, cx, ty));
+            bool blocked = !flies(w, p, tx, ty) ||
+                           (tx != cx && ty != cy && !flies(w, p, tx, cy) && !flies(w, p, cx, ty));
             if (blocked) {
                 p->x = (float)cx + 0.5f;
                 p->y = (float)cy + 0.5f;

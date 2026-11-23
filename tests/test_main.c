@@ -75,6 +75,9 @@ void test_shooting_same_for_any_thread_count(void);
 void test_small_clumps_fall(void);
 void test_player_runs_and_jumps(void);
 void test_air_brush_spreads_oxygen(void);
+void test_walk_forward_while_shooting(void);
+void test_walking_kicks_small_piles(void);
+
 
 void test_heater_makes_plume(void);
 void test_pool_heated_from_below_convects(void);
@@ -178,6 +181,9 @@ int main(int argc, char **argv) {
     RUN(test_small_clumps_fall);
     RUN(test_player_runs_and_jumps);
     RUN(test_air_brush_spreads_oxygen);
+    RUN(test_walk_forward_while_shooting);
+    RUN(test_walking_kicks_small_piles);
+
 
     RUN(test_pool_heated_from_below_convects);
     RUN(test_moved_water_carries_heat);

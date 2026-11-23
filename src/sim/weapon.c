@@ -36,12 +36,14 @@ static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y
     float ca = cosf(a), sa = sinf(a);
     float ux = dx * ca - dy * sa, uy = dx * sa + dy * ca;
 
-    // The bullet leaves the body along the line of fire: it starts at the last cell of the body
-    // on that line (a cell it does not check), so the first cell it enters is outside it.
+    // The bullet starts at the muzzle, RIFLE_LENGTH along the line of fire from the shoulder (well
+    // clear of the body, even if the shooter moves forward before the bullet flies, at the start
+    // of the next tick), or in front of a wall closer than that (the first cell it enters).
     float bx = sx, by = sy;
-    for (int k = 0; k < 4 * (CREATURE_MAX_W + CREATURE_MAX_H); k++) {
+    for (int k = 0; k < 2 * RIFLE_LENGTH; k++) {
         float nx = bx + ux * 0.5f, ny = by + uy * 0.5f;
-        if (world_elem(w, (int)floorf(nx), (int)floorf(ny)) != ELEM_BODY) {
+        int cx = (int)floorf(nx), cy = (int)floorf(ny);
+        if (world_elem(w, cx, cy) != ELEM_BODY && !particle_flies_through(w, cx, cy)) {
             break;
         }
         bx = nx;
@@ -52,7 +54,8 @@ static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y
     particle_add(w, &b);
 
     // The casing is thrown up and back from the ejection port (or above the head if the port is
-    // inside a wall). No room: the rifle keeps it.
+    // inside a wall). In flight it passes through bodies (particle.c). No room: the rifle keeps
+    // it.
     int px = (int)floorf(sx + dx * RIFLE_PORT), py = (int)floorf(sy + dy * RIFLE_PORT);
     if (!particle_passes(w, px, py)) {
         px = c->x + c->w / 2;

@@ -251,6 +251,8 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 - [x] A default level: hilly dirt with rock strata and boulders, air above; the Air brush paints
       evenly mixed air that is settled at once
 - [x] The element tools stay, beside the rifle
+- [x] Casings never block the player (after play-testing): bullets start at the muzzle, powders in
+      flight pass through bodies, and walkers kick piles up to 40 cm high out of the way
 - Tests: digging and conservation, bullets stopping at iron and falling, air stirring, the same
   result on any thread count, small clumps, running and jumping, the Air brush
 

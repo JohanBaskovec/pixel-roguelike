@@ -107,11 +107,85 @@ static void push_wind(World *w, int x, int y, int dir, int speed) {
     }
 }
 
+// Small piles at a walker's feet (docs/SIMULATION.md -> Creatures): powder (casings, spent
+// bullets, loose soil, rubble, sand) in the lowest KICK_ROWS rows (40 cm) of the column it walks
+// into is kicked ahead instead of stopping it, if nothing else is in the way. Each cell flies as
+// a particle from just ahead, a little faster than the walker and upward, and lands again.
+#define KICK_ROWS 8
+
+static float kick_rand(uint64_t *h) {
+    *h = pr_splitmix64(*h);
+    return (float)(*h >> 40) * (1.0f / 16777216.0f);
+}
+
+// The cell a kicked cell from row y of the column at lx flies from (dx: direction): the first
+// that passes, going up from just ahead, or else from the column itself (above the pile; the
+// walker is about to step into it, but powders in flight pass through bodies). Returns false if
+// none within KICK_ROWS + 2 cells up.
+static bool kick_from(const World *w, int lx, int y, int dx, int *fx, int *fy) {
+    for (int k = 0; k < 2; k++) {
+        int x = k == 0 ? lx + dx : lx;
+        for (int up = 0; up <= KICK_ROWS + 2; up++) {
+            if (particle_passes(w, x, y - up)) {
+                *fx = x;
+                *fy = y - up;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool kick(World *w, Creature *c, int dx) {
+    int lx = dx > 0 ? c->x + c->w : c->x - 1;
+    int n = 0;
+    for (int r = 0; r < c->h; r++) {
+        int y = c->y + r, fx, fy;
+        if (body_can_enter(w, lx, y)) {
+            continue;
+        }
+        if (r < c->h - KICK_ROWS || g_elem_behavior[world_elem(w, lx, y)] != BEHAVIOR_POWDER ||
+            !kick_from(w, lx, y, dx, &fx, &fy)) {
+            return false; // a wall, a big heap, or nowhere to kick it
+        }
+        n++;
+    }
+    if (n == 0 || w->particle_count + n > PARTICLE_MAX) {
+        return false;
+    }
+    uint64_t h = pr_splitmix64(w->seed ^ pr_splitmix64(w->tick) ^ ((uint64_t)c->id << 48));
+    for (int r = c->h - KICK_ROWS; r < c->h; r++) {
+        int y = c->y + r, fx = lx + dx, fy = y;
+        if (body_can_enter(w, lx, y)) {
+            continue;
+        }
+        kick_from(w, lx, y, dx, &fx, &fy);
+        size_t i = world_index(w, lx, y);
+        Cell cell = w->cells[i];
+        cell.aux = 0;
+        Particle p = {(float)fx + 0.5f,
+                      (float)fy + 0.5f,
+                      (float)dx * (c->speed * 1.2f + 0.4f * kick_rand(&h)),
+                      -(0.3f + 0.5f * kick_rand(&h)),
+                      cell,
+                      w->temp[i]};
+        particle_add(w, &p);
+        w->cells[i] = (Cell){ELEM_VOID, (uint8_t)(w->tick - 1), cell.shade, 0};
+        w->temp[i] = 0.0f;
+        w->mass[i] = 0.0f;
+        world_note_moved(w, lx, y);
+    }
+    world_wake_rect(w, lx - 1, c->y + c->h - KICK_ROWS - 1, lx + 1, c->y + c->h);
+    world_wake_heat(w, lx - 1, c->y + c->h - KICK_ROWS - 1, lx + 1, c->y + c->h);
+    return true;
+}
+
 // Moves the body one cell. The matter in each cell it moves into trades places with the body cell
 // it leaves at the other end: gas and liquid flow around the body, and nothing is lost. The air in
-// front is pushed along and the air behind follows (gas currents).
+// front is pushed along and the air behind follows (gas currents). Walking, it kicks small piles
+// at its feet out of the way.
 static bool move(World *w, Creature *c, int dx, int dy) {
-    if (!can_move(w, c, dx, dy)) {
+    if (!can_move(w, c, dx, dy) && !(dx != 0 && kick(w, c, dx) && can_move(w, c, dx, dy))) {
         return false;
     }
     int dir = gas_wind_dir_of(dx, dy);

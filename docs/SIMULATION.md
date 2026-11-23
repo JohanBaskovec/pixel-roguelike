@@ -517,6 +517,14 @@ list order, at the start of each tick (before heat and movement).
   50 cm high (tested: 10 cells, and back on the floor). It faces the mouse (`aimed`), not its
   walking direction. In the air it keeps its momentum (no air control). Input is applied between
   ticks on the main thread.
+- **Kicking small piles** (M6a, after play-testing: the player got stuck on its casings). When a
+  walker's leading column holds powder (casings, spent bullets, loose soil, rubble, sand) only in
+  its lowest `KICK_ROWS` rows (40 cm), and nothing else in the way, each of those cells is kicked
+  ahead: a particle from the first free cell above it (in front, or in that column), at a little
+  more than the walker's speed and up to 2.4 m/s upward. It lands again ahead (nothing is
+  destroyed). Bigger heaps are climbed (`STEP_UP`) or stop it. Tested: walking through small
+  piles of each, the player stays within 3 cells of the floor (it climbed 5 before), and every
+  cell is still there.
 
 ### Rifle and bullets (M6a; D-031)
 
@@ -525,10 +533,12 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
 - **Firing.** While the trigger is held, the rifle fires every `RIFLE_INTERVAL` (5) ticks (720
   rounds/min) from the shooter's shoulder (row 8 of the body, 1.45 m up) toward the aim point,
   with a random spread of ±0.3°. The bullet is a free particle carrying one cell of lead
-  (`ELEM_BULLET`, 400 K), at 900 m/s (300 cells/tick). It starts at the last body cell on the line
-  of fire, so it never hits the shooter. The spent casing (`ELEM_CASING`, 370 K) is thrown up
-  and back (1.5–4.5 m/s up) from the ejection port, 7 cells along the rifle, or from above the
-  head if the port is inside a wall.
+  (`ELEM_BULLET`, 400 K), at 900 m/s (300 cells/tick). It starts at the muzzle, `RIFLE_LENGTH`
+  (18 cells) along the line of fire, or in front of a closer wall: well clear of the body even
+  when the shooter moves forward at the start of the next tick, before the bullet flies (it used
+  to start at the edge of the body, then stop in the body and drop in front of the player). The
+  spent casing (`ELEM_CASING`, 370 K) is thrown up and back (1.5–4.5 m/s up) from the ejection
+  port, 7 cells along the rifle, or from above the head if the port is inside a wall.
 - **Flight.** A bullet faster than `BULLET_FAST` (6 m/s) covers its whole path for the tick in
   half-cell steps, at the end of the tick with the other particles (serial, deterministic, not
   bound by the 32-cell reach). Through void, gas and falling liquid it flies on, and gives each
@@ -542,11 +552,17 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
 - **Falling.** Stopped, the bullet drops from the last cell it reached (bouncing back at 0.3
   cells/tick) as an ordinary particle and lands as a powder pixel. Repeated shooting leaves piles
   of bullets and casings.
+- **Powders in flight pass through bodies** (`particle.c`, `flies()`): casings, spent bullets,
+  debris and kicked cells fly through creatures' bodies and land only on the ground (or other
+  matter), then lie there like sand. So a casing never lands on the shooter or against its body,
+  where it would block it. (A fast bullet still stops at a body.)
 - Nothing is destroyed: dug cells become debris and land again (if the particle list is full,
-  the cell is only loosened in place). Tested: ten shots into dirt dig at least 20 cells, dirt +
-  soil is unchanged, 10 bullets and 10 casings lie on the ground (the casings near the shooter),
-  nothing is left in flight; bullets stop at iron and drop in front of it; the air along a
-  bullet's path has a current; the result is the same on 1 and 4 threads.
+  the cell is only loosened in place). Tested: ten shots into dirt dig at least 12 cells (later
+  bullets partly hit the soil and bullets left in the hole), dirt + soil is unchanged, 10 bullets
+  and 10 casings lie on the ground (the casings near the shooter), nothing is left in flight;
+  bullets stop at iron and drop in front of it; the air along a bullet's path has a current; the
+  result is the same on 1 and 4 threads; running while firing ahead, then back over its own
+  casings, the player covers more than 150 of the 160 cells it covers without shooting.
 
 **Known limitations.** The body is a rectangle and does not bend, crouch or climb. It is a cell
 thick, like everything (the world is a 5 cm slice). Wading only slows it down. Falling does no

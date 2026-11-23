@@ -18,6 +18,8 @@ void test_shooting_same_for_any_thread_count(void);
 void test_small_clumps_fall(void);
 void test_player_runs_and_jumps(void);
 void test_air_brush_spreads_oxygen(void);
+void test_walk_forward_while_shooting(void);
+void test_walking_kicks_small_piles(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -51,7 +53,7 @@ static void shoot(World *w, int player, float dx, float dy, int shots, int settl
 }
 
 void test_rifle_digs_dirt(void) {
-    // Ten shots into a dirt wall: each bullet digs about 30 cm (6 cells) of dirt, which flies out
+    // Ten shots into a dirt wall: a bullet digs up to 30 cm (6 cells) of dirt, which flies out
     // as loose soil; nothing is destroyed (dirt + soil is unchanged). Every bullet and casing ends
     // up as a pixel on the ground, and nothing is left in flight.
     int pl;
@@ -60,7 +62,7 @@ void test_rifle_digs_dirt(void) {
     int64_t dirt = test_count(w, ELEM_DIRT);
     shoot(w, pl, 100.0f, 0.0f, 10, 300);
     int64_t soil = test_count(w, ELEM_SOIL);
-    EXPECT(soil >= 20);
+    EXPECT(soil >= 12); // later bullets partly hit the soil and bullets left in the hole
     EXPECT_EQ(test_count(w, ELEM_DIRT) + soil, dirt);
     EXPECT_EQ(test_count(w, ELEM_BULLET), 10);
     EXPECT_EQ(test_count(w, ELEM_CASING), 10);
@@ -205,5 +207,82 @@ void test_air_brush_spreads_oxygen(void) {
     SimStats st;
     sim_tick(w, &st);
     EXPECT(st.cells_visited < 100);
+    world_destroy(w);
+}
+
+// A long room of air (512 x 128 world), the player on the floor at the left.
+static World *corridor(uint64_t seed, int *player) {
+    World *w = test_world_box(512, 128, seed);
+    fill(w, 1, 1, 510, 126, EDIT_AIR);
+    *player = scene_spawn_player(w, 30);
+    sim_run_ticks(w, 30);
+    return w;
+}
+
+void test_walk_forward_while_shooting(void) {
+    // Running right while firing ahead (2 s, 24 shots): the casings thrown back through the player
+    // do not stop it, and neither do the ones on the ground when it runs back. It covers most of
+    // the distance it runs without shooting (80 cells in 1 s), and every casing and bullet is
+    // still in the world.
+    int pl;
+    World *w = corridor(108, &pl);
+    Creature *c = &w->creatures[pl];
+    int x0 = c->x;
+    Rifle r = {0};
+    c->walk = 1;
+    for (int t = 0; t < 120; t++) {
+        float sx, sy;
+        rifle_shoulder(c, &sx, &sy);
+        rifle_update(w, &r, pl, sx + 200.0f, sy - 5.0f, true);
+        sim_tick(w, NULL);
+    }
+    EXPECT(c->x - x0 > 150); // 160 without shooting
+    // Then back the other way, still firing right: into its own casings, now on the ground.
+    int x1 = c->x;
+    c->walk = -1;
+    for (int t = 0; t < 120; t++) {
+        float sx, sy;
+        rifle_shoulder(c, &sx, &sy);
+        rifle_update(w, &r, pl, sx + 200.0f, sy - 5.0f, true);
+        sim_tick(w, NULL);
+    }
+    EXPECT(x1 - c->x > 150);
+    c->walk = 0;
+    sim_run_ticks(w, 300);
+    EXPECT_EQ(test_count(w, ELEM_CASING), (int64_t)r.shots);
+    EXPECT_EQ(test_count(w, ELEM_BULLET), (int64_t)r.shots);
+    world_destroy(w);
+}
+
+void test_walking_kicks_small_piles(void) {
+    // Small piles on the floor (casings, bullets, loose soil, rubble; up to 30 cm high) are kicked
+    // away by a walker instead of stopping it; nothing is destroyed.
+    int pl;
+    World *w = corridor(109, &pl);
+    fill(w, 60, 121, 63, 126, ELEM_CASING);
+    fill(w, 100, 123, 105, 126, ELEM_BULLET);
+    fill(w, 140, 120, 144, 126, ELEM_SOIL);
+    fill(w, 180, 122, 186, 126, ELEM_RUBBLE);
+    int64_t n[4] = {test_count(w, ELEM_CASING), test_count(w, ELEM_BULLET),
+                    test_count(w, ELEM_SOIL), test_count(w, ELEM_RUBBLE)};
+    Creature *c = &w->creatures[pl];
+    int y0 = c->y, top = c->y;
+    c->walk = 1;
+    for (int t = 0; t < 180; t++) {
+        sim_tick(w, NULL);
+        top = PR_MIN(top, c->y);
+    }
+    EXPECT(c->x > 220);
+    // It kicked them away rather than climbing over them (it climbed 5 cells before kicking);
+    // what it kicks ahead may land on the next pile and make it too tall to kick (40 cm): then
+    // it steps up a little.
+    EXPECT(y0 - top <= 3);
+    c->walk = 0;
+    sim_run_ticks(w, 300);
+    EXPECT_EQ(test_count(w, ELEM_CASING), n[0]);
+    EXPECT_EQ(test_count(w, ELEM_BULLET), n[1]);
+    EXPECT_EQ(test_count(w, ELEM_SOIL), n[2]);
+    EXPECT_EQ(test_count(w, ELEM_RUBBLE), n[3]);
+    EXPECT_EQ(w->particle_count, 0);
     world_destroy(w);
 }
