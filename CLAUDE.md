@@ -43,7 +43,8 @@ follow Torricelli, splashes), creatures that walk, swim,
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom 1), tests
 and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the player, HP, heat
-damage) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
+damage), **M6c – Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` →
+Proposed next steps, D-036) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
@@ -145,7 +146,8 @@ src/game/     app: input, player control, toolbar, brush strokes, camera, HUD, f
               frame
 src/main.c    argument parsing, SDL init, main loop
 tests/        behaviour tests (CTest) on tiny worlds; test_util.c builds worlds from ASCII
-bench/        pr-bench, headless benchmark
+bench/        pr-bench, headless benchmark; proto_gas_field.c, a stand-alone prototype (not built
+              by CMake) behind the numbers of the proposed gas field pass
 docs/         design and engineering docs
 ```
 

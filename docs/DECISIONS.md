@@ -516,3 +516,30 @@ to watch).
   rather than active, and heat keeps pressure moving (ROADMAP M6c). Pressure precision is 0.3%
   between neighbours and 0.2% per 16 cells (a finer one made shooting costlier). The model can be
   reused for liquids carrying dissolved or suspended matter (ROADMAP).
+
+## D-036 — Gas computed as a field, with tile activity and (later) an air velocity
+
+- **Status:** Proposed (2026-11-23). Not implemented; the plan and its measurements are in
+  `docs/PERFORMANCE.md` → Proposed next steps.
+- **Context:** After D-035 a gas cell stores a mixture, but gas still moves mostly as cells trading
+  places at random, one direction per tick: 40 ns per visit for a cell that has nothing to do,
+  100 ns and more for an active one, and three visits in four find nothing to do when firing (a
+  chunk wakes one bounding rectangle). D-035 made the play-tested cases 1.2–2× faster, not enough
+  to keep a busy room at 60 ticks per second.
+- **Proposal:** (1) Track activity per 16 × 16 tile. (2) Gas cells stop moving: each tick, the gas
+  and heat crossing every face between two cells are computed from the previous tick's values and
+  applied at once (as the heat pass does), one array per species, no randomness, no checkerboard
+  for gas; pressure is also relaxed between coarse blocks, since neighbour exchange alone moves it
+  one cell per tick. (3) Later, a wind velocity per small block, driven by pressure and buoyancy,
+  carries the gas, with sound slowed to 10–20 m/s.
+- **Evidence:** a stand-alone prototype of the exchange (`bench/proto_gas_field.c`) runs a fully
+  active 1024 × 1024 grid at 28–31 ns per cell on one thread and 8.5 ms per tick on four (5.7 ms
+  with AVX2), conserving mass and energy to 1e-9. It leaves out buoyancy, sleeping and other
+  matter.
+- **Alternatives:** keep tuning the swap rules (each fix so far bought 10–30%); a coarser gas grid
+  for everything (against "every pixel is a cell"); a full incompressible fluid solver per cell
+  (loses pressure differences between sealed rooms, and costs a global solve).
+- **Risks:** thin walls under a coarse velocity grid (connectivity per tile needed); loops that
+  stop vectorising on one of the three compilers; the gas tests rewritten again; gas loses its
+  per-cell grain (to be drawn as noise). Estimates in this project have been 2–4× optimistic:
+  measure each step in the game before removing what it replaces.

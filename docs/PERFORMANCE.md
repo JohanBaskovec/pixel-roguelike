@@ -57,7 +57,7 @@ Planned experiments, decided by data only:
 - Chunk-major memory layout instead of row-major.
 - Full SoA for `Cell`.
 - ~~Atomics vs per-worker deferred lists for cross-chunk dirty marking~~: per-job buffers (D-019).
-- SIMD for the heat pass.
+- SIMD for the heat pass (see Proposed next steps: the gas field pass would include it).
 - `SDL_LockTexture` vs `SDL_UpdateTexture` for uploads.
 
 ## Measuring
@@ -87,6 +87,163 @@ Rules
 - Compare before and after on the same machine, with the same scenario and seed, in back-to-back
   runs.
 - Every change to `src/sim/` hot code adds a line to the benchmark log below.
+
+## Proposed next steps (not implemented)
+
+Written 2026-11-23, after gas mixtures (D-035) made the two play-tested cases only 1.2–2× faster.
+Nothing in this section is built. Numbers marked *measured* come from this machine (4-core VM,
+gcc 13.3 `-O3`); everything else is an estimate, and two earlier estimates in this project were
+2–4× too optimistic, so each step should be prototyped and measured before the old code is
+removed. The proposed decision is D-036.
+
+### Where the time goes today (measured)
+
+Two cases in a 1024 × 1024 room of air, averaged over 10 s (600 ticks):
+
+| | Firing into the air | CO2 ball, radius 100 |
+|---|---|---|
+| Gas cells visited per tick | 125 000 | 127 000 |
+| ... that leave at once, exactly like their neighbours | 32 000 (26%) | 13 000 (10%) |
+| ... that leave after the tolerance checks (about 40 ns each) | 60 000 (48%) | 31 000 (24%) |
+| ... that may do something | 32 000 (26%) | 83 000 (65%) |
+| ... that do something (diffuse, equalise pressure, move) | about 12 000 | about 70 000 |
+| Time per tick, 1 thread / 4 threads, at 10 s | 34 / 11.5 ms | 31 / 11–12 ms |
+
+- **Firing:** three visits in four find nothing to do. A chunk keeps one bounding rectangle of
+  what is awake (`Chunk.cur`), and a bullet wakes each gas cell it crosses, so a diagonal trail
+  wakes the whole chunk. The heat pass and the density pass (`gas_rho_update`) also work on whole
+  chunks; the heat pass on the heat-active chunks and their four neighbours.
+- **CO2 ball:** most visited cells are really diffusing. The cost there is the rule itself: one
+  random direction per tick, exchanging in place, with branches and a random number per cell.
+- **Profile, firing:** movement pass 65% (of which pressure equalisation 8%), heat pass 25%, gas
+  density pass 6%.
+- **Threads:** 4 threads give 2.6–3×. Few chunks are awake per checkerboard phase, and
+  water-pressure transfers and free particles run serially.
+- A cell within tolerance of its neighbours costs about 40 ns per visit; an active one 100 ns and
+  more. A lean falling-sand rule costs 5–10 ns.
+
+### 1. Compute gas as a field (largest gain)
+
+**Today** the storage is a field (each gas cell holds a mass of each species and a temperature),
+but most movement is not: buoyancy, currents and spreading trade whole cells' contents
+(`swap_cells`, `gas_lift`), vacuum is a separate element that gas splits into, and diffusion and
+pressure pick one random neighbour per tick and settle with it in place.
+
+**Proposed:** gas cells never move. Each tick, for every face between two neighbouring cells, the
+amount of each species and of heat that crosses it is computed from the previous tick's values
+(pressure difference, mole-fraction differences, temperature difference, and the density
+difference across horizontal faces for buoyancy), then all faces are applied at once. Each face
+is computed once and applied to both cells, so mass and energy are conserved exactly. Vacuum is a
+gas cell holding nothing. This is how the heat pass already works.
+
+- **No randomness, no order dependence.** The result is the same for any thread count without
+  the checkerboard, so gas can run as a plain parallel loop over tiles or rows (the checkerboard
+  stays for liquids and powders).
+- **It replaces** the gas rules in `update_gas()`, the gas part of the heat pass, and the density
+  pass. Species masses move from one 20-byte struct per cell to one array per species, so each
+  loop reads only what it needs and the compiler can vectorise it.
+- **All four neighbours every tick** instead of one at random: gas settles sooner, so regions
+  sleep sooner.
+- **Other matter:** liquid, powder, particles and bodies entering a gas cell still push its gas
+  into the cells around (as now, `world_gas_region`). Gas "grain" (the per-cell shade) becomes
+  noise in the renderer.
+
+**Measured** with `bench/proto_gas_field.c` (5 species and temperature, pressure flow, diffusion
+and conduction; 1024 × 1024 cells, every one active, every tick):
+
+| Build | 1 thread | 4 threads |
+|---|---|---|
+| Baseline x86-64 (SSE2) | 28–31 ns per cell, 29–33 ms per tick | 8.1–8.4 ns per cell, 8.5–8.8 ms per tick |
+| `-mavx2 -mfma` | 18.5 ns per cell | 5.5 ns per cell, 5.7 ms per tick |
+
+So a whole 1024 × 1024 room, fully active, fits in a tick on 4 threads, where today 125 000
+visited cells cost 11.5 ms. For the firing case that is roughly 4 ms on 1 thread and 1 ms on 4
+for the same cells, before any sleeping. The prototype has no buoyancy term, no sleeping, no
+walls beyond a mask and no other matter, so the real pass will cost more; a first naive version
+of it, which the compiler could not vectorise, cost 88 ns per cell. The loops must stay simple
+(one array per species, no aliasing) and that must be checked on GCC, Clang (24 ns per cell here)
+and MSVC. AVX2 needs the pass compiled twice and chosen at start-up with `SDL_HasAVX2()` (no new
+dependency).
+
+**What it does not solve by itself.** Exchange between neighbours moves pressure about one cell
+per tick: a 2:1 pressure step across a 6 m room would take minutes to even out (it takes about
+5 s today, thanks to the jumps of up to 16 cells). The field pass needs a long-range part:
+- the simple one: also relax pressure between coarse blocks (8 × 8 cells, then chunks), scaling
+  the cells of a block, as a multigrid solver does; or
+- step 3, a velocity field, which carries pressure at a chosen speed of sound.
+
+Likewise buoyancy as an exchange across horizontal faces makes heavy gas sink while smearing,
+about as today; gas that moves as a body (plumes, a sinking blob that keeps its shape) needs
+step 3.
+
+### 2. Track activity per tile, not per chunk rectangle
+
+Keep a bit per 16 × 16 tile (16 per chunk) for "awake this tick" instead of one bounding rectangle
+per chunk, for the movement pass, the heat pass and the gas pass. A bullet's trail then wakes a
+strip two tiles wide instead of every chunk it crosses.
+
+- No change to the physics; it also helps liquids and powders.
+- **Estimate:** up to 2× for the firing case with today's rules (74% of visits find nothing to
+  do, and they are the cheaper ones), little for the CO2 ball (35%). With step 1 the gain is
+  smaller in time but the mask is needed anyway, to skip settled tiles.
+- Wakes merge by OR, so the result still does not depend on the thread count.
+
+### 3. Give air a velocity
+
+A wind velocity per small block (4 × 4 cells, 20 cm, to be tuned), accelerated by pressure
+differences and buoyancy, slowed by walls and friction, which carries each cell's gas and heat
+along (the field pass's bulk-flow term then uses this velocity instead of the local pressure
+difference).
+
+- **What it gives:** plumes and convection cells, wind, a rush of air when a sealed room is
+  opened, pressure evening out across a room in well under a second, blasts that push things.
+  It would replace the per-cell current (`aux` wind), the long pressure jumps, the column-window
+  buoyancy and probably the breathing stir (`STIR_CELLS`).
+- **Deliberate deviations (to document in ELEMENTS.md):** sound slowed to about 10–20 m/s so the
+  explicit update is stable at 60 ticks/s (real: 340 m/s); flow is smooth below one block; wind
+  faster than about one cell per tick (3 m/s) needs sub-steps or a cap.
+- **Cost (estimate):** a 256 × 256 velocity grid for a 1024 × 1024 area is 65 000 blocks, under
+  1 ms.
+- **Main risk: thin walls.** A one-cell wall crossing a block must still be airtight. The blocks
+  need connectivity per tile (the pieces of open cells in a tile, as water pressure already keeps
+  per chunk in `pressure.c`), recomputed only where solids change. This is the hardest part and
+  should be prototyped alone first.
+
+### 4. Simulate less
+
+- **Gas at 30 Hz** (every other tick, with a doubled time step, alternating tiles), while liquids,
+  powders, particles and creatures stay at 60 Hz. Gas is slow and smooth; the field pass stays
+  stable with coefficients set for the longer step.
+- **Only near the player** (ROADMAP M6b): the visible part of the level plus a margin, so world
+  size stops mattering.
+
+### 5. Smaller gas storage
+
+20 bytes per cell today (5 floats), plus 4 for the cached density: 190 MB at 4096 × 2048.
+Nitrogen as "the rest" and the other species as 16-bit fractions of the cell's total moles, plus
+the total, is about 12 bytes. Less memory traffic for the field pass, but conversions in every
+loop: measure before deciding. Only useful after step 1.
+
+### 6. Free particles
+
+Not a bottleneck today (a bullet costs a few hundred cell checks; the list is serial, up to
+131 072 particles). If jets or debris grow to tens of thousands in flight: bin them by chunk and
+step the bins in parallel with the same checkerboard as the movement pass (landing writes cells).
+With step 3, particles can take drag from the wind (casings, debris and splashes carried by a
+blast), which adds credibility rather than speed.
+
+### Tried and dropped
+
+- Letting cells that hold water vapour take the "exactly like its neighbours" exit too: no change
+  in the firing case (28.4 / 29.0 ms against 30.1 / 28.8 ms at 10 s, 1 thread).
+
+### Order
+
+1. Step 2 (tiles): small, safe, useful under every option.
+2. Step 1 (field pass) with coarse pressure relaxation, behind the existing tests, measured on
+   the firing and CO2 cases against today's numbers before `update_gas()` is removed.
+3. Step 3 (velocity), after a stand-alone prototype of thin walls.
+4. Steps 4 and 5 as measurements ask for them.
 
 ## Benchmark log
 

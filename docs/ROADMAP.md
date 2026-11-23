@@ -294,10 +294,22 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
       cell carries what is dissolved or suspended in it (dirt, salt, pollution), the same way a gas
       cell carries its species; dirty water dilutes, mixes and settles. Miscible liquids mix,
       immiscible ones (oil and water) stay apart
-- [ ] Faster gases where most of a room is active: finer wake tracking than a chunk's bounding
-      rectangle (a bullet's diagonal trail wakes whole chunks), better load balance across threads
-      (few awake chunks per checkerboard phase), cheaper pressure equalisation under heat, and gas
-      expanding into a big vacuum (2.5× slower than before D-035)
+- Faster and more credible gases (proposed, D-036; the plan, with measurements, is in
+  `docs/PERFORMANCE.md` → Proposed next steps). In this order:
+  - [ ] Activity per 16 × 16 tile instead of one rectangle per chunk (a bullet's diagonal trail
+        wakes whole chunks today): movement, heat and gas passes
+  - [ ] Gas as a field: every gas cell exchanges gas and heat with its four neighbours each tick,
+        from the previous tick's values, with no randomness and no checkerboard; one array per
+        species; pressure also relaxed between coarse blocks. Measured in a prototype
+        (`bench/proto_gas_field.c`): a fully active 1024 × 1024 room in 8.5 ms on 4 threads.
+        To be measured in the game on the firing and CO2 cases before the old rules go, and on
+        gas expanding into a big vacuum (2.5× slower since D-035)
+  - [ ] Air velocity per small block: wind, plumes, a rush of air when a sealed room opens,
+        pressure evening out in under a second (sound slowed to 10–20 m/s). Thin walls must stay
+        airtight: prototype that first
+  - [ ] Gas at 30 Hz; smaller gas storage (about 12 bytes per cell), if measurements ask for them
+  - [ ] Free particles in parallel (binned by chunk) and pushed by the wind, when they become a
+        cost
 - [ ] Evaporation from water surfaces below 100 °C; water vapour in breath
 
 ## M6 – World
