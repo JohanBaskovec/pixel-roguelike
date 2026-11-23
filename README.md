@@ -72,7 +72,7 @@ ctest --test-dir build/release --output-on-failure
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `J` / `L` / `O` | Sand / Lava (1600 K) / Oil |
 | `X` | Dig: loosens dirt into loose soil and rock into rubble, which fall |
-| `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame) |
+| `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame). Heat lights hydrogen mixed with oxygen (773 K) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
 | `R` | Reset to the empty box |

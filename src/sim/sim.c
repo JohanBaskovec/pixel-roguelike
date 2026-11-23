@@ -59,6 +59,7 @@ typedef struct TickCtx {
     int nreq; // water-pressure requests, carried out after the phase
     PressureRequest req[TICK_MAX_REQUESTS];
     bool splash_ok; // the particle list has room for splashes this tick
+    bool may_react; // something around the chunk is hot enough to ignite a reaction
     int nspawn;     // particles launched by this job, added to the list after the phase
     Particle spawn[TICK_MAX_SPAWNS];
 } TickCtx;
@@ -805,11 +806,96 @@ static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_
     return false;
 }
 
+// ---- Reactions (M5). docs/SIMULATION.md -> Reactions ----
+
+#define REACT_REACH 3 // farthest partner cell (square rings)
+
+// The gas at (x, y), if it is the fuel of a reaction, reacts with a nearby cell of the right kind
+// when hot enough (itself or any of its neighbours). Mass is conserved exactly:
+// with enough of the other, this cell becomes the product, holding both masses used; with too
+// little, the other cell becomes the product and this keeps what is left. The heat released (and
+// the reactants' own) heats the product, up to FLAME_MAX_K. Returns true if it reacted.
+static bool react(TickCtx *c, int x, int y) {
+    World *w = c->w;
+    size_t i = world_index(w, x, y);
+    ElementId a = w->cells[i].element;
+    const Reaction *rx = &g_reactions[g_reaction_of[a] - 1];
+    bool hot = elem_temp(a, w->temp[i]) >= rx->ignite_k;
+    for (int k = 0; k < 4 && !hot; k++) {
+        int qx = x + k_dir4[k][0], qy = y + k_dir4[k][1];
+        ElementId n = world_elem(w, qx, qy);
+        hot = n != ELEM_OUT && g_elem_cap[n] > 0.0f &&
+              elem_temp(n, w->temp[world_index(w, qx, qy)]) >= rx->ignite_k;
+    }
+    if (!hot) {
+        return false; // cold: nothing to do (cheap for the common case)
+    }
+    // The partner: the nearest cell of `b` within REACT_REACH (square rings, from a random
+    // corner). Burning gases mix at the molecular level; with one gas per cell, the push of the
+    // hot products would otherwise leave fuel and oxidiser in pockets that never touch.
+    int nx = 0, ny = 0;
+    bool found = false;
+    int rot = (int)rng_range(&c->rng, 8);
+    for (int r = 1; r <= REACT_REACH && !found; r++) {
+        int side = 2 * r, ring = 4 * side;
+        for (int k = 0; k < ring && !found; k++) {
+            int j = (k + rot * r) % ring, s4 = j / side, o = j % side;
+            int qx = s4 == 0 ? x - r + o : s4 == 1 ? x + r : s4 == 2 ? x + r - o : x - r;
+            int qy = s4 == 0 ? y - r : s4 == 1 ? y - r + o : s4 == 2 ? y + r : y + r - o;
+            if (world_elem(w, qx, qy) == rx->b) {
+                nx = qx;
+                ny = qy;
+                found = true;
+            }
+        }
+    }
+    if (!found) {
+        return false;
+    }
+    size_t ni = world_index(w, nx, ny);
+    float ma = w->mass[i], mb = w->mass[ni];
+    float burn_a = PR_MIN(ma, mb / rx->b_per_a); // kg of a that react
+    float use_b = burn_a * rx->b_per_a;
+    float cpa = g_elem_cp[a], cpb = g_elem_cp[rx->b], cpp = g_elem_cp[rx->product];
+    float energy = burn_a * cpa * w->temp[i] + use_b * cpb * w->temp[ni] + burn_a * rx->heat_per_kg;
+    float mp = burn_a + use_b;
+    float tp = PR_MIN(energy / (mp * cpp), FLAME_MAX_K);
+    Cell product = w->cells[i];
+    product.element = rx->product;
+    product.stamp = c->stamp;
+    product.aux = 0;
+    // The product takes the cell that is used up: this one if all of it reacted, else the other.
+    size_t pi = burn_a >= ma ? i : ni, rest = pi == i ? ni : i;
+    float rest_mass = pi == i ? mb - use_b : ma - burn_a;
+    product.shade = w->cells[pi].shade;
+    w->cells[pi] = product;
+    w->mass[pi] = mp;
+    w->temp[pi] = tp;
+    if (rest_mass <= 0.0f) { // both used up exactly: the other cell empties
+        w->cells[rest].element = ELEM_VOID;
+        w->temp[rest] = 0.0f;
+        w->mass[rest] = 0.0f;
+    } else {
+        w->mass[rest] = rest_mass;
+    }
+    int px = pi == i ? x : nx, py = pi == i ? y : ny;
+    ctx_arrive(c, px, py, product, tp);
+    ctx_wake(c, PR_MIN(x, nx) - 1, PR_MIN(y, ny) - 1, PR_MAX(x, nx) + 1, PR_MAX(y, ny) + 1, true,
+             false);
+    c->stats.reactions++;
+    return true;
+}
+
 static void update_gas(TickCtx *c, int x, int y) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
     Cell self = w->cells[i];
     ElementId e = self.element;
+
+    // 0. Reactions (burning), only where something is hot enough to ignite.
+    if (c->may_react && g_reaction_of[e] && react(c, x, y)) {
+        return;
+    }
 
     // 1. Buoyancy: rise through a denser fluid above (including colder gas of the same kind:
     //    warm air rises). Densities at 1 atm: pressure is handled below.
@@ -954,6 +1040,17 @@ static void update_chunk(TickCtx *c) {
     c->rng = rng_from_seed(w->seed ^ pr_splitmix64(w->tick) ^
                            (((uint64_t)(uint32_t)c->cx << 32) | (uint32_t)c->cy));
     c->stats.chunks_active++;
+    // Reactions are possible only if this chunk or one around it holds something hot enough to
+    // ignite (each chunk keeps the range of its temperatures).
+    c->may_react = false;
+    for (int ny = c->cy - 1; ny <= c->cy + 1; ny++) {
+        for (int nx = c->cx - 1; nx <= c->cx + 1; nx++) {
+            if (nx >= 0 && ny >= 0 && nx < w->chunks_x && ny < w->chunks_y &&
+                world_chunk(w, nx, ny)->temp_hi >= g_min_ignite_k) {
+                c->may_react = true;
+            }
+        }
+    }
 
     // Bottom to top; horizontal direction alternates every tick (no left/right bias).
     bool left_to_right = (w->tick & 1) == 0;
@@ -1130,6 +1227,7 @@ void sim_tick(World *w, SimStats *stats) {
             total.cells_visited += c->stats.cells_visited;
             total.cells_moved += c->stats.cells_moved;
             total.gas_transfers += c->stats.gas_transfers;
+            total.reactions += c->stats.reactions;
             total.chunks_active += c->stats.chunks_active;
         }
         // Water-pressure transfers asked for in this phase, serially, in job order.

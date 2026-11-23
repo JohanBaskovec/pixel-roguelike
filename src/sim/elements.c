@@ -40,6 +40,14 @@ const PhaseChange g_elem_above[ELEM_COUNT] = {
 };
 // clang-format on
 
+// 2 H2 + O2 -> 2 H2O: 8 kg of O2 per kg of H2, 120 MJ per kg of H2 (lower heating value: the
+// water leaves as steam). Hydrogen autoignites in air at about 773 K.
+const Reaction g_reactions[REACTION_COUNT] = {
+    {ELEM_HYDROGEN, ELEM_OXYGEN, ELEM_STEAM, 773.0f, 7.937f, 120e6f},
+};
+uint8_t g_reaction_of[256];
+float g_min_ignite_k = 1e30f;
+
 // Molar masses of gases, kg/mol.
 static const float k_molar_mass[ELEM_COUNT] = {
     [ELEM_OXYGEN] = 0.031999f, [ELEM_CO2] = 0.04401f,       [ELEM_HYDROGEN] = 0.002016f,
@@ -91,6 +99,10 @@ void elements_init(void) {
         g_elem_behavior[i] = BEHAVIOR_STATIC; // unknown IDs and ELEM_OUT behave as walls
         g_elem_density_q[i] = UINT32_MAX;
         g_elem_spread[i] = 0;
+    }
+    for (int r = 0; r < REACTION_COUNT; r++) {
+        g_reaction_of[g_reactions[r].a] = (uint8_t)(r + 1);
+        g_min_ignite_k = PR_MIN(g_min_ignite_k, g_reactions[r].ignite_k);
     }
     for (int i = 0; i < ELEM_COUNT; i++) {
         const ElementDef *d = &g_elem_defs[i];

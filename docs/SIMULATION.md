@@ -304,6 +304,31 @@ pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not
 All constants live at the top of the gas section of `src/sim/sim.c` and in `src/sim/elements.h`.
 Their current values are in `ELEMENTS.md`.
 
+### Reactions (M5)
+
+Code: `react()` in `src/sim/sim.c`, table `g_reactions` in `src/sim/elements.c`. A reaction turns a
+fuel cell `a` and an oxidiser `b` into a product, using `b_per_a` kg of b per kg of a and
+releasing `heat_per_kg` J per kg of a. So far one: **hydrogen burning**, 2 H₂ + O₂ → 2 H₂O
+(steam): 7.94 kg of O₂ per kg of H₂, 120 MJ per kg of H₂ (lower heating value), igniting at
+773 K.
+
+- Checked first in a fuel cell's update, only in chunks where something is hot enough to ignite
+  (the chunk or one around it has a temperature at or above the lowest ignition temperature), and
+  only if the cell or one of its 4 neighbours is at least `ignite_k`.
+- The partner is the nearest oxidiser cell within `REACT_REACH` (3 cells, square rings from a
+  random corner). Burning gases mix molecule by molecule; with one gas per cell, the push of the
+  hot products would otherwise leave fuel and oxidiser in separate pockets.
+- **Mass is exact:** with enough oxidiser, the fuel cell becomes the product holding the fuel and
+  the oxidiser used (the oxidiser cell keeps the rest); with too little, the oxidiser cell becomes
+  the product and the fuel keeps what is left.
+- **Heat:** the product's temperature is the reactants' heat plus the heat released, over its heat
+  capacity, but at most `FLAME_MAX_K` (3000 K): hotter, real flames lose energy to dissociation,
+  which is not modelled (the excess is dropped; a deviation).
+- The hot, dense product (10 atm and more) pushes the gas around and ignites its neighbours: a
+  flame front that crosses a room of stoichiometric hydrogen and oxygen in under a second
+  (tested: most of the hydrogen burns; mass is conserved; the steam is hot and does not condense
+  yet). Cold mixtures never burn (tested). Light a mixture with the Heat brush.
+
 ### Free particles (M4b; D-026)
 
 Code: `src/sim/particle.c`. Fast-moving matter leaves the grid while it flies, as in Noita, and

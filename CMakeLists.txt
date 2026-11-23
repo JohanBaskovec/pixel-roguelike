@@ -138,6 +138,7 @@ if(PR_BUILD_TESTS)
     tests/test_particle.c
     tests/test_creature.c
     tests/test_powder.c
+    tests/test_reaction.c
   )
   target_link_libraries(pr-tests PRIVATE pr_sim)
   pr_configure_target(pr-tests)

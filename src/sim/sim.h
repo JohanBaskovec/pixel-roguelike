@@ -13,6 +13,7 @@ typedef struct SimStats {
     uint32_t gas_transfers; // gas pressure equalisations between two cells (M4)
     uint32_t particles;     // free particles in flight after the tick (M4b)
     uint32_t launched;      // particles launched this tick (jets and splashes)
+    uint32_t reactions;     // reactions this tick (M5)
 } SimStats;
 
 // Advances the world by one fixed tick (1/60 s). Fills `stats` if non-NULL.

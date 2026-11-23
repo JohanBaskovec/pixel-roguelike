@@ -110,6 +110,9 @@ All are clamped to `MAX_MOVE` = 32.
 | `SPLASH_MIN_SPEED` | 2 cells/tick | `sim/sim.c` | Landing speed from which falling liquid may splash |
 | `SPLASH_P16` | 1/4 | `sim/sim.c` | Chance that such a landing splashes |
 | `SPLASH_KEEP_MIN/MAX`, `SPLASH_UP` | 25–60%, 25% | `sim/sim.c` | Share of its speed a splash keeps, sideways and upward |
+| Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |
+| `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
+| `REACT_REACH` | 3 cells | `sim/sim.c` | Farthest oxidiser cell a fuel cell reacts with |
 | `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
 | `WALK_SPEED` | 1.4 m/s | `sim/creature.c` | Walking speed (half when impaired or in liquid) |
 | `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
@@ -154,10 +157,13 @@ Keep this list complete.
 7. For buoyancy, oxygen and nitrogen have the same density (air, `AIR_DENSITY_0C`), so painted
    air does not unmix. Real O₂ is 14% denser than N₂, but air stays mixed because it is mixed
    molecule by molecule, which one-gas-per-cell cannot represent.
-8. Lava and molten iron flow like water under water pressure; only their sideways spread is
+8. Reactions (M5): products are not heated beyond `FLAME_MAX_K` (3000 K), since dissociation is
+   not modelled; the rest of the heat is dropped. Fuel finds its oxidiser up to 3 cells away
+   (`REACT_REACH`), standing in for molecular mixing.
+9. Lava and molten iron flow like water under water pressure; only their sideways spread is
    smaller (viscosity is not modelled). Rock melts at a single temperature (real rock melts over
    a range, about 1300–1500 K for granite).
-9. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
+10. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
    currents, which one-gas-per-cell diffusion cannot do. Body heat is held at 37 °C with up to
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a

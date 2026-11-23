@@ -83,6 +83,21 @@ typedef struct PhaseChange {
 extern const PhaseChange g_elem_below[ELEM_COUNT]; // cooled below: freezing, condensing
 extern const PhaseChange g_elem_above[ELEM_COUNT]; // heated above: melting, boiling
 
+// Reactions (M5): a cell of `a` next to a cell of `b`, hot enough, reacts into `product`, using
+// b_per_a kg of b per kg of a and releasing heat_per_kg J per kg of a. docs/SIMULATION.md ->
+// Reactions. Indexed by g_reaction_of[a] - 1 (0: none).
+typedef struct Reaction {
+    ElementId a, b, product;
+    float ignite_k;    // reacts if `a` or one of its neighbours is at least this hot (K)
+    float b_per_a;     // kg of b used per kg of a
+    float heat_per_kg; // J released per kg of a
+} Reaction;
+#define REACTION_COUNT 1
+#define FLAME_MAX_K    3000.0f // products are not heated beyond this (dissociation, not modelled)
+extern const Reaction g_reactions[REACTION_COUNT];
+extern uint8_t g_reaction_of[256];
+extern float g_min_ignite_k; // lowest ignition temperature of any reaction
+
 // Buoyancy scale K_BUOY and gas mixing probability P_GAS_MIX (docs/SIMULATION.md), x/65536.
 #define K_BUOY_16    65536u
 #define P_GAS_MIX_16 32768u
