@@ -48,3 +48,11 @@ void sim_apply_edits(World *w, EditQueue *q);
 
 // Applies one edit immediately. Returns the number of cells written.
 int64_t sim_apply_edit(World *w, const Edit *e);
+
+// Dirt becomes loose soil and rock becomes rubble when dug; other elements stay as they are.
+ElementId elem_loosened(ElementId e);
+
+// Every clump of at most 20 solid cells (dirt or rock, 4-connected, holding on to nothing else)
+// with a cell in the rect breaks loose: soil and rubble, which fall. Digging calls it. Returns the
+// number of cells loosened.
+int64_t sim_loosen_small_clumps(World *w, int x0, int y0, int x1, int y1);

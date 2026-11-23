@@ -28,6 +28,8 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 15 | Lava (molten rock) | LIQUID | 2600 | 1100 | 1.5 | freezes 1500 K → rock; painted at 1600 K | `#C8461E`, glows | 5 |
 | 16 | Molten iron | LIQUID | 6980 | 820 | 35 | freezes 1811 K → iron; painted at 1900 K | `#D07830`, glows | 5 |
 | 17 | Oil (crude) | LIQUID | 870 | 2000 | 0.15 | none yet (flammable later) | `#3C2A12` α 0.92 | 5 |
+| 18 | Bullet (lead) | POWDER | 11340 | 129 | 35 | none yet (lead melts at 600 K, later) | `#50545C` | 6a |
+| 19 | Casing (brass) | POWDER | 8500 | 380 | 110 | none yet (brass melts ≈ 1200 K, later) | `#C9A23A` | 6a |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -46,8 +48,10 @@ Notes
 - **Buoyancy** treats O₂ and N₂ as air: both get `AIR_DENSITY_0C` = 1.2922 kg/m³ for buoyancy only
   (deviation 7 below).
 - **Nitrogen** (M4) is inert. With it, air can be realistic: 78% N₂, 21% O₂, ~1% argon (ignored),
-  0.04% CO₂ by volume. The Air brush paints each cell oxygen with probability `AIR_O2_FRAC` = 0.21,
-  else nitrogen (argon counted as nitrogen). Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
+  0.04% CO₂ by volume. The Air brush paints `AIR_O2_FRAC` = 21% of the cells oxygen, else nitrogen
+  (argon counted as nitrogen), with no two oxygen cells side by side and none against a solid or
+  liquid: the most even mix one gas per cell allows, which diffusion leaves alone, so painted air
+  is settled at once (M6a; before, random cells reshuffled for minutes). Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
@@ -121,6 +125,16 @@ All are clamped to `MAX_MOVE` = 32.
 | `WIND_DECAY_P16`, `WIND_SPREAD_P16` | 1/4, 1/2 | `sim/sim.c` | Gas currents: chance per tick to lose a speed step, to spread to a neighbour |
 | `WIND_PASS_LOSS`, `WIND_SPREAD_LOSS`, `WIND_TURN_LOSS` | 2, 4, 3 | `sim/sim.c` | Speed a current loses when it pushes a cell, spreads, or turns at a wall |
 | `BODY_PUSH_WIND`, `BODY_WAKE_WIND`, `BREATH_WIND` | 12, 18, 14 | `sim/creature.c` | Currents from a walking body (front, wake) and a breath out |
+| `PLAYER_W`, `PLAYER_H`, `PLAYER_SPEED` | 9, 37 cells, 4 m/s | `sim/creature.h` | The player: 45 cm × 1.85 m; running speed |
+| `CREATURE_JUMP_SPEED` | 3.13 m/s | `sim/creature.h` | Take-off speed of a jump (about 50 cm high) |
+| `RIFLE_BULLET_SPEED` | 900 m/s (300 cells/tick) | `sim/weapon.h` | Muzzle velocity |
+| `RIFLE_INTERVAL` | 5 ticks | `sim/weapon.h` | Between shots: 720 rounds per minute |
+| `RIFLE_SPREAD` | ±0.005 rad | `sim/weapon.h` | Random spread of a shot (about ±0.3°) |
+| `BULLET_FAST` | 2 cells/tick (6 m/s) | `sim/particle.c` | Below this a bullet just falls (an ordinary particle) |
+| `BULLET_WIND` | 16 | `sim/particle.c` | Current a bullet leaves in the gas along its path |
+| bullet resistance | dirt and powders 50, liquids 15 × ρ/1000 cells/tick per cell; rock: chips one cell and stops | `sim/particle.c` | Speed a bullet loses per cell (it flies at 300): about 30 cm of earth or sand, 1 m of water |
+| `CLUMP_MAX_CELLS` | 20 | `sim/edit.c` | Solid clumps this small, held by nothing, break loose |
+| `AIR_O2_PAINT_P` | 0.335 | `sim/edit.c` | Air brush: oxygen where no neighbour is oxygen or solid (gives 21%) |
 | `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from falling matter (plus fall speed / 4) |
 | Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |
 | `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
@@ -189,6 +203,12 @@ Keep this list complete.
     than the noise of a mixture sink (a thin CO₂ haze does not). Still-gas diffusion
     is about 40× real molecular diffusion (`P_GAS_MIX`), and stirred gas mixes fast
     (`P_GAS_MIX_STIRRED`), standing in for turbulence.
+13. Weapons (M6a): a bullet is one cell (5 cm), far bigger than a real 5.56 mm bullet; its
+    penetration (about 30 cm of earth, one chip of rock) is a rough figure, not a ballistic model,
+    and it does not ricochet. Spent bullets and casings are full cells of lead and brass at their
+    solid densities (a real casing is hollow), and do not melt yet. The rifle never runs out of
+    ammunition. Muzzle velocity is real (900 m/s): a bullet crosses the screen in a few ticks, so
+    the game draws a faint streak behind it (rendering only).
 
 ## Adding an element (checklist)
 

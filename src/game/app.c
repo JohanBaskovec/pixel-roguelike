@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "sim/creature.h"
+#include "sim/particle.h"
 #include "sim/scene.h"
 
 #include <SDL3/SDL.h>
@@ -32,12 +33,15 @@ static const char *const k_gas_short[ELEM_COUNT] = {
 typedef struct Tool {
     ElementId element;
     const char *label; // NULL: use the element name
-    uint8_t mode;      // EditMode
+    uint8_t mode;      // EditMode, or TOOL_RIFLE
     SDL_Keycode key;
     uint32_t swatch; // UI_NO_SWATCH: none; 0: the element's colour
 } Tool;
 
+#define TOOL_RIFLE 0xFF // the player's rifle (M6a): the left button fires
+
 static const Tool k_tools[] = {
+    {ELEM_BULLET, "Rifle", TOOL_RIFLE, SDLK_E, 0x50545C},
     {ELEM_WATER, NULL, EDIT_PAINT, SDLK_1, 0},
     {ELEM_OXYGEN, NULL, EDIT_PAINT, SDLK_2, 0},
     {ELEM_CO2, "CO2", EDIT_PAINT, SDLK_3, 0},
@@ -110,17 +114,40 @@ static bool mouse_over_world(const App *app) {
     return ui_point_in(app->view, app->mouse_x, app->mouse_y);
 }
 
+static Creature *player(App *app) {
+    return app->player >= 0 && app->player < app->world->creature_count
+               ? &app->world->creatures[app->player]
+               : NULL;
+}
+
+// The camera centred on the player.
+static void camera_follow(App *app) {
+    const Creature *c = player(app);
+    if (!c || !app->follow) {
+        return;
+    }
+    float z = zoom(app);
+    app->cam_x = (float)c->x + (float)c->w * 0.5f - app->view.w / z * 0.5f;
+    app->cam_y = (float)c->y + (float)c->h * 0.5f - app->view.h / z * 0.5f;
+    camera_clamp(app);
+}
+
 static void reset_world(App *app) {
     if (app->cfg.demo) {
         scene_demo(app->world);
     } else {
-        scene_empty_box(app->world, SCENE_WALL_THICKNESS);
+        scene_level(app->world);
     }
+    app->player = scene_spawn_player(app->world, app->world->width / 2);
+    app->rifle = (Rifle){0};
+    app->trigger = false;
+    app->follow = true;
 }
 
 bool app_init(App *app, const AppConfig *cfg) {
     *app = (App){0};
     app->cfg = *cfg;
+    app->player = -1;
     app->brush_radius = 8;
     app->running = true;
 
@@ -147,7 +174,12 @@ bool app_init(App *app, const AppConfig *cfg) {
         return false;
     }
     layout(app);
-    camera_fit(app);
+    app->zoom_index = ZOOM_ONE;
+    if (player(app)) {
+        camera_follow(app);
+    } else {
+        camera_fit(app);
+    }
     app->stat_t0 = pr_time_seconds();
     return true;
 }
@@ -233,8 +265,12 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 app->brush_square = !app->brush_square;
             } else if (k == SDLK_R) {
                 reset_world(app);
+                camera_follow(app);
             } else if (k == SDLK_HOME) {
+                app->follow = false;
                 camera_fit(app);
+            } else if (k == SDLK_F) {
+                app->follow = true;
             } else if (k == SDLK_P) {
                 app->wr.pressure_view = !app->wr.pressure_view;
                 app->wr.temperature_view = false;
@@ -288,8 +324,11 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             bool on_panel = ui_point_in(app->panel, ev->button.x, ev->button.y);
             if (ev->button.button == SDL_BUTTON_MIDDLE && !on_panel) {
                 app->panning = true;
+                app->follow = false;
             } else if (ev->button.button == SDL_BUTTON_LEFT && on_panel) {
                 app->ui_click = true;
+            } else if (k_tools[app->tool].mode == TOOL_RIFLE) {
+                app->trigger = !on_panel && ev->button.button == SDL_BUTTON_LEFT;
             } else if (!on_panel && app->paint_button == 0 &&
                        (ev->button.button == SDL_BUTTON_LEFT ||
                         ev->button.button == SDL_BUTTON_RIGHT)) {
@@ -303,6 +342,9 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             if (ev->button.button == SDL_BUTTON_MIDDLE) {
                 app->panning = false;
             }
+            if (ev->button.button == SDL_BUTTON_LEFT) {
+                app->trigger = false;
+            }
             if (ev->button.button == app->paint_button) {
                 stroke_to(app, ev->button.x, ev->button.y);
                 app->paint_button = 0;
@@ -314,7 +356,7 @@ void app_handle_event(App *app, const SDL_Event *ev) {
 }
 
 static void draw_brush_outline(App *app) {
-    if (!mouse_over_world(app)) {
+    if (!mouse_over_world(app) || k_tools[app->tool].mode == TOOL_RIFLE) {
         return;
     }
     float scale = zoom(app);
@@ -492,6 +534,17 @@ static void draw_panel(App *app) {
         y = draw_partial_pressures(app, ui, x, y, wx, wy);
     }
 
+    if (player(app)) {
+        const Creature *c = player(app);
+        static const char *const k_pstate[] = {"ok", "impaired", "DANGER", "dead"};
+        y += 10.0f;
+        ui_text(ui, x, y, 0x9AA0AA, "PLAYER");
+        y += 14.0f;
+        ui_text(ui, x, y, 0xE8E8E8, "%s %3d%%  shots %u", k_pstate[c->state],
+                (int)(c->health * 100.0f + 0.5f), app->rifle.shots);
+        y += 12.0f;
+    }
+
     // Creatures (M4c): the first few, with the air around their heads.
     if (app->world->creature_count > 0) {
         y += 10.0f;
@@ -511,12 +564,14 @@ static void draw_panel(App *app) {
     }
 
     const char *help[] = {
-        "LMB  paint",
+        "A D  run  W  jump (Q D Z)",
+        "LMB  shoot (Rifle) / paint",
         "RMB  erase",
         "Shift  only into void",
         "Wheel [ ]  brush size",
         "B  square/circle",
-        "MMB drag, WASD  pan",
+        "MMB drag, arrows  pan",
+        "F  follow player",
         "Ctrl+wheel  zoom",
         "Home  whole world",
         "P  pressure  T  temperature",
@@ -548,8 +603,33 @@ static void update_stats(App *app) {
     }
 }
 
+// The mouse position in world cells (not rounded).
+static void mouse_world(const App *app, float *x, float *y) {
+    *x = app->cam_x + (app->mouse_x - app->view.x) / zoom(app);
+    *y = app->cam_y + (app->mouse_y - app->view.y) / zoom(app);
+}
+
+// Player input for one tick (between ticks, on the main thread): run with A/D and jump with W
+// (physical keys: Q/D/Z on AZERTY), face the mouse, and fire the rifle while the trigger is held.
+static void control_player(App *app) {
+    Creature *c = player(app);
+    if (!c) {
+        return;
+    }
+    const bool *keys = SDL_GetKeyboardState(NULL);
+    c->walk = (int8_t)((int)keys[SDL_SCANCODE_D] - (int)keys[SDL_SCANCODE_A]);
+    c->jump = keys[SDL_SCANCODE_W];
+    float ax, ay, sx, sy;
+    mouse_world(app, &ax, &ay);
+    rifle_shoulder(c, &sx, &sy);
+    c->facing = ax >= sx ? 1 : -1;
+    rifle_update(app->world, &app->rifle, app->player, ax, ay,
+                 app->trigger && k_tools[app->tool].mode == TOOL_RIFLE);
+}
+
 static void run_tick(App *app) {
     double t0 = pr_time_seconds();
+    control_player(app);
     sim_tick(app->world, &app->last_stats);
     app->stat_sim_s += pr_time_seconds() - t0;
     app->stat_ticks++;
@@ -557,15 +637,72 @@ static void run_tick(App *app) {
 
 static void pan_with_keys(App *app, double frame_dt) {
     const bool *keys = SDL_GetKeyboardState(NULL);
+    bool wasd = !player(app); // with a player, WASD moves it
     float dx = 0.0f, dy = 0.0f;
-    dx -= (float)(keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]);
-    dx += (float)(keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]);
-    dy -= (float)(keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]);
-    dy += (float)(keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]);
+    dx -= (float)((wasd && keys[SDL_SCANCODE_A]) || keys[SDL_SCANCODE_LEFT]);
+    dx += (float)((wasd && keys[SDL_SCANCODE_D]) || keys[SDL_SCANCODE_RIGHT]);
+    dy -= (float)((wasd && keys[SDL_SCANCODE_W]) || keys[SDL_SCANCODE_UP]);
+    dy += (float)((wasd && keys[SDL_SCANCODE_S]) || keys[SDL_SCANCODE_DOWN]);
     if (dx != 0.0f || dy != 0.0f) {
+        app->follow = false;
         float step = PAN_SPEED * (float)PR_MIN(frame_dt, 0.1) / zoom(app);
         app->cam_x += dx * step;
         app->cam_y += dy * step;
+    }
+}
+
+static void world_to_screen(const App *app, float wx, float wy, float *sx, float *sy) {
+    *sx = app->view.x + (wx - app->cam_x) * zoom(app);
+    *sy = app->view.y + (wy - app->cam_y) * zoom(app);
+}
+
+// A line `thick` screen pixels wide (several 1-pixel lines side by side).
+static void thick_line(SDL_Renderer *r, float x0, float y0, float x1, float y1, float thick) {
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+    if (len < 1e-3f) {
+        return;
+    }
+    float nx = -dy / len, ny = dx / len;
+    int n = PR_MAX(1, (int)(thick + 0.5f));
+    for (int k = 0; k < n; k++) {
+        float o = (float)k - (float)(n - 1) * 0.5f;
+        SDL_RenderLine(r, x0 + nx * o, y0 + ny * o, x1 + nx * o, y1 + ny * o);
+    }
+}
+
+// The player's rifle (drawn over the world: it is not made of cells), and a faint streak behind
+// each bullet in flight over the last tick (a bullet crosses the screen in a few ticks).
+static void draw_rifle_and_tracers(App *app) {
+    float z = zoom(app);
+    SDL_SetRenderDrawBlendMode(app->renderer, SDL_BLENDMODE_BLEND);
+    const Creature *c = player(app);
+    if (c && c->state != CREATURE_DEAD) {
+        float sx, sy, ax, ay;
+        rifle_shoulder(c, &sx, &sy);
+        mouse_world(app, &ax, &ay);
+        float dx = ax - sx, dy = ay - sy, len = sqrtf(dx * dx + dy * dy);
+        if (len < 1e-3f) {
+            dx = (float)c->facing;
+            dy = 0.0f;
+            len = 1.0f;
+        }
+        float ex = sx + dx / len * RIFLE_LENGTH, ey = sy + dy / len * RIFLE_LENGTH;
+        float x0, y0, x1, y1;
+        world_to_screen(app, sx, sy, &x0, &y0);
+        world_to_screen(app, ex, ey, &x1, &y1);
+        SDL_SetRenderDrawColor(app->renderer, 120, 124, 132, 255); // gunmetal
+        thick_line(app->renderer, x0, y0, x1, y1, PR_MAX(z * 1.5f, 1.0f));
+    }
+    SDL_SetRenderDrawColor(app->renderer, 255, 220, 150, 110);
+    for (int i = 0; i < app->world->particle_count; i++) {
+        const Particle *p = &app->world->particles[i];
+        if (p->cell.element != ELEM_BULLET || fabsf(p->vx) + fabsf(p->vy) < 20.0f) {
+            continue;
+        }
+        float x0, y0, x1, y1;
+        world_to_screen(app, p->x - p->vx, p->y - p->vy, &x0, &y0);
+        world_to_screen(app, p->x, p->y, &x1, &y1);
+        thick_line(app->renderer, x0, y0, x1, y1, PR_MAX(z, 1.0f));
     }
 }
 
@@ -631,7 +768,9 @@ bool app_frame(App *app, double frame_dt) {
     if (app->wr.pressure_view || app->wr.temperature_view) {
         render_invalidate(app->world); // these can change anywhere: redraw everything
     }
+    camera_follow(app);
     draw_world(app);
+    draw_rifle_and_tracers(app);
     draw_brush_outline(app);
     SDL_SetRenderClipRect(app->renderer, NULL);
     draw_panel(app);

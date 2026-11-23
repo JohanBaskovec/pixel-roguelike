@@ -4,6 +4,8 @@
 #include "sim/creature.h"
 #include "sim/edit.h"
 
+#include <math.h>
+
 static void fill_rect(World *w, int x0, int y0, int x1, int y1, ElementId e, Rng *rng) {
     x0 = PR_MAX(x0, 0);
     y0 = PR_MAX(y0, 0);
@@ -74,6 +76,67 @@ void scene_demo(World *w) {
     blob(w, W * 3 / 4, H / 2, 60, ELEM_OXYGEN);
     blob(w, W / 2, H * 3 / 4, 50, ELEM_HYDROGEN);
     blob(w, W / 8, H / 6, 30, ELEM_ICE);
+}
+
+void scene_level(World *w) {
+    scene_empty_box(w, SCENE_WALL_THICKNESS);
+    Rng rng = rng_from_seed(w->seed ^ 0x1E7E1ull);
+    int t = SCENE_WALL_THICKNESS, W = w->width, H = w->height;
+    float ph1 = (float)rng_range(&rng, 1000) * 0.01f, ph2 = (float)rng_range(&rng, 1000) * 0.01f;
+    for (int x = t; x < W - t; x++) {
+        float fx = (float)x;
+        int ground = (int)((float)H * 0.55f + 40.0f * sinf(fx / 160.0f + ph1) +
+                           14.0f * sinf(fx / 41.0f + ph2));
+        int rock_top = ground + 140 + (int)(30.0f * sinf(fx / 97.0f + ph2));
+        int rock_bottom = rock_top + 40 + (int)(15.0f * sinf(fx / 53.0f + ph1));
+        for (int y = t; y < H - t; y++) {
+            ElementId e = y < ground                           ? ELEM_VOID
+                          : (y >= rock_top && y < rock_bottom) ? ELEM_ROCK
+                                                               : ELEM_DIRT;
+            if (e != ELEM_VOID) {
+                world_set_cell(w, x, y, e, rng_next(&rng));
+            }
+        }
+    }
+    // Boulders in the dirt.
+    for (int k = 0; k < W / 64; k++) {
+        int bx = t + (int)rng_range(&rng, (uint32_t)(W - 2 * t));
+        int by = (int)((float)H * 0.62f) + (int)rng_range(&rng, (uint32_t)(H * 3 / 10));
+        int r = 6 + (int)rng_range(&rng, 22);
+        for (int y = by - r; y <= by + r; y++) {
+            for (int x = bx - r; x <= bx + r; x++) {
+                if ((x - bx) * (x - bx) + (y - by) * (y - by) <= r * r &&
+                    world_elem(w, x, y) == ELEM_DIRT) {
+                    world_set_cell(w, x, y, ELEM_ROCK, rng_next(&rng));
+                }
+            }
+        }
+    }
+    // Air above the ground.
+    for (int y = t; y < H - t; y++) {
+        Edit air = {t, y, W - t - 1, y, 0, EDIT_SQUARE, EDIT_AIR, 1, EDIT_PAINT};
+        sim_apply_edit(w, &air);
+    }
+    world_wake_rect(w, 0, 0, W - 1, H - 1);
+    world_wake_heat(w, 0, 0, W - 1, H - 1);
+}
+
+int scene_spawn_player(World *w, int x) {
+    int y = SCENE_WALL_THICKNESS;
+    for (ElementId e = world_elem(w, x, y);
+         y < w->height && (e == ELEM_VOID || g_elem_behavior[e] == BEHAVIOR_GAS);
+         e = world_elem(w, x, ++y)) {
+    }
+    for (int k = 0; k < 64; k++, y--) { // up from the ground until the body fits
+        int id = creature_spawn_sized(w, x - PLAYER_W / 2, y - PLAYER_H, PLAYER_W, PLAYER_H);
+        if (id >= 0) {
+            Creature *c = &w->creatures[id];
+            c->speed = PLAYER_SPEED;
+            c->aimed = 1;
+            return id;
+        }
+    }
+    return -1;
 }
 
 void scene_bench(World *w, float fill) {

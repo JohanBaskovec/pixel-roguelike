@@ -1,5 +1,8 @@
 #include "sim/particle.h"
 
+#include "core/rng.h"
+#include "sim/edit.h"
+
 #include <math.h>
 
 bool particle_add(World *w, const Particle *p) {
@@ -127,10 +130,142 @@ bool particle_step(World *w, Particle *p, float fraction) {
     return false;
 }
 
+// ---- Bullets (M6a). docs/SIMULATION.md -> Rifle and bullets ----
+
+// A bullet flies as a projectile while faster than BULLET_FAST (cells per tick, 6 m/s); slower,
+// it is an ordinary particle that falls and lands as a pixel.
+#define BULLET_FAST 2.0f
+// Current a bullet leaves in the gas it passes through (a speed, as in GAS_WIND_MAX units).
+#define BULLET_WIND 16
+
+// Speed a bullet loses passing through one cell of `e` (cells per tick; it flies at 300).
+// Negative: it cannot get through (it stops in front of it). Rock: it chips the cell and stops.
+static float bullet_resistance(ElementId e) {
+    switch (e) {
+        case ELEM_DIRT:
+            return 50.0f; // about 30 cm of packed earth stops it
+        case ELEM_ROCK:
+            return 1e9f;
+        default:
+            break;
+    }
+    switch (g_elem_behavior[e]) {
+        case BEHAVIOR_POWDER:
+            return 50.0f; // sand or loose soil: about 30 cm (sandbags)
+        case BEHAVIOR_LIQUID:
+            return 15.0f * g_elem_defs[e].density / 1000.0f; // water: about 1 m
+        default:
+            return -1.0f; // iron, ice, bodies, the world's edge
+    }
+}
+
+static float rand_unit(uint64_t *h) {
+    *h = pr_splitmix64(*h);
+    return (float)(*h >> 40) * (1.0f / 16777216.0f);
+}
+
+// The cell at (x, y), hit by a bullet flying along (ux, uy), is knocked out of the grid and thrown
+// back out of the hole (debris: dirt loosened to soil, rock to rubble; nothing is destroyed). If
+// the particle list is full it is only loosened, in place.
+static void bullet_eject(World *w, int x, int y, float ux, float uy, uint64_t *h) {
+    size_t i = world_index(w, x, y);
+    Cell c = w->cells[i];
+    c.element = elem_loosened(c.element);
+    c.aux = 0;
+    float back = 1.5f + 2.5f * rand_unit(h), side = 3.0f * rand_unit(h) - 1.5f;
+    Particle d = {
+        (float)x + 0.5f, (float)y + 0.5f, -ux * back - uy * side, -uy * back + ux * side - 0.5f, c,
+        w->temp[i]};
+    world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
+    world_note_moved(w, x, y);
+    if (!particle_add(w, &d)) {
+        w->cells[i].element = c.element;
+        w->cells[i].aux = 0;
+        return;
+    }
+    w->cells[i] = (Cell){ELEM_VOID, (uint8_t)w->tick, w->cells[i].shade, 0};
+    w->temp[i] = 0.0f;
+    w->mass[i] = 0.0f;
+    world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
+}
+
+// One tick of a fast bullet: it flies along its velocity (half-cell sub-steps), through void,
+// gas and falling liquid, stirring the gas. Into dirt, powders and liquids it goes on, slowing by
+// their resistance, knocking dirt and powder out as debris (and throwing up a splash where it
+// enters a liquid). It stops in front of anything it cannot get through. Stopped (slower than
+// BULLET_FAST), it is left to fall as an ordinary particle.
+static void bullet_step(World *w, Particle *p) {
+    float speed = sqrtf(p->vx * p->vx + p->vy * p->vy);
+    float ux = p->vx / speed, uy = p->vy / speed;
+    float ax = fabsf(ux), ay = fabsf(uy);
+    int wind =
+        gas_wind_dir_of(ax > 0.38f ? (ux > 0 ? 1 : -1) : 0, ay > 0.38f ? (uy > 0 ? 1 : -1) : 0);
+    uint64_t h = pr_splitmix64(w->seed ^ pr_splitmix64(w->tick) ^ (uint64_t)(p->x * 4096.0f) ^
+                               ((uint64_t)(p->y * 4096.0f) << 32));
+    int cx = (int)floorf(p->x), cy = (int)floorf(p->y);
+    bool in_liquid = g_elem_behavior[world_elem(w, cx, cy)] == BEHAVIOR_LIQUID;
+    int n = (int)ceilf(speed * 2.0f);
+    float x0 = p->x, y0 = p->y;
+    for (int s = 1; s <= n && speed > BULLET_FAST; s++) {
+        float nx = x0 + p->vx * (float)s / (float)n, ny = y0 + p->vy * (float)s / (float)n;
+        int tx = (int)floorf(nx), ty = (int)floorf(ny);
+        if (tx != cx || ty != cy) {
+            ElementId e = world_elem(w, tx, ty);
+            if (particle_flies_through(w, tx, ty)) {
+                if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+                    gas_push_wind(&w->cells[world_index(w, tx, ty)], wind, BULLET_WIND);
+                    world_wake_rect(w, tx, ty, tx, ty);
+                }
+                in_liquid = false;
+            } else {
+                float r = bullet_resistance(e);
+                if (r < 0.0f) {
+                    speed = 0.0f; // stops in front of it
+                    break;
+                }
+                speed -= r;
+                if (g_elem_behavior[e] == BEHAVIOR_LIQUID) {
+                    if (!in_liquid) {
+                        bullet_eject(w, tx, ty, ux, uy, &h); // the splash where it goes in
+                    }
+                    in_liquid = true;
+                } else {
+                    bullet_eject(w, tx, ty, ux, uy, &h);
+                    sim_loosen_small_clumps(w, tx - 1, ty - 1, tx + 1, ty + 1);
+                    in_liquid = false;
+                }
+                if (e == ELEM_ROCK) {
+                    break; // chipped it, and stopped: it falls from in front of the chip
+                }
+            }
+            cx = tx;
+            cy = ty;
+        }
+        p->x = nx;
+        p->y = ny;
+    }
+    if (speed <= BULLET_FAST) {
+        // Stopped: from the middle of the last cell it reached, it drops (bouncing back a little).
+        p->x = (float)cx + 0.5f;
+        p->y = (float)cy + 0.5f;
+        p->vx = -ux * 0.3f;
+        p->vy = 0.0f;
+        return;
+    }
+    p->vx = ux * speed;
+    p->vy = uy * speed;
+}
+
 void particles_update(World *w) {
     int i = 0;
     while (i < w->particle_count) {
         Particle *p = &w->particles[i];
+        if (p->cell.element == ELEM_BULLET && fabsf(p->vx) + fabsf(p->vy) > BULLET_FAST) {
+            p->vy += PARTICLE_GRAVITY;
+            bullet_step(w, p);
+            i++;
+            continue;
+        }
         p->vy = PR_MIN(p->vy + PARTICLE_GRAVITY, PARTICLE_MAX_SPEED);
         p->vx = PR_CLAMP(p->vx, -PARTICLE_MAX_SPEED, PARTICLE_MAX_SPEED);
         if (particle_step(w, p, 1.0f)) {

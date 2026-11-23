@@ -3,6 +3,7 @@
 #include "render/render.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
+#include "sim/weapon.h"
 #include "ui/ui.h"
 
 #include <SDL3/SDL_events.h>
@@ -13,7 +14,7 @@ typedef struct AppConfig {
     uint64_t seed;
     int frames;             // > 0: quit after this many frames, running exactly 1 tick per frame
     const char *screenshot; // with frames: save the last frame as BMP here
-    bool demo;              // start with the demo scene instead of the empty box
+    bool demo;              // start with the demo scene instead of the level
     int threads;            // simulation threads; 0 = one per logical core
 } AppConfig;
 
@@ -47,6 +48,12 @@ typedef struct App {
     float cam_x, cam_y;
     int zoom_index;
     bool panning; // middle mouse button held
+    bool follow;  // the camera follows the player
+
+    // The player (M6a): its creature index (-1: none), rifle, and trigger.
+    int player;
+    Rifle rifle;
+    bool trigger; // left button held over the world with the rifle tool
 
     // Timing and stats
     double accumulator;

@@ -64,6 +64,88 @@ static bool in_swept_square(float px, float py, float ax, float ay, float bx, fl
            clip(-dy, ay - (py - h), &t0, &t1) && clip(dy, (py + h) - ay, &t0, &t1);
 }
 
+// The Air brush paints oxygen with this probability where no neighbour is oxygen (tuned so that
+// AIR_O2_FRAC of the cells are oxygen; tested).
+#define AIR_O2_PAINT_P 0.335f
+
+// Small clumps (docs/SIMULATION.md -> Powders and digging): a group of at most CLUMP_MAX_CELLS
+// solid cells (4-connected) that holds on to nothing else breaks loose, so the player never gets
+// stuck on a few pixels left floating after digging or shooting.
+#define CLUMP_MAX_CELLS 20
+
+ElementId elem_loosened(ElementId e) {
+    return e == ELEM_DIRT ? ELEM_SOIL : e == ELEM_ROCK ? ELEM_RUBBLE : e;
+}
+
+// The clump of solid cells 4-connected to cell i (dirt or rock), into cells[]. Returns its size,
+// or 0 if it is bigger than CLUMP_MAX_CELLS, touches the world's edge, or holds on to a solid
+// that does not break loose (iron, ice). Creatures' bodies hold nothing up.
+static int clump_collect(const World *w, int32_t i, int32_t *cells) {
+    int n = 0, head = 0;
+    cells[n++] = i;
+    while (head < n) {
+        int32_t c = cells[head++];
+        int cx = c % w->width, cy = c / w->width;
+        static const int8_t k_d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int k = 0; k < 4; k++) {
+            int nx = cx + k_d[k][0], ny = cy + k_d[k][1];
+            if (!world_in_bounds(w, nx, ny)) {
+                return 0;
+            }
+            int32_t ni = (int32_t)world_index(w, nx, ny);
+            ElementId e = w->cells[ni].element;
+            if (g_elem_behavior[e] != BEHAVIOR_STATIC || e == ELEM_BODY) {
+                continue;
+            }
+            if (elem_loosened(e) == e) {
+                return 0;
+            }
+            bool seen = false;
+            for (int j = 0; j < n && !seen; j++) {
+                seen = cells[j] == ni;
+            }
+            if (seen) {
+                continue;
+            }
+            if (n == CLUMP_MAX_CELLS) {
+                return 0;
+            }
+            cells[n++] = ni;
+        }
+    }
+    return n;
+}
+
+int64_t sim_loosen_small_clumps(World *w, int x0, int y0, int x1, int y1) {
+    x0 = PR_MAX(x0, 0);
+    y0 = PR_MAX(y0, 0);
+    x1 = PR_MIN(x1, w->width - 1);
+    y1 = PR_MIN(y1, w->height - 1);
+    int64_t loosened = 0;
+    int32_t cells[CLUMP_MAX_CELLS];
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            int32_t i = (int32_t)world_index(w, x, y);
+            ElementId e = w->cells[i].element;
+            if (elem_loosened(e) == e) {
+                continue;
+            }
+            int n = clump_collect(w, i, cells);
+            for (int k = 0; k < n; k++) {
+                Cell *c = &w->cells[cells[k]];
+                c->element = elem_loosened(c->element);
+                c->aux = 0;
+                c->stamp = (uint8_t)(w->tick - 1);
+                int cx = cells[k] % w->width, cy = cells[k] / w->width;
+                world_wake_rect(w, cx - 1, cy - 1, cx + 1, cy + 1);
+                world_note_moved(w, cx, cy);
+            }
+            loosened += n;
+        }
+    }
+    return loosened;
+}
+
 static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, int by, Rng *rng) {
     int r = e->radius;
     int x0 = PR_MAX(PR_MIN(ax, bx) - r, 0);
@@ -92,7 +174,7 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             if (e->mode == EDIT_DIG) {
                 // Digging loosens the solid: same temperature, now a powder that falls.
                 ElementId el = w->cells[i].element;
-                ElementId to = el == ELEM_DIRT ? ELEM_SOIL : el == ELEM_ROCK ? ELEM_RUBBLE : el;
+                ElementId to = elem_loosened(el);
                 if (to != el) {
                     w->cells[i].element = to;
                     w->cells[i].aux = 0;
@@ -124,8 +206,21 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             uint32_t bits = rng_next(rng);
             ElementId el = e->element;
             if (el == EDIT_AIR) {
-                el =
-                    (bits >> 16) < (uint32_t)(AIR_O2_FRAC * 65536.0f) ? ELEM_OXYGEN : ELEM_NITROGEN;
+                // Air is mixed molecule by molecule: no two oxygen cells side by side, and none
+                // against a solid or liquid (the most even mix one gas per cell allows, which
+                // diffusion leaves alone, so painted air is settled at once). Oxygen with
+                // probability AIR_O2_PAINT_P where no neighbour is oxygen, solid or liquid:
+                // about AIR_O2_FRAC of the cells.
+                bool o2_near = false;
+                static const int8_t k_n[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                for (int k = 0; k < 4; k++) {
+                    ElementId n = world_elem(w, x + k_n[k][0], y + k_n[k][1]);
+                    o2_near |=
+                        n == ELEM_OXYGEN || (n != ELEM_VOID && g_elem_behavior[n] != BEHAVIOR_GAS);
+                }
+                el = !o2_near && (bits >> 16) < (uint32_t)(AIR_O2_PAINT_P * 65536.0f)
+                         ? ELEM_OXYGEN
+                         : ELEM_NITROGEN;
             }
             world_set_cell(w, x, y, el, bits);
             written++;
@@ -133,6 +228,9 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
     }
     world_wake_rect(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
     world_wake_heat(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    if (e->mode == EDIT_DIG && written > 0) {
+        sim_loosen_small_clumps(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    }
     return written;
 }
 

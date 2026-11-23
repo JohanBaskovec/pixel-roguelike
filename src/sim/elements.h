@@ -24,6 +24,8 @@ enum {
     ELEM_LAVA = 15,   // molten rock
     ELEM_MOLTEN_IRON = 16,
     ELEM_OIL = 17,
+    ELEM_BULLET = 18, // a spent bullet (lead): falls and piles like a powder
+    ELEM_CASING = 19, // a spent cartridge case (brass)
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.

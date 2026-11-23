@@ -66,6 +66,14 @@ void test_oil_manometer(void);
 void test_hydrogen_burns_in_oxygen(void);
 void test_cold_hydrogen_does_not_burn(void);
 void test_burning_same_for_any_thread_count(void);
+void test_rifle_digs_dirt(void);
+void test_bullet_stops_at_iron(void);
+void test_bullet_stirs_air(void);
+void test_shooting_same_for_any_thread_count(void);
+void test_small_clumps_fall(void);
+void test_player_runs_and_jumps(void);
+void test_air_brush_spreads_oxygen(void);
+
 void test_heater_makes_plume(void);
 void test_pool_heated_from_below_convects(void);
 void test_moved_water_carries_heat(void);
@@ -154,6 +162,14 @@ int main(int argc, char **argv) {
     RUN(test_hydrogen_burns_in_oxygen);
     RUN(test_cold_hydrogen_does_not_burn);
     RUN(test_burning_same_for_any_thread_count);
+    RUN(test_rifle_digs_dirt);
+    RUN(test_bullet_stops_at_iron);
+    RUN(test_bullet_stirs_air);
+    RUN(test_shooting_same_for_any_thread_count);
+    RUN(test_small_clumps_fall);
+    RUN(test_player_runs_and_jumps);
+    RUN(test_air_brush_spreads_oxygen);
+
     RUN(test_pool_heated_from_below_convects);
     RUN(test_moved_water_carries_heat);
     RUN(test_edit_single_pixel);

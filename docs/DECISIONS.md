@@ -410,3 +410,23 @@ to watch).
   mix of three gases, all awake) is 41–60% slower: the window sums (tried one tick in 2, all
   heights one tick in 16), and the soup no longer unmixes into calm layers, so more cells keep
   balancing pressure across gases. A thin CO2 haze over clean air does not sink.
+
+## D-031 — Action roguelike: the player is a creature, bullets are free particles
+
+- **Status:** Accepted (M6a)
+- **Context:** The design question in VISION.md (colony sim or roguelike) was decided: an action
+  roguelike with a player character and weapons that act on the simulation.
+- **Decision:** The player is a creature (D-027) with its own body size (1.85 m, 37 × 9 cells),
+  driven by the keyboard instead of wandering; it breathes and warms the air like the others. A
+  bullet is a free particle (D-026) carrying a cell of lead. Fast, it flies its whole path in one
+  tick (900 m/s: 300 cells, in half-cell steps), serially at the end of the tick like other
+  particles, so it is not bound by the 32-cell reach of the parallel rules and stays deterministic.
+  It digs by knocking cells out as debris particles (loosened: soil, rubble), so no pixel is lost.
+  Slow, it is an ordinary particle that lands as a powder pixel. The rifle runs between ticks on
+  the main thread. Clumps of at most 20 solid cells held by nothing break loose after digging.
+- **Alternatives:** bullets as grid cells moving 300 cells per tick: impossible under the reach
+  invariant. Hit-scan (no bullet): against the request that a real bullet flies and lands.
+  Destroying dug cells: against the rule that no pixel is destroyed.
+- **Consequences:** Shooting costs little (a few hundred cell checks per bullet, serial). Spent
+  bullets and casings pile up as real matter. The camera follows the player at zoom 1. Next:
+  simulate only near the player, HP and damage (ROADMAP M6b).

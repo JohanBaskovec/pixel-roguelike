@@ -5,10 +5,9 @@
 
 #include <math.h>
 
-// Walking at 1.4 m/s; steps up ledges up to STEP_UP cells (20 cm) without stopping.
-#define WALK_SPEED (1.4f / CELL_SIZE_M * TICK_SECONDS)
-#define STEP_UP    4
-#define FALL_MAX   24.0f // cells per tick
+// Steps up ledges up to STEP_UP cells (20 cm) without stopping.
+#define STEP_UP  4
+#define FALL_MAX 24.0f // cells per tick
 // In liquid: drag per tick on the velocity, times the submerged fraction; swimming upward when
 // the head is under (acceleration, cells per tick^2).
 #define WATER_DRAG   0.15f
@@ -78,16 +77,16 @@ static void swap_world_cells(World *w, int x0, int y0, int x1, int y1) {
 // solids (void, gas or liquid, which it pushes).
 static bool can_move(const World *w, const Creature *c, int dx, int dy) {
     if (dx != 0) {
-        int lx = dx > 0 ? c->x + CREATURE_W : c->x - 1;
-        for (int r = 0; r < CREATURE_H; r++) {
+        int lx = dx > 0 ? c->x + c->w : c->x - 1;
+        for (int r = 0; r < c->h; r++) {
             if (!body_can_enter(w, lx, c->y + r)) {
                 return false;
             }
         }
         return true;
     }
-    int ly = dy > 0 ? c->y + CREATURE_H : c->y - 1;
-    for (int k = 0; k < CREATURE_W; k++) {
+    int ly = dy > 0 ? c->y + c->h : c->y - 1;
+    for (int k = 0; k < c->w; k++) {
         if (!body_can_enter(w, c->x + k, ly)) {
             return false;
         }
@@ -117,25 +116,25 @@ static bool move(World *w, Creature *c, int dx, int dy) {
     }
     int dir = gas_wind_dir_of(dx, dy);
     if (dx != 0) {
-        int lx = dx > 0 ? c->x + CREATURE_W : c->x - 1;
-        int tx = dx > 0 ? c->x : c->x + CREATURE_W - 1;
-        for (int r = 0; r < CREATURE_H; r++) {
+        int lx = dx > 0 ? c->x + c->w : c->x - 1;
+        int tx = dx > 0 ? c->x : c->x + c->w - 1;
+        for (int r = 0; r < c->h; r++) {
             swap_world_cells(w, lx, c->y + r, tx, c->y + r);
             push_wind(w, tx, c->y + r, dir, BODY_WAKE_WIND);      // behind, now
             push_wind(w, lx + dx, c->y + r, dir, BODY_PUSH_WIND); // in front
         }
         c->x += dx;
     } else {
-        int ly = dy > 0 ? c->y + CREATURE_H : c->y - 1;
-        int ty = dy > 0 ? c->y : c->y + CREATURE_H - 1;
-        for (int k = 0; k < CREATURE_W; k++) {
+        int ly = dy > 0 ? c->y + c->h : c->y - 1;
+        int ty = dy > 0 ? c->y : c->y + c->h - 1;
+        for (int k = 0; k < c->w; k++) {
             swap_world_cells(w, c->x + k, ly, c->x + k, ty);
             push_wind(w, c->x + k, ty, dir, BODY_WAKE_WIND);
             push_wind(w, c->x + k, ly + dy, dir, BODY_PUSH_WIND);
         }
         c->y += dy;
     }
-    world_wake_rect(w, c->x - 2, c->y - 2, c->x + CREATURE_W + 1, c->y + CREATURE_H + 1);
+    world_wake_rect(w, c->x - 2, c->y - 2, c->x + c->w + 1, c->y + c->h + 1);
     return true;
 }
 
@@ -163,11 +162,11 @@ static bool step(World *w, Creature *c, int dx) {
 // Fraction of the cells along both sides of the body that hold liquid.
 static float submerged_fraction(const World *w, const Creature *c) {
     int n = 0;
-    for (int r = 0; r < CREATURE_H; r++) {
+    for (int r = 0; r < c->h; r++) {
         n += g_elem_behavior[world_elem(w, c->x - 1, c->y + r)] == BEHAVIOR_LIQUID;
-        n += g_elem_behavior[world_elem(w, c->x + CREATURE_W, c->y + r)] == BEHAVIOR_LIQUID;
+        n += g_elem_behavior[world_elem(w, c->x + c->w, c->y + r)] == BEHAVIOR_LIQUID;
     }
-    return (float)n / (float)(2 * CREATURE_H);
+    return (float)n / (float)(2 * c->h);
 }
 
 static float rand01(uint64_t h) {
@@ -185,14 +184,19 @@ static void physics(World *w, Creature *c) {
         c->vy *= 1.0f - WATER_DRAG * f;
         int my = c->y + CREATURE_MOUTH;
         bool head_under = g_elem_behavior[world_elem(w, c->x - 1, my)] == BEHAVIOR_LIQUID &&
-                          g_elem_behavior[world_elem(w, c->x + CREATURE_W, my)] == BEHAVIOR_LIQUID;
+                          g_elem_behavior[world_elem(w, c->x + c->w, my)] == BEHAVIOR_LIQUID;
         if (alive && f > 0.5f && head_under) {
             c->vy -= SWIM_ACCEL; // head under: swim up
         }
     }
+    if (alive && c->jump && c->grounded) {
+        c->vy = -CREATURE_JUMP_SPEED;
+        c->grounded = 0;
+    }
+    c->jump = 0;
     c->vy = PR_CLAMP(c->vy, -FALL_MAX, FALL_MAX);
     if (alive && (c->grounded || f > 0.0f)) {
-        float speed = WALK_SPEED * (c->state == CREATURE_IMPAIRED ? 0.5f : 1.0f);
+        float speed = c->speed * (c->state == CREATURE_IMPAIRED ? 0.5f : 1.0f);
         c->vx = (float)c->walk * speed * (f > 0.0f ? 0.5f : 1.0f);
     } else if (!alive && c->grounded) {
         c->vx = 0.0f;
@@ -230,9 +234,9 @@ static void physics(World *w, Creature *c) {
 // The cell the creature breathes from: in front of its face, else behind.
 static void mouth_cell(const World *w, const Creature *c, int *mx, int *my) {
     *my = c->y + CREATURE_MOUTH;
-    *mx = c->facing > 0 ? c->x + CREATURE_W : c->x - 1;
+    *mx = c->facing > 0 ? c->x + c->w : c->x - 1;
     if (!body_can_enter(w, *mx, *my)) {
-        *mx = c->facing > 0 ? c->x - 1 : c->x + CREATURE_W;
+        *mx = c->facing > 0 ? c->x - 1 : c->x + c->w;
     }
 }
 
@@ -291,7 +295,7 @@ static void breathe(World *w, Creature *c, float work) {
     mouth_cell(w, c, &mx, &my);
     stir(w, c, mx, my, work);
     // The breath out: a puff away from the face, rising a little (it is warm).
-    int out = mx >= c->x + CREATURE_W ? 1 : -1;
+    int out = mx >= c->x + c->w ? 1 : -1;
     for (int k = -1; k <= 1; k++) {
         push_wind(w, mx, my + k, gas_wind_dir_of(out, 0), BREATH_WIND);
         push_wind(w, mx + out, my + k, gas_wind_dir_of(out, -1), BREATH_WIND - 4);
@@ -364,8 +368,8 @@ static void body_heat(World *w, Creature *c, float work) {
     float budget = BODY_POWER_W * work * HEAT_TIME_SCALE_GAS * TICK_SECONDS; // J this tick
     float given = 0.0f;
     float cap = g_elem_cap[ELEM_BODY];
-    for (int r = 0; r < CREATURE_H && given < budget; r++) {
-        for (int k = 0; k < CREATURE_W && given < budget; k++) {
+    for (int r = 0; r < c->h && given < budget; r++) {
+        for (int k = 0; k < c->w && given < budget; k++) {
             size_t i = world_index(w, c->x + k, c->y + r);
             float need = (CREATURE_BODY_K - w->temp[i]) * cap;
             if (need > 0.0f) {
@@ -377,7 +381,7 @@ static void body_heat(World *w, Creature *c, float work) {
     }
     c->heat_w = given / (HEAT_TIME_SCALE_GAS * TICK_SECONDS);
     if (given > 0.0f) {
-        world_wake_heat(w, c->x - 1, c->y - 1, c->x + CREATURE_W, c->y + CREATURE_H);
+        world_wake_heat(w, c->x - 1, c->y - 1, c->x + c->w, c->y + c->h);
     }
 }
 
@@ -392,7 +396,7 @@ static void update_one(World *w, Creature *c) {
     if (!alive) {
         c->walk = 0;
     }
-    if (c->walk != 0) {
+    if (c->walk != 0 && !c->aimed) {
         c->facing = c->walk;
     }
     physics(w, c);
@@ -429,16 +433,17 @@ void creatures_update(World *w) {
     }
 }
 
-int creature_spawn(World *w, int x, int y) {
-    if (w->creature_count >= CREATURE_MAX) {
+int creature_spawn_sized(World *w, int x, int y, int cw, int ch) {
+    if (w->creature_count >= CREATURE_MAX || cw < 1 || ch < 1 || cw > CREATURE_MAX_W ||
+        ch > CREATURE_MAX_H) {
         return -1;
     }
     // The area must hold only void and gas; the gas must have somewhere to go: a cell of its kind
     // just outside the body.
     float mass[ELEM_COUNT] = {0};
     float heat[ELEM_COUNT] = {0};
-    for (int r = 0; r < CREATURE_H; r++) {
-        for (int k = 0; k < CREATURE_W; k++) {
+    for (int r = 0; r < ch; r++) {
+        for (int k = 0; k < cw; k++) {
             if (!world_in_bounds(w, x + k, y + r)) {
                 return -1;
             }
@@ -459,9 +464,9 @@ int creature_spawn(World *w, int x, int y) {
     for (int e = 0; e < ELEM_COUNT; e++) {
         sx[e] = -1;
     }
-    for (int r = -1; r <= CREATURE_H; r++) {
-        for (int k = -1; k <= CREATURE_W; k++) {
-            bool edge = r == -1 || r == CREATURE_H || k == -1 || k == CREATURE_W;
+    for (int r = -1; r <= ch; r++) {
+        for (int k = -1; k <= cw; k++) {
+            bool edge = r == -1 || r == ch || k == -1 || k == cw;
             ElementId e = world_elem(w, x + k, y + r);
             if (edge && g_elem_behavior[e] == BEHAVIOR_GAS && sx[e] < 0) {
                 sx[e] = x + k;
@@ -476,8 +481,8 @@ int creature_spawn(World *w, int x, int y) {
     }
     // Stamp the body, then put the gas it displaced around it.
     uint32_t id = w->creature_next_id++;
-    for (int r = 0; r < CREATURE_H; r++) {
-        for (int k = 0; k < CREATURE_W; k++) {
+    for (int r = 0; r < ch; r++) {
+        for (int k = 0; k < cw; k++) {
             world_set_cell(w, x + k, y + r, ELEM_BODY,
                            (uint32_t)(id * 7919u + (uint32_t)(r * 31 + k)));
         }
@@ -492,22 +497,29 @@ int creature_spawn(World *w, int x, int y) {
         found[n++] = (int32_t)world_index(w, sx[e], sy[e]);
         world_gas_spread_add(w, found, n, mass[e], heat[e] / mass[e]);
     }
-    world_wake_rect(w, x - GAS_REGION_RADIUS, y - GAS_REGION_RADIUS,
-                    x + CREATURE_W + GAS_REGION_RADIUS, y + CREATURE_H + GAS_REGION_RADIUS);
-    world_wake_heat(w, x - 1, y - 1, x + CREATURE_W, y + CREATURE_H);
+    world_wake_rect(w, x - GAS_REGION_RADIUS, y - GAS_REGION_RADIUS, x + cw + GAS_REGION_RADIUS,
+                    y + ch + GAS_REGION_RADIUS);
+    world_wake_heat(w, x - 1, y - 1, x + cw, y + ch);
 
     Creature *c = &w->creatures[w->creature_count];
     *c = (Creature){0};
     c->x = x;
     c->y = y;
+    c->w = (int16_t)cw;
+    c->h = (int16_t)ch;
     c->facing = 1;
     c->id = id;
     c->health = 1.0f;
     c->metabolism_scale = 1.0f;
+    c->speed = CREATURE_WALK_SPEED;
     c->breath_timer = BREATH_TICKS;
     int mx, my;
     mouth_cell(w, c, &mx, &my);
     c->po2 = c->pco2 = -1.0f; // not measured yet
     measure_air(w, c, mx, my);
     return w->creature_count++;
+}
+
+int creature_spawn(World *w, int x, int y) {
+    return creature_spawn_sized(w, x, y, CREATURE_W, CREATURE_H);
 }

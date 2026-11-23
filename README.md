@@ -57,25 +57,27 @@ ctest --test-dir build/release --output-on-failure
 
 | Input | Action |
 |---|---|
-| Left mouse | Paint the selected element (hold still to keep pouring) |
+| `A` / `D`, `W` | Run left / right, jump (the physical keys: `Q` / `D`, `Z` on AZERTY) |
+| Left mouse | Rifle tool (`E`, the default): fire, aimed at the cursor (hold for automatic fire). Other tools: paint the selected element (hold still to keep pouring) |
 | Right mouse | Erase (paint void), including the box walls |
 | Shift + left mouse | Paint only into empty (void) cells |
 | Mouse wheel, `[` / `]` | Brush radius 0–256 px (0 = one pixel) |
 | `B` | Toggle circle / square brush |
-| Middle mouse drag, `WASD` / arrows | Pan the view |
-| `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×) |
+| Middle mouse drag, arrows | Pan the view (stops following the player) |
+| `F` | Follow the player again |
+| `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×; starts at 1×) |
 | `Home` | Show the whole world |
 | `P` | Pressure view: water coloured by depth below its surface, gas by pressure (log scale, green = 1 atm) |
 | `T` | Temperature view |
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Steam, Dirt, Rock, Iron, Ice, Eraser |
-| `N` / `G` | Nitrogen / Air (each cell 21% chance oxygen, else nitrogen), at 1 atm |
+| `N` / `G` | Nitrogen / Air (21% oxygen cells, evenly spread among nitrogen), at 1 atm |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `J` / `L` / `O` | Sand / Lava (1600 K) / Oil |
 | `X` | Dig: loosens dirt into loose soil and rock into rubble, which fall |
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame). Heat lights hydrogen mixed with oxygen (773 K) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
-| `R` | Reset to the empty box |
+| `R` | Reset the level |
 | `Esc` | Quit |
 
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells
@@ -83,9 +85,11 @@ were updated, water moved by pressure, gas pressure equalisations, free particle
 ("Flying"), chunks conducting heat, active chunks, zoom, and the element, temperature (with
 melting/boiling progress), (for water) depth and absolute pressure (gas on the surface plus
 depth), (for gas) pressure and mass under the cursor, plus the partial pressure of each gas in a
-15 × 15 window around it. Below, the first creatures with their health and the O₂ and CO₂
-around their heads. The demo scene (`--demo`) has a tall tank with a hole near its foot, which
-jets, and a room of air with a wandering creature.
+15 × 15 window around it. Below, the player's state, health and shots, and the first creatures
+with their health and the O₂ and CO₂ around their heads. The game starts in a level of hilly dirt
+with rock strata and boulders under air, with the player standing in the middle. The demo scene
+(`--demo`) has a tall tank with a hole near its foot, which jets, and a room of air with a
+wandering creature (and the player).
 
 ## Documentation
 

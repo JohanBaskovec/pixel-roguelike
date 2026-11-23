@@ -95,6 +95,7 @@ add_library(pr_sim STATIC
   src/sim/heat.c
   src/sim/particle.c
   src/sim/creature.c
+  src/sim/weapon.c
   src/sim/edit.c
   src/sim/scene.c
 )
@@ -137,6 +138,7 @@ if(PR_BUILD_TESTS)
     tests/test_gas.c
     tests/test_particle.c
     tests/test_creature.c
+    tests/test_weapon.c
     tests/test_powder.c
     tests/test_reaction.c
   )

@@ -220,6 +220,15 @@ whatever the thread count. This requires:
 - Creatures update serially in list order, with randomness from a hash of seed, tick and their
   id. Tested with three wandering, breathing creatures on 1 and 4 threads.
 
+## Player control (M6a)
+
+`game/app.c` drives the player creature between ticks, on the main thread, before each
+`sim_tick`: the walking direction and jump from the keyboard (scancodes, so the physical keys
+are the same on any layout), the facing from the mouse, and `rifle_update()` with the trigger.
+Shots add particles; their flight runs in the tick's serial particle step. The camera follows the
+player at zoom 1 unless the user pans. The rifle and bullet streaks are drawn over the world
+texture (they are not cells).
+
 ## Player edits
 
 The brush never writes into the world directly. `game/app.c` turns mouse events into

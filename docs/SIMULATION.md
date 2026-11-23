@@ -136,7 +136,15 @@ Sand, loose soil (dug dirt) and rubble (dug rock). A powder cell:
 
 Liquids and gases cannot enter powder (no porosity), and creatures stand on it. **Digging** (the
 Dig tool) loosens solids in place: dirt becomes loose soil, rock becomes rubble, keeping their
-temperature; they then fall. Iron and ice are not dug.
+temperature; they then fall. Iron and ice are not dug. Spent bullets (lead) and casings (brass)
+are powders too (M6a), so they pile up.
+
+**Small clumps** (M6a; `sim_loosen_small_clumps` in `src/sim/edit.c`): after digging (the Dig
+tool or a bullet), every clump of at most `CLUMP_MAX_CELLS` (20) dirt or rock cells, 4-connected,
+next to the dug cells breaks loose (soil, rubble) and falls, so the player never gets stuck on a
+few floating pixels. A clump that touches the world's edge, or holds on to iron or ice, stays; a
+creature's body holds nothing up. Tested: a floating 16-cell clump falls, a 29-cell one stays, a
+small one on an iron post stays.
 
 ### Liquid pressure (M2b, gas pressure M4; D-018, D-025)
 
@@ -502,6 +510,41 @@ list order, at the start of each tick (before heat and movement).
   gameplay or tests; the room-size results do not depend on it.
 - The test creature (key K) wanders: it picks a direction about every 3 s and turns back when
   blocked.
+- **The player** (M6a, `scene_spawn_player`) is a creature with a 9 × 37 body (1.85 m), running
+  at 4 m/s (`speed`). It jumps when asked (`jump`) while standing: take-off at 3.13 m/s, about
+  50 cm high (tested: 10 cells, and back on the floor). It faces the mouse (`aimed`), not its
+  walking direction. In the air it keeps its momentum (no air control). Input is applied between
+  ticks on the main thread.
+
+### Rifle and bullets (M6a; D-031)
+
+Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flight).
+
+- **Firing.** While the trigger is held, the rifle fires every `RIFLE_INTERVAL` (5) ticks (720
+  rounds/min) from the shooter's shoulder (row 8 of the body, 1.45 m up) toward the aim point,
+  with a random spread of ±0.3°. The bullet is a free particle carrying one cell of lead
+  (`ELEM_BULLET`, 400 K), at 900 m/s (300 cells/tick). It starts at the last body cell on the line
+  of fire, so it never hits the shooter. The spent casing (`ELEM_CASING`, 370 K) is thrown up
+  and back (1.5–4.5 m/s up) from the ejection port, 7 cells along the rifle, or from above the
+  head if the port is inside a wall.
+- **Flight.** A bullet faster than `BULLET_FAST` (6 m/s) covers its whole path for the tick in
+  half-cell steps, at the end of the tick with the other particles (serial, deterministic, not
+  bound by the 32-cell reach). Through void, gas and falling liquid it flies on, and gives each
+  gas cell it crosses a current along its path (`BULLET_WIND`, 16): it stirs the air.
+- **Impacts.** Each cell of dirt or powder it enters costs it 50 cells/tick of its 300 (about
+  30 cm of earth or sand stops it). The cell is knocked out of the grid as debris: a particle
+  (dirt loosened to soil) thrown back out of the hole at 4–12 m/s, which lands as a pixel. Rock:
+  it chips one cell (rubble, thrown out) and stops. Liquid costs 15 × ρ/1000 per cell (about 1 m
+  of water), and the first liquid cell it enters splashes out. Iron, ice, bodies and the world's
+  edge stop it in front of them. After each dug cell, small clumps around it break loose.
+- **Falling.** Stopped, the bullet drops from the last cell it reached (bouncing back at 0.3
+  cells/tick) as an ordinary particle and lands as a powder pixel. Repeated shooting leaves piles
+  of bullets and casings.
+- Nothing is destroyed: dug cells become debris and land again (if the particle list is full,
+  the cell is only loosened in place). Tested: ten shots into dirt dig at least 20 cells, dirt +
+  soil is unchanged, 10 bullets and 10 casings lie on the ground (the casings near the shooter),
+  nothing is left in flight; bullets stop at iron and drop in front of it; the air along a
+  bullet's path has a current; the result is the same on 1 and 4 threads.
 
 **Known limitations.** The body is a rectangle and does not bend, crouch or climb. It is a cell
 thick, like everything (the world is a 5 cm slice). Wading only slows it down. Falling does no

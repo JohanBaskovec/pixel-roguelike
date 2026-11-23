@@ -22,6 +22,8 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_LAVA]     = {"Lava",           BEHAVIOR_LIQUID, 2600.0f,  1100.0f,  1.5f,    1600.0f, 0xC8461E, 255, 14,  1},
     [ELEM_MOLTEN_IRON] = {"Molten iron",  BEHAVIOR_LIQUID, 6980.0f,  820.0f,   35.0f,   1900.0f, 0xD07830, 255, 10,  3},
     [ELEM_OIL]      = {"Oil",            BEHAVIOR_LIQUID, 870.0f,   2000.0f,  0.15f,   293.15f, 0x3C2A12, 235, 10,  3},
+    [ELEM_BULLET]   = {"Bullet",         BEHAVIOR_POWDER, 11340.0f, 129.0f,   35.0f,   293.15f, 0x50545C, 255, 10,  0},
+    [ELEM_CASING]   = {"Casing",         BEHAVIOR_POWDER, 8500.0f,  380.0f,   110.0f,  293.15f, 0xC9A23A, 255, 18,  0},
 };
 // clang-format on
 

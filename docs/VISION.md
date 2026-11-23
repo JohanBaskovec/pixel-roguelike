@@ -6,6 +6,13 @@ A side-view world where every pixel is real matter. Gases drift and stratify, wa
 level, heat flows through rock and metal, and the player reshapes all of it with a pixel-precise
 brush.
 
+## Genre
+
+**An action roguelike** (decided 2026-11-23, D-031). The player is a character in the world, 1.85 m
+tall, with weapons (an automatic rifle first) that act on the simulation like everything else: a
+bullet is a pixel of lead that flies, digs and falls. We only ever see part of the level around
+the player. The sandbox tools stay available for now.
+
 ## Inspirations: what we take, what we leave
 
 | From | We take | We leave (for now) |

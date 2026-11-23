@@ -234,6 +234,38 @@ from the oxygen use within 4%. Breathing also stirs the air around a person (D-0
       their density ÷ its density), and openings get the same correction. Test: a U-tube with oil
       in one arm shows the real level difference (a manometer)
 
+## M6a – Action roguelike: the player and the rifle
+
+The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
+
+- [x] Zoom ×1 by default (zooming in and out still works); the camera follows the player (`F`)
+- [x] A player character, 1.85 m tall (37 × 9 cells): runs at 4 m/s with `A`/`D`, jumps 50 cm
+      with `W` (physical keys: `Q`/`D`/`Z` on AZERTY), faces the mouse; breathes like any creature
+- [x] An automatic rifle (the `Rifle` tool, default; left button fires, 720 rounds/min): a real
+      bullet (one pixel of lead) flies at 900 m/s, stirs the air along its path, digs through
+      dirt (about 30 cm) and chips rock, throwing the debris out of the hole, then falls and lies
+      on the ground. Each shot ejects a casing (one pixel of brass): they pile up
+- [x] No pixel is destroyed: dug cells become loose soil or rubble (debris), and stay in the world
+- [x] Small clumps (20 cells or less, held by nothing) left by digging or shooting break loose
+      and fall, so the player never gets stuck on a few floating pixels
+- [x] A default level: hilly dirt with rock strata and boulders, air above; the Air brush paints
+      evenly mixed air that is settled at once
+- [x] The element tools stay, beside the rifle
+- Tests: digging and conservation, bullets stopping at iron and falling, air stirring, the same
+  result on any thread count, small clumps, running and jumping, the Air brush
+
+## M6b – Roguelike, next
+
+- [ ] Muzzle flash as matter: superheated propellant gas (CO2, steam and nitrogen at about
+      2000–3000 K) leaves the muzzle with each shot. No separate animation: hot gas already glows
+      reddish, then cools and mixes into the air
+- [ ] Simulate only what is near the player (the visible part of the level plus a margin), so the
+      world can be as big as we want (with world streaming, M6)
+- [ ] Smooth zooming
+- [ ] An HP bar with 100 HP (bullets, falls, suffocation)
+- [ ] Heat and cold hurt: the further the air and matter around the body are from comfortable,
+      the more damage per second (burns above about 45 °C at the skin, hypothermia below)
+
 ## M6 – World
 
 - [ ] Save and load (compressed chunks)
