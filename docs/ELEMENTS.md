@@ -91,7 +91,15 @@ All are clamped to `MAX_MOVE` = 32.
 | Global | Value | Where | Meaning |
 |---|---|---|---|
 | `K_BUOY` | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
-| `P_GAS_MIX` | 1/2 | `sim/elements.h` | Probability that two different gases trade places when that lowers their same-gas contacts |
+| `P_GAS_MIX` | 1/64 | `sim/elements.h` | Probability that two different gases trade places when that lowers their same-gas contacts, in still gas (diffusion, deviation 12) |
+| `P_GAS_MIX_STIRRED` | 1/2 | `sim/elements.h` | Same, where either cell has a current (turbulence) |
+| `BULK_Z` | 2 | `sim/sim.c` | Bulk buoyancy between gases: windows differ by this many standard errors (pooled spread of their densities) |
+| `BULK_MIN_CONTRAST` | 1% | `sim/sim.c` | ... and by at least this contrast `(ρ_a − ρ_b) / (ρ_a + ρ_b)` |
+| `BULK_K` | 4 | `sim/sim.c` | A parcel sinks with probability `BULK_K · contrast` per tick (at most 1) |
+| `SIDE_NOISE` | 1.5 | `sim/sim.c` | Against the lighter of the two side windows: `BULK_Z` times this |
+| `PARCEL_MAX` | 31 | `sim/sim.c` | Farthest a light cell is lifted through a sinking parcel (reach) |
+| `SPREAD_W`, `SPREAD_H`, `SPREAD_Z` | 6, 10, 2.5 | `sim/sim.c` | Heavy gas spreading sideways: window size and significance |
+| `BULK_EVERY`, `SPREAD_EVERY`, `BULK_FULL_EVERY` | 2, 8, 16 | `sim/sim.c` | Ticks between tries of bulk buoyancy, spreading, and all window heights (cost) |
 | `GAS_MIN_FRAC` | 0.01 | `sim/elements.h` | Smallest cell a split may leave, as a fraction of the 1-atm mass; thinner gas moves as particles |
 | `GAS_REACH` | 16 | `sim/sim.c` | Farthest cell of the same gas a cell equalises pressure with in one tick |
 | `GAS_JUMP_MAX_DT` | 2 K | `sim/sim.c` | Long equalisation jumps only between cells this close in temperature |
@@ -176,6 +184,11 @@ Keep this list complete.
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a
    9 × 35 rectangle. `metabolism_scale` speeds up breathing and health for gameplay or tests (1:
    real time).
+12. Gas mixtures (D-030): a cell of one gas among cells of others stands for gas mixed molecule by
+    molecule, so it does not sink or rise by its kind; only bulk mixtures that are denser by more
+    than the noise of a mixture sink (a thin CO₂ haze does not). Still-gas diffusion
+    is about 40× real molecular diffusion (`P_GAS_MIX`), and stirred gas mixes fast
+    (`P_GAS_MIX_STIRRED`), standing in for turbulence.
 
 ## Adding an element (checklist)
 

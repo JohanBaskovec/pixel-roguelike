@@ -88,6 +88,7 @@ float g_elem_molar_mass[256];
 float g_gas_inv_molar[256];
 float g_gas_mass_atm[256];
 float g_gas_split_mass[256];
+float g_gas_buoy_density[256];
 float g_elem_cp[256];
 
 void elements_init(void) {
@@ -136,6 +137,7 @@ void elements_init(void) {
             g_gas_inv_molar[i] = 1.0f / k_molar_mass[i];
             g_gas_mass_atm[i] = gas_mass_at((ElementId)i, P_ATM, T_ROOM);
             g_gas_split_mass[i] = 2.0f * GAS_MIN_FRAC * g_gas_mass_atm[i];
+            g_gas_buoy_density[i] = (float)buoy_ref_density(i);
             // A gas cell's thermal mass depends on its actual mass (the heat pass uses that);
             // the table value is the nominal one at 1 atm and 20 degC.
             g_elem_mass[i] = g_gas_mass_atm[i];

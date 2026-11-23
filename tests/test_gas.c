@@ -1,9 +1,11 @@
 #include "test.h"
 
+#include "core/jobs.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
 
 #include <math.h>
+#include <string.h>
 
 #define ATM ((double)P_ATM)
 
@@ -14,6 +16,10 @@ void test_boiling_keeps_mass(void);
 void test_condensing_keeps_mass_on_average(void);
 void test_air_stays_mixed(void);
 void test_gases_mix_and_settle(void);
+void test_gas_mixture_stays_mixed(void);
+void test_co2_blob_sinks_and_pools(void);
+void test_dilute_co2_stays_in_air(void);
+void test_bulk_buoyancy_same_for_any_thread_count(void);
 void test_pressurised_tank_drives_water_up_a_pipe(void);
 void test_air_holds_water_up_a_vacuum_tube(void);
 void test_trapped_air_is_compressed(void);
@@ -197,6 +203,100 @@ void test_gases_mix_and_settle(void) {
     }
     EXPECT(st.cells_visited < 2000);
     world_destroy(w);
+}
+
+// A sealed room (1..126 x 1..126) of air, with CO2 where `co2(x, y, h)` says so (h: a hash).
+static World *co2_room(uint64_t seed, bool (*co2)(int x, int y, uint32_t h)) {
+    World *w = test_world_box(128, 128, seed);
+    for (int y = 1; y <= 126; y++) {
+        for (int x = 1; x <= 126; x++) {
+            uint32_t h = (uint32_t)(x * 7919 + y * 104729) * 2654435761u;
+            ElementId e = (h >> 16) % 100 < 21 ? ELEM_OXYGEN : ELEM_NITROGEN;
+            world_set_cell(w, x, y, co2(x, y, h) ? ELEM_CO2 : e, h);
+        }
+    }
+    world_wake_rect(w, 0, 0, 127, 127);
+    return w;
+}
+
+static bool co2_half(int x, int y, uint32_t h) {
+    (void)x;
+    (void)y;
+    return (h >> 8) & 1;
+}
+
+static bool co2_blob(int x, int y, uint32_t h) {
+    (void)h;
+    return (x - 64) * (x - 64) + (y - 30) * (y - 30) < 12 * 12;
+}
+
+static bool co2_dilute(int x, int y, uint32_t h) {
+    (void)x;
+    (void)y;
+    return (h >> 8) % 100 < 5;
+}
+
+void test_gas_mixture_stays_mixed(void) {
+    // Half CO2, half air, mixed cell by cell: a mixture is a gas of its own (denser than air, but
+    // the same everywhere), so it does not unmix, and it goes to sleep.
+    World *w = co2_room(48, co2_half);
+    double y0 = test_mean_y(w, ELEM_CO2);
+    sim_run_ticks(w, 3000);
+    EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 3.0);
+    SimStats st;
+    sim_tick(w, &st);
+    EXPECT(st.cells_visited < 2000);
+    world_destroy(w);
+}
+
+void test_co2_blob_sinks_and_pools(void) {
+    // A ball of CO2 (1.2 m across) high in a room of air sinks as a whole (bulk buoyancy), spreads
+    // over the floor and pools there; little of it mixes into the air on the way. Mass is kept.
+    World *w = co2_room(49, co2_blob);
+    double m = test_mass(w, ELEM_CO2);
+    sim_run_ticks(w, 1800);
+    EXPECT(fabs(test_mass(w, ELEM_CO2) - m) < 1e-4 * m);
+    int64_t low = 0, all = test_count(w, ELEM_CO2), spread = 0;
+    for (int y = 106; y <= 126; y++) {
+        for (int x = 1; x <= 126; x++) {
+            low += test_cell_is(w, x, y, ELEM_CO2);
+        }
+    }
+    for (int x = 1; x <= 126; x++) {
+        spread += test_cell_is(w, x, 126, ELEM_CO2);
+    }
+    EXPECT(low > all / 2); // most of it is in the bottom 20 rows
+    EXPECT(spread > 40);   // spread over the floor, wider than the ball was
+    EXPECT(test_mean_y(w, ELEM_CO2) > 90.0);
+    world_destroy(w);
+}
+
+void test_dilute_co2_stays_in_air(void) {
+    // Air with 5% CO2 (as breathed out into a room): the CO2 stays mixed in, it does not rain out
+    // onto the floor cell by cell.
+    World *w = co2_room(50, co2_dilute);
+    double y0 = test_mean_y(w, ELEM_CO2);
+    sim_run_ticks(w, 3000);
+    EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 3.0);
+    world_destroy(w);
+}
+
+void test_bulk_buoyancy_same_for_any_thread_count(void) {
+    // The ball of CO2 sinks through the boundary between chunks (lifts reach 31 cells, and the
+    // bulk windows 16): bit-identical on 1 and 4 threads.
+    JobPool *pool = jobs_create(4);
+    World *a = co2_room(51, co2_blob), *b = co2_room(51, co2_blob);
+    world_set_job_pool(b, pool);
+    sim_run_ticks(a, 300);
+    sim_run_ticks(b, 300);
+    size_t n = (size_t)a->width * a->height;
+    EXPECT(memcmp(a->cells, b->cells, n * sizeof(Cell)) == 0);
+    EXPECT(memcmp(a->mass, b->mass, n * sizeof(float)) == 0);
+    EXPECT(memcmp(a->temp, b->temp, n * sizeof(float)) == 0);
+    EXPECT(test_mean_y(a, ELEM_CO2) > 64.0); // it did cross into the lower chunks
+    world_destroy(a);
+    world_destroy(b);
+    jobs_destroy(pool);
 }
 
 // ---- Gas pressure on liquids ----

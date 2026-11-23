@@ -32,7 +32,8 @@ Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4
 filled with void, a toolbar to paint water, steam, oxygen, CO2, hydrogen, nitrogen, air, dirt,
 rock, iron and ice (or erase, heat, cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
-liquids), free particles (jets that follow Torricelli, splashes), creatures that walk, swim,
+liquids; mixtures stay mixed, heavy gas sinks in bulk; currents), free particles (jets that
+follow Torricelli, splashes), creatures that walk, swim,
 breathe at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera (pan/zoom), tests and a benchmark. The
 next milestone is **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what

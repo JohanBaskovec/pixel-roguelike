@@ -226,6 +226,9 @@ from the oxygen use within 4%. Breathing also stirs the air around a person (D-0
 - [x] More liquids (molten metal, lava, maybe oil) with real densities
 - [x] Moving matter stirs the air: gas currents from walking bodies, breaths and falling matter
       (added after play-testing: the air never moved)
+- [x] Gas mixtures stay mixed: bulk buoyancy between gases (layers, blobs and plumes sink or
+      rise, a mixture does not unmix), heavy gas spreads over the floor, stirred gas mixes fast
+      (added after play-testing: CO2 and oxygen never mixed; D-030)
 - [x] **Liquids push each other:** water pressure compares pressures instead of levels; a body's
       effective surface includes the weight of the lighter liquids stacked on it (their height ×
       their density ÷ its density), and openings get the same correction. Test: a U-tube with oil

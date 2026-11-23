@@ -421,16 +421,206 @@ static void update_liquid(TickCtx *c, int x, int y) {
     cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
 }
 
+// Bulk buoyancy between different gases (docs/SIMULATION.md -> Gases). A cell of a gas mixed
+// into another stands for gas mixed at the molecular scale: it does not sink or rise on its own.
+// Buoyancy moves bulk gas: the mean buoyancy density of the gas cells in a window (each gas at its
+// table density at 0 degC; other cells not counted) is compared with the window next to it, and
+// gas moves only where the difference is significant (bulk_excess), so the noise of a mixture
+// does not move it.
+#define BULK_HALF_W       3 // windows are 7 cells wide, and 4, 8 or BULK_TALL rows tall
+#define BULK_TALL         16
+#define BULK_Z            2.0f  // significance: standard errors of the difference of the means
+#define BULK_MIN_CONTRAST 0.01f // and least (rho_a - rho_b) / (rho_a + rho_b)
+#define BULK_K            4.0f  // a parcel sinks with probability BULK_K * contrast per tick
+#define SIDE_NOISE        1.5f  // against the lighter of two side windows: BULK_Z times this
+#define PARCEL_MAX        31    // rows a light cell is lifted through a heavy parcel (MAX_MOVE)
+#define SPREAD_W          6     // spreading sideways (gas_spread_p): windows 6 wide,
+#define SPREAD_H          10    // 10 tall,
+#define SPREAD_Z          2.5f  // and stricter, as moving sideways never settles a mixture
+#define SPREAD_EVERY      8     // tried one tick in this many (at this times the probability)
+
+// Bulk buoyancy is tried one tick in BULK_EVERY per cell (at BULK_EVERY times the probability).
+// Every BULK_FULL_EVERY ticks, all cells try it with all window heights; only then can a cell
+// with a denser gas above or beside it go to sleep (all cells of a chunk on the same tick, so a
+// settled mixture sleeps; chunks take turns, which spreads the cost over the ticks).
+#define BULK_EVERY      2
+#define BULK_FULL_EVERY 16
+
+// Sum and sum of squares of the buoyancy densities of the gas cells in a window, and their count.
+typedef struct BulkSum {
+    float s, q;
+    int n;
+} BulkSum;
+
+// Adds the gas cells in columns x0..x1 of row y.
+static inline void bulk_row(const World *w, int x0, int x1, int y, BulkSum *b) {
+    if (y < 0 || y >= w->height) {
+        return;
+    }
+    const Cell *row = &w->cells[world_index(w, 0, y)];
+    float sum = 0.0f, sq = 0.0f;
+    int n = 0;
+    for (int x = PR_MAX(x0, 0); x <= PR_MIN(x1, w->width - 1); x++) {
+        float d = g_gas_buoy_density[row[x].element]; // 0 if not a gas: branch-free
+        sum += d;
+        sq += d * d;
+        n += d > 0.0f;
+    }
+    b->s += sum;
+    b->q += sq;
+    b->n += n;
+}
+
+static BulkSum bulk_window(const World *w, int x0, int x1, int y0, int y1) {
+    BulkSum b = {0.0f, 0.0f, 0};
+    for (int y = y0; y <= y1; y++) {
+        bulk_row(w, x0, x1, y, &b);
+    }
+    return b;
+}
+
+static inline float bulk_mean(const BulkSum *b) {
+    return b->n ? b->s / (float)b->n : 0.0f;
+}
+
+static inline float bulk_row_mean(const World *w, int x0, int x1, int y) {
+    BulkSum b = {0.0f, 0.0f, 0};
+    bulk_row(w, x0, x1, y, &b);
+    return bulk_mean(&b);
+}
+
+// Is the gas in window a denser than in window b, by z standard errors of the difference of the
+// means and by BULK_MIN_CONTRAST? Returns the contrast (rho_a - rho_b) / (rho_a + rho_b), or 0.
+// The standard error is the one if both windows held the same mixture (the pooled spread of their
+// densities): the noise that cells of a mixture make, which must not move it.
+static float bulk_excess(const BulkSum *a, const BulkSum *b, float z) {
+    if (a->n == 0 || b->n == 0) {
+        return 0.0f;
+    }
+    float ma = a->s / (float)a->n, mb = b->s / (float)b->n, d = ma - mb;
+    if (d <= 0.0f) {
+        return 0.0f;
+    }
+    // Spread of the densities if both windows held the same mixture (pooled).
+    float n = (float)(a->n + b->n), m = (a->s + b->s) / n;
+    float v = PR_MAX((a->q + b->q) / n - m * m, 0.0f);
+    if (d * d < z * z * v * (1.0f / (float)a->n + 1.0f / (float)b->n)) {
+        return 0.0f;
+    }
+    float contrast = d / (ma + mb);
+    return contrast >= BULK_MIN_CONTRAST ? contrast : 0.0f;
+}
+
+// Gases of different buoyancy densities traded places in columns x0..x1, rows y0..y1: wake every
+// cell whose bulk windows see them. (Oxygen and nitrogen share one density: air needs no wake.)
+static inline void gas_wake_bulk(TickCtx *c, int x0, int y0, int x1, int y1) {
+    ctx_wake(c, x0 - 3 * BULK_HALF_W - 2, y0 - BULK_TALL, x1 + 3 * BULK_HALF_W + 2,
+             y1 + BULK_TALL + 1, false, false);
+}
+
+// Is the gas at (x, y) a bubble in heavy gas: the 3 cells above it are denser gases, and so are
+// all but at most 2 of the gas cells in the 7 x 3 cells above it? (Light gas left inside a heavy
+// parcel by gas_lift, when the parcel is taller than PARCEL_MAX. Not so in a mixture.)
+static inline bool gas_is_bubble(const World *w, int x, int y, ElementId self) {
+    int light = 0, gas = 0;
+    for (int dy = -1; dy >= -3; dy--) { // the row above first: most cells fail there
+        for (int dx = -BULK_HALF_W; dx <= BULK_HALF_W; dx++) {
+            ElementId n = world_elem(w, x + dx, y + dy);
+            if (g_elem_behavior[n] != BEHAVIOR_GAS) {
+                if (dy == -1 && dx >= -1 && dx <= 1) {
+                    return false;
+                }
+                continue;
+            }
+            gas++;
+            if (g_buoy_p[n][self] == 0) {
+                if ((dy == -1 && dx >= -1 && dx <= 1) || ++light > 2) {
+                    return false;
+                }
+            }
+        }
+    }
+    return gas >= 15;
+}
+
 // Probability (x/65536) that the fluid at (x, y) rises through the fluid directly above it:
 // K_BUOY * (rho_above - rho_self) / (rho_above + rho_self), with densities at the cells' physical
 // temperatures (so hot gas rises through the same gas when it is cold). 0 if it is not lighter.
 // Gas densities are taken at 1 atm (elem_fluid_density): pressure does not make a gas sink.
-static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, ElementId up) {
+// Between two different gases: a warmer cell rises (a thermal: K_BUOY * (Ts - Tu) / (Ts + Tu),
+// as for one gas), and a lighter gas rises by bulk buoyancy, where the gas in the window above is
+// denser than in the window below. Then *parcel is set to the density half-way between the two,
+// which bounds the heavy parcel the cell is lifted through (gas_lift); else it is 0. `scales`:
+// how many of the bulk window heights (4, 8, BULK_TALL rows) to try.
+static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, ElementId up, int scales,
+                           float *parcel) {
+    *parcel = 0.0f;
     if (!elem_is_fluid(up)) {
         return 0;
     }
     float ts = elem_temp(self, w->temp[world_index(w, x, y)]);
     float tu = elem_temp(up, w->temp[world_index(w, x, y - 1)]);
+    if (up != self && g_elem_behavior[up] == BEHAVIOR_GAS &&
+        g_elem_behavior[self] == BEHAVIOR_GAS) {
+        uint32_t p = 0;
+        if (ts > tu + CONVECTION_MIN_K) {
+            p = (uint32_t)((float)K_BUOY_16 * (ts - tu) / (ts + tu));
+        }
+        if (g_buoy_p[up][self] > 0 && gas_is_bubble(w, x, y, self)) {
+            // A bubble: lifted to the top of the heavy gas around it.
+            *parcel = 0.5f * (g_gas_buoy_density[self] + g_gas_buoy_density[up]);
+            return PR_MAX(p, (uint32_t)g_buoy_p[up][self]);
+        }
+        if (scales > 0 && g_buoy_p[up][self] > 0) {
+            // The parcel: the gas in the window above (7 wide). It sinks where it is denser than
+            // the gas in the window below (a heavy layer on a light one turns over), or than the
+            // gas in the lighter of the 7-wide windows on either side (a heavy blob or column in
+            // lighter gas sinks). Windows are 4, 8 and 16 rows tall (above and below, each side
+            // stopping at a cell of the column that is not gas): a sharp edge shows in the small
+            // ones, a smeared one only in the tall ones, which have less noise.
+            static const int k_h[3] = {4, 8, BULK_TALL};
+            BulkSum sa = {0}, sb = {0}, sl = {0}, sr = {0};
+            int h = 0;
+            bool open_a = true, open_b = true;
+            for (int k = 0; k < scales; k++) {
+                for (; h < k_h[k]; h++) {
+                    open_a = open_a && g_elem_behavior[world_elem(w, x, y - 1 - h)] == BEHAVIOR_GAS;
+                    open_b = open_b && g_elem_behavior[world_elem(w, x, y + h)] == BEHAVIOR_GAS;
+                    if (open_a) {
+                        int ry = y - 1 - h;
+                        bulk_row(w, x - BULK_HALF_W, x + BULK_HALF_W, ry, &sa);
+                        bulk_row(w, x - 3 * BULK_HALF_W - 1, x - BULK_HALF_W - 1, ry, &sl);
+                        bulk_row(w, x + BULK_HALF_W + 1, x + 3 * BULK_HALF_W + 1, ry, &sr);
+                    }
+                    if (open_b) {
+                        bulk_row(w, x - BULK_HALF_W, x + BULK_HALF_W, y + h, &sb);
+                    }
+                }
+                const BulkSum *side =
+                    sr.n == 0 || (sl.n > 0 && bulk_mean(&sl) < bulk_mean(&sr)) ? &sl : &sr;
+                float contrast = bulk_excess(&sa, &sb, BULK_Z);
+                float light = bulk_mean(&sb);
+                float cs = bulk_excess(&sa, side, BULK_Z * SIDE_NOISE);
+                if (cs > contrast) {
+                    contrast = cs;
+                    light = bulk_mean(side);
+                }
+                if (contrast > 0.0f) {
+                    float q = PR_MIN(1.0f, BULK_K * BULK_EVERY * contrast);
+                    uint32_t pb = (uint32_t)((float)K_BUOY_16 * q);
+                    if (pb > p) {
+                        p = pb;
+                        *parcel = 0.5f * (bulk_mean(&sa) + light);
+                    }
+                    break;
+                }
+                if (!open_a && !open_b) {
+                    break;
+                }
+            }
+        }
+        return p;
+    }
     if (fabsf(ts - tu) < CONVECTION_MIN_K) {
         // Same temperature: it cancels out of the density ratio; use the precomputed table.
         return up == self ? 0 : g_buoy_p[up][self];
@@ -440,6 +630,71 @@ static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, Element
         return 0;
     }
     return (uint32_t)((float)K_BUOY_16 * (du - ds) / (du + ds));
+}
+
+// Bulk buoyancy moves the heavy parcel above (x, y) down one cell as a whole: the light cell at
+// (x, y) is lifted to the top of the parcel (up the column while the cells are denser gases, or
+// the 3 cells of the row have a mean density of at least `parcel`; at most PARCEL_MAX) and the
+// column of the parcel shifts down by one. So a blob of
+// heavy gas sinks intact rather than crumbling one cell at a time, and a heavy layer on top of a
+// light one turns over (the light gas lifted into it mixes in).
+static void gas_lift(TickCtx *c, int x, int y, float parcel) {
+    World *w = c->w;
+    ElementId self = world_elem(w, x, y);
+    int top = y - 1; // the cell above is in the parcel
+    while (y - top < PARCEL_MAX && top > 0) {
+        int ny = top - 1;
+        ElementId e = world_elem(w, x, ny);
+        if (g_elem_behavior[e] != BEHAVIOR_GAS ||
+            (g_buoy_p[e][self] == 0 && bulk_row_mean(w, x - 1, x + 1, ny) < parcel)) {
+            break;
+        }
+        top = ny;
+    }
+    for (int ty = y; ty > top; ty--) {
+        swap_cells(c, x, ty, x, ty - 1);
+    }
+    gas_wake_bulk(c, x, top, x, y);
+}
+
+// Bulk buoyancy sideways (a gravity current): a denser gas next to the lighter gas at (x, y),
+// which rests on something, trades places with it where the gas in the SPREAD_W x SPREAD_H cells
+// from the heavy cell on (at and above this row) is significantly denser than on this side. So a
+// heavy pile flattens out, and heavy gas pools in pits. (Bigger windows and a stricter test than
+// for rising: this move does not lower the gas, so nothing would settle a mixture it acted on.)
+// Returns the probability (x/65536) for the side s (-1 or +1); 0 if it does not apply.
+static uint32_t gas_spread_p(const World *w, int x, int y, int s, ElementId self) {
+    ElementId n = world_elem(w, x + s, y);
+    if (n == self || g_elem_behavior[n] != BEHAVIOR_GAS || g_buoy_p[n][self] == 0) {
+        return 0;
+    }
+    // The light cell rests on something (not void nor a gas lighter than the heavy one): the
+    // heavy gas spreads along a floor, or over more heavy gas; a falling blob does not shed its
+    // sides (there is light gas under the light gas beside it).
+    ElementId under = world_elem(w, x, y + 1);
+    if (under == ELEM_VOID || (g_elem_behavior[under] == BEHAVIOR_GAS && g_buoy_p[n][under] > 0)) {
+        return 0;
+    }
+    int xh0 = s > 0 ? x + 1 : x - SPREAD_W, xl0 = s > 0 ? x - SPREAD_W + 1 : x;
+    BulkSum bh = bulk_window(w, xh0, xh0 + SPREAD_W - 1, y - SPREAD_H + 1, y);
+    BulkSum bl = bulk_window(w, xl0, xl0 + SPREAD_W - 1, y - SPREAD_H + 1, y);
+    float contrast = bulk_excess(&bh, &bl, SPREAD_Z);
+    return (uint32_t)((float)K_BUOY_16 * PR_MIN(1.0f, SPREAD_EVERY * contrast));
+}
+
+// Might bulk buoyancy or spreading move the gas `self` at (x, y)? Cheap: a denser gas is above it,
+// or beside it.
+static bool gas_bulk_gate(const World *w, int x, int y, ElementId self, ElementId up) {
+    if (g_elem_behavior[up] == BEHAVIOR_GAS && g_buoy_p[up][self] > 0) {
+        return true;
+    }
+    for (int s = -1; s <= 1; s += 2) {
+        ElementId n = world_elem(w, x + s, y);
+        if (g_elem_behavior[n] == BEHAVIOR_GAS && g_buoy_p[n][self] > 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ---- Gases (M4): mass and pressure. docs/SIMULATION.md -> Gases ----
@@ -546,8 +801,10 @@ static inline void gas_load_neighbourhood(const World *w, int x, int y, GasNeigh
     }
 }
 
-// Does trading places with the neighbour in direction k lower the number of same-gas contacts
-// around the two cells? (The cell itself is nb->e[2][2].)
+// Diffusion (Fick): does trading places with the different gas in direction k lower the number of
+// same-gas contacts around the two cells? (The cell itself is nb->e[2][2].) Every such swap lowers
+// that number, so gases spread into each other at an interface and stop once mixed: a mixed region
+// sleeps.
 static inline bool gas_mix_gain(const GasNeighbourhood *nb, int k) {
     int dx = k_dir4[k][0], dy = k_dir4[k][1];
     ElementId a = nb->e[2][2], b = nb->e[2 + dy][2 + dx];
@@ -569,32 +826,12 @@ static inline bool gas_mix_gain(const GasNeighbourhood *nb, int k) {
     return after < before;
 }
 
-// ... and is that move not against buoyancy (the denser gas never moves up)?
-static bool gas_mix_buoyant(const World *w, int x, int y, int dx, int dy) {
-    if (dy == 0) {
-        return true;
-    }
-    int nx = x + dx, ny = y + dy;
-    ElementId a = world_elem(w, x, y), b = world_elem(w, nx, ny);
-    // After the swap the upper cell holds `a` if dy < 0 (else `b`): it must not be denser than
-    // the lower one, i.e. the lower one must not then rise through it.
-    ElementId up = dy < 0 ? a : b, low = dy < 0 ? b : a;
-    float tu = elem_temp(up, w->temp[world_index(w, dy < 0 ? x : nx, dy < 0 ? y : ny)]);
-    float tl = elem_temp(low, w->temp[world_index(w, dy < 0 ? nx : x, dy < 0 ? ny : y)]);
-    if (fabsf(tu - tl) < CONVECTION_MIN_K) {
-        return g_buoy_p[up][low] == 0;
-    }
-    return elem_fluid_density(up, tu) <= elem_fluid_density(low, tl);
-}
-
 // May the gases at (x, y) and its neighbour in direction k, of different kinds, trade places to
-// mix? Only if it lowers the number of same-gas contacts around the two cells (so gases spread
-// into each other, and stop once mixed: a mixed region sleeps), and never against buoyancy (the
-// denser gas does not move up).
+// mix (gas_mix_gain)?
 static bool gas_mix_ok(const World *w, int x, int y, int k) {
     GasNeighbourhood nb;
     gas_load_neighbourhood(w, x, y, &nb);
-    return gas_mix_gain(&nb, k) && gas_mix_buoyant(w, x, y, k_dir4[k][0], k_dir4[k][1]);
+    return gas_mix_gain(&nb, k);
 }
 
 // Where can the gas at (nx, ny), pushed from the direction (dx, dy), go? Straight on, then to
@@ -805,8 +1042,7 @@ static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_
         GasNeighbourhood nb;
         gas_load_neighbourhood(w, x, y, &nb);
         for (int k = 0; k < 4; k++) {
-            if (((other >> k) & 1u) && gas_mix_gain(&nb, k) &&
-                gas_mix_buoyant(w, x, y, k_dir4[k][0], k_dir4[k][1])) {
+            if (((other >> k) & 1u) && gas_mix_gain(&nb, k)) {
                 return true;
             }
         }
@@ -955,6 +1191,10 @@ static bool gas_follow_wind(TickCtx *c, int x, int y) {
             gas_push_wind(cell_ptr(w, tx, ty), d, s2 - WIND_PASS_LOSS); // pushed along
             cell->aux = gas_wind(d, s2);
             swap_cells(c, x, y, tx, ty);
+            if (t != ELEM_VOID &&
+                g_gas_buoy_density[t] != g_gas_buoy_density[cell_ptr(w, tx, ty)->element]) {
+                gas_wake_bulk(c, PR_MIN(x, tx), PR_MIN(y, ty), PR_MAX(x, tx), PR_MAX(y, ty));
+            }
             return true;
         }
         // Blocked: turn 45 degrees either way.
@@ -983,10 +1223,38 @@ static void update_gas(TickCtx *c, int x, int y) {
 
     // 1. Buoyancy: rise through a denser fluid above (including colder gas of the same kind:
     //    warm air rises). Densities at 1 atm: pressure is handled below.
-    uint32_t p_up = buoyancy_p(w, x, y, e, world_elem(w, x, y - 1));
+    //    Bulk buoyancy (costly window sums): 4-row windows one tick in BULK_EVERY, all (up to 450
+    //    reads) every BULK_FULL_EVERY ticks.
+    float parcel;
+    ElementId up = world_elem(w, x, y - 1);
+    int scales = 0; // window heights tried: none, 4 rows, or all
+    if ((w->tick + (uint64_t)(c->cx * 5 + c->cy * 3)) % BULK_FULL_EVERY == 0) {
+        scales = 3;
+    } else if (rng_range(&c->rng, BULK_EVERY) == 0) {
+        scales = 1;
+    }
+    uint32_t p_up = buoyancy_p(w, x, y, e, up, scales, &parcel);
     if (p_up > 0 && rng_chance16(&c->rng, p_up)) {
-        swap_cells(c, x, y, x, y - 1);
+        if (parcel > 0.0f) {
+            gas_lift(c, x, y, parcel);
+        } else {
+            swap_cells(c, x, y, x, y - 1);
+        }
         return;
+    }
+    // 1b. Heavy gas beside spreads under it (both sides, in random order): one tick in
+    //     SPREAD_EVERY, and with the full bulk test.
+    int s0 = rng_bit(&c->rng) ? 1 : -1;
+    bool spread = scales == 3 || rng_range(&c->rng, SPREAD_EVERY) == 0;
+    for (int j = 0; j < (spread ? 2 : 0); j++) {
+        int s = j ? -s0 : s0;
+        uint32_t ps = gas_spread_p(w, x, y, s, e);
+        p_up |= ps;
+        if (ps > 0 && rng_chance16(&c->rng, ps)) {
+            swap_cells(c, x, y, x + s, y);
+            gas_wake_bulk(c, PR_MIN(x, x + s), y, PR_MAX(x, x + s), y);
+            return;
+        }
     }
 
     // 2. One random direction per tick.
@@ -1044,8 +1312,14 @@ static void update_gas(TickCtx *c, int x, int y) {
                 return;
             }
             // 2e. Else mix (trade places) where that spreads the gases into each other.
-            if (gas_mix_ok(w, x, y, r) && rng_chance16(&c->rng, P_GAS_MIX_16)) {
+            //     Slowly in still gas (diffusion), fast where it is moving (turbulence).
+            uint32_t pm =
+                (w->cells[i].aux | w->cells[ni].aux) ? P_GAS_MIX_STIRRED_16 : P_GAS_MIX_16;
+            if (rng_chance16(&c->rng, pm) && gas_mix_ok(w, x, y, r)) {
                 swap_cells(c, x, y, nx, ny);
+                if (g_gas_buoy_density[e] != g_gas_buoy_density[n]) {
+                    gas_wake_bulk(c, PR_MIN(x, nx), PR_MIN(y, ny), PR_MAX(x, nx), PR_MAX(y, ny));
+                }
                 return;
             }
         }
@@ -1056,7 +1330,9 @@ static void update_gas(TickCtx *c, int x, int y) {
     }
 
     // 3. Did not move. Stay awake only if something is still possible.
-    if (gas_is_mobile(w, x, y, e, p_up)) {
+    //    Bulk buoyancy was not fully tried this tick: stay awake while a lighter gas is under or
+    //    beside a denser one, until a tick that tries it all says no.
+    if (gas_is_mobile(w, x, y, e, p_up) || (scales < 3 && gas_bulk_gate(w, x, y, e, up))) {
         keep_alive(c, x, y);
     }
 }

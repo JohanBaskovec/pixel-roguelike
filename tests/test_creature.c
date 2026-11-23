@@ -131,16 +131,18 @@ void test_creature_breathes_at_real_rates(void) {
 
 void test_creature_suffocates_in_sealed_room(void) {
     // A sealed room of air (126 x 62 cells, 6.3 x 3.1 m, one cell deep) with one person at rest.
-    // Oxygen falls from 21 kPa to the danger level (10 kPa) once it has used 52% of it: with
-    // 0.333 g/min, about 7.2 hours of game time for this much air. Sped up 100x here (breathing
-    // stirs the room in proportion); the person reaches danger within 25% of that, and then loses
-    // health.
+    // Breathed-out CO2 stays mixed in the air, so (as in real sealed rooms) it is the CO2 that
+    // reaches the danger level (5 kPa) first: with 0.368 g/min, about 4 hours of game time for this
+    // much air, while oxygen would take 7.2 hours to fall from 21 to 10 kPa. Sped up 100x here
+    // (breathing stirs the room in proportion); the person reaches danger within 25% of the
+    // earlier of the two, and then loses health.
     World *w = air_room(128, 64, 76);
     int id = creature_spawn(w, 60, 27);
     w->creatures[id].metabolism_scale = 100.0f;
     double o2 = test_mass(w, ELEM_OXYGEN);
-    double need = o2 * (1.0 - 10100.0 / (21.0 * 1013.25));   // kg to use before danger
-    double expect = need / (0.333e-3 / 60.0) / 100.0 * 60.0; // ticks
+    double need = o2 * (1.0 - 10100.0 / (21.0 * 1013.25));         // kg of O2 to use before danger
+    double co2 = o2 * (5070.0 / (21.0 * 1013.25)) * (44.0 / 32.0); // kg of CO2 at 5 kPa
+    double expect = PR_MIN(need / (0.333e-3 / 60.0), co2 / (0.368e-3 / 60.0)) / 100.0 * 60.0;
     int danger_at = -1;
     for (int t = 0; t < (int)(expect * 2.0); t++) {
         sim_tick(w, NULL);

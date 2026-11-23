@@ -383,3 +383,30 @@ to watch).
   its mixtures settle sooner). Currents do not arise from pressure differences or heat; buoyancy
   and pressure equalisation still do that work.
 
+## D-030 — Gas mixtures: bulk buoyancy instead of per-cell buoyancy between gases
+
+- **Status:** Accepted (M5)
+- **Context:** With one gas per cell, buoyancy between different gases acted cell by cell: every
+  CO2 cell sank through every air cell. Mixtures unmixed into pure layers within seconds, and
+  breathed-out CO2 rained onto the floor. A user asked why CO2 and oxygen never mix. In reality
+  a mixed gas stays mixed (separation needs kilometres of height), and only a mixture that is
+  denser in bulk (a layer, a blob, a plume) sinks.
+- **Decision:** A gas cell among cells of other gases stands for gas mixed at the molecular scale.
+  Between different gases, buoyancy compares the mean density of windows of cells (above vs
+  below, and vs the lighter side; 4, 8 and 16 rows tall). They must differ by 2 standard errors,
+  taken as if both held the same mixture, so a mixture's own noise never moves it, whatever its
+  gases. A sinking parcel moves as a whole: the light cell is lifted to the parcel's top, in one
+  rotation of up to 31 cells within reach. A heavy gas resting on something spreads sideways (a
+  gravity current). Warmer cells still rise one by one (thermals). Diffusion is slow in still gas
+  and fast where the gas has a current (turbulence).
+- **Alternatives:** a composition per cell (several gases sharing a cell): far more memory and work
+  per cell, against "one element per cell" (D-005). Per-cell sinking scaled by local purity:
+  froze into checkerboards at interfaces, and blobs crumbled. Fixed contrast thresholds instead of
+  the significance test: a threshold low enough for CO2 in air let cell-level mixtures of H2 and
+  CO2 unmix. A coarse density field per chunk: blocky, and it needs a separate pass.
+- **Consequences:** Mixtures stay mixed and sleep. Blobs sink and pool, and layers turn over.
+  Breathed-out CO2 stays in the air, so CO2, not oxygen, is the first danger in a sealed room (as
+  in reality). Air (O2/N2, one density) pays nothing. The gas-soup benchmark (a cell-level random
+  mix of three gases, all awake) is 41–60% slower: the window sums (tried one tick in 2, all
+  heights one tick in 16), and the soup no longer unmixes into calm layers, so more cells keep
+  balancing pressure across gases. A thin CO2 haze over clean air does not sink.

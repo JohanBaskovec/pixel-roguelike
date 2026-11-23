@@ -98,9 +98,11 @@ extern const Reaction g_reactions[REACTION_COUNT];
 extern uint8_t g_reaction_of[256];
 extern float g_min_ignite_k; // lowest ignition temperature of any reaction
 
-// Buoyancy scale K_BUOY and gas mixing probability P_GAS_MIX (docs/SIMULATION.md), x/65536.
-#define K_BUOY_16    65536u
-#define P_GAS_MIX_16 32768u
+// Buoyancy scale K_BUOY and gas mixing probabilities (docs/SIMULATION.md), x/65536: P_GAS_MIX in
+// still gas (diffusion), P_GAS_MIX_STIRRED where the gas has a current (turbulence).
+#define K_BUOY_16            65536u
+#define P_GAS_MIX_16         1024u
+#define P_GAS_MIX_STIRRED_16 32768u
 
 extern const ElementDef g_elem_defs[ELEM_COUNT];
 
@@ -120,6 +122,7 @@ extern float g_gas_mass_atm[256];    // mass of one cell at 1 atm and 20 degC, k
 // A gas cell splits into vacuum only if it holds at least this mass (twice the smallest cell
 // a split may leave: GAS_MIN_FRAC of the 1-atm mass). Thinner gas moves as single particles.
 extern float g_gas_split_mass[256];
+extern float g_gas_buoy_density[256]; // at 0 degC (O2 and N2: air); 0 if not a gas
 #define GAS_MIN_FRAC 0.01f
 // Buoyancy treats oxygen and nitrogen as air: same density at the same temperature
 // (docs/SIMULATION.md -> Gases). Otherwise air, painted as separate N2 and O2 cells, would unmix
