@@ -12,9 +12,10 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 ### Non-negotiables
 
-1. **Every pixel is a cell.** Each cell holds exactly one element (void, oxygen, CO2, hydrogen,
-   water, dirt, rock, iron, ice, ...) and has its own temperature. Its physical properties
-   (density, heat capacity, conductivity, phase) come from that element.
+1. **Every pixel is a cell.** Each cell holds exactly one element (void, gas, water, dirt, rock,
+   iron, ice, ...) and has its own temperature. Its physical properties (density, heat capacity,
+   conductivity, phase) come from that element. A gas cell holds a mixture of the gas species
+   (oxygen, nitrogen, CO2, hydrogen, water vapour), its properties from that mixture (D-035).
 2. **No tiles.** All player interaction (painting, digging orders, building) goes through a
    pixel-precise brush that can be any size.
 3. **Performance is a feature.** The world holds millions of cells. Any change to the simulation's
@@ -36,7 +37,8 @@ hot muzzle gas), a toolbar to paint water,
 steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,
 cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
-liquids; mixtures stay mixed, heavy gas sinks in bulk; currents), free particles (jets that
+liquids; each gas cell a mixture of gases that diffuse, rise and sink by real density, and
+condense; currents), free particles (jets that
 follow Torricelli, splashes), creatures that walk, swim,
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom 1), tests
@@ -115,7 +117,8 @@ On Linux, building SDL3 from source needs the X11/Wayland development packages l
   may write up to 32 px into its neighbours. That is why **a cell may never move more than
   `CHUNK_SIZE/2` = 32 px in one tick**.
 - **Data layout** is a hybrid structure-of-arrays: a 4-byte `Cell` (element, flags, shade, aux) plus
-  separate `float` temperature buffers and a `float` gas mass buffer. Element properties live in a
+  separate `float` temperature buffers, a per-cell gas mixture (`GasMix`, kg of each gas species)
+  and a cached gas density. Element properties live in a
   lookup table indexed by element ID.
 - **Rendering**: dirty chunks are converted to RGBA and uploaded to an SDL streaming texture, which
   is scaled to the window. The toolbar and HUD are a small hand-rolled immediate-mode UI.

@@ -31,27 +31,66 @@ typedef struct HeatScratch {
 
 #define HALO (CHUNK_SIZE + 2)
 
-// Heat flowing into a cell (element a, thermal mass ca, temperature ta) from a neighbour, when
-// either may be a gas: a gas cell's thermal mass follows its mass, so the stability limit is
-// computed here, not taken from g_heat_coef. 0.125 * min(ca, cb) is at most the table's limit
+// Heat flowing into a cell (conductivity ka, thermal mass ca, temperature ta) from a neighbour,
+// when either is a gas: a gas cell's conductivity and thermal mass follow its mixture, so the
+// coefficient (two half-cells in series, sped up by HEAT_TIME_SCALE_GAS) and the stability limit
+// are computed here, not taken from g_heat_coef. 0.125 * min(ca, cb) is at most the table's limit
 // (0.25 * ca * cb / (ca + cb)) and keeps a cell's four exchanges from overshooting. Symmetric.
 //
 // Between two gas cells, a current (gas wind, in either cell) mixes heat by turbulence: the
-// coefficient is multiplied by 1 + TURB_PER_WIND * speed (docs/SIMULATION.md -> Heat pass). An
-// eddy diffusivity of u * l, with u the current's speed (2.9 m/s at GAS_WIND_MAX) and l one cell,
-// is about 700 times air's thermal diffusivity (as sped up by HEAT_TIME_SCALE_GAS) at full speed:
-// 23 per unit of speed. Most currents then exchange at the stability limit.
-#define TURB_PER_WIND 23.0f
+// coefficient is multiplied by 1 + GAS_TURB_PER_WIND * speed (docs/SIMULATION.md -> Heat pass;
+// D-034). Most currents then exchange at the stability limit.
+#define GAS_COND_SCALE (CELL_SIZE_M * TICK_SECONDS * HEAT_TIME_SCALE_GAS)
 
-static inline float gas_flux(ElementId a, float ca, float ta, uint8_t wa, ElementId b, float cb,
-                             float tb, uint8_t wb) {
-    float k = g_heat_coef_raw[a][b];
-    if ((wa | wb) != 0 && g_elem_behavior[b] == BEHAVIOR_GAS &&
-        g_elem_behavior[a] == BEHAVIOR_GAS) {
-        k *= 1.0f + TURB_PER_WIND * (float)PR_MAX(wa, wb);
+static inline float gas_flux(float ka, float ca, float ta, uint8_t wa, bool ga, float kb, float cb,
+                             float tb, uint8_t wb, bool gb) {
+    if (ka <= 0.0f || kb <= 0.0f || ca <= 0.0f || cb <= 0.0f) {
+        return 0.0f;
+    }
+    float k = 2.0f * ka * kb / (ka + kb) * GAS_COND_SCALE;
+    if ((wa | wb) != 0 && ga && gb) {
+        k *= 1.0f + GAS_TURB_PER_WIND * (float)PR_MAX(wa, wb);
     }
     k = PR_MIN(k, 0.125f * PR_MIN(ca, cb));
     return k * (tb - ta);
+}
+
+// Conductivity of a gas mixture: the mole-fraction-weighted mean of its species' (an
+// approximation).
+static inline float gas_mix_conduct(const GasMix *g) {
+    float n = 0.0f, k = 0.0f;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        float ns = g->m[s] * g_species_inv_molar[s];
+        n += ns;
+        k += ns * g_species_k[s];
+    }
+    return n > 0.0f ? k / n : 0.0f;
+}
+
+// Heat flowing into halo cell (ay, ax) from its neighbour (by, bx) this tick (J): the table's
+// coefficient between two cells that are not gas, else gas_flux. Equal temperatures (still gas
+// at one temperature, the common case) cost no division.
+// Local copy of a chunk plus a one-cell border (compute_chunk).
+typedef struct HeatHalo {
+    ElementId el[HALO][HALO];
+    float tp[HALO][HALO];     // physical temperature
+    float cap[HALO][HALO];    // thermal mass, J/K (gases: from their mixture)
+    float cond[HALO][HALO];   // conductivity, W/(m K) (gases: from their mixture)
+    uint8_t wind[HALO][HALO]; // gases: the current's speed (0..GAS_WIND_MAX)
+} HeatHalo;
+
+static inline float pair_flux(const HeatHalo *h, int ay, int ax, int by, int bx) {
+    float ta = h->tp[ay][ax], tb = h->tp[by][bx];
+    if (ta == tb) {
+        return 0.0f;
+    }
+    ElementId ea = h->el[ay][ax], eb = h->el[by][bx];
+    bool ga = ea == ELEM_GAS, gb = eb == ELEM_GAS;
+    if (!ga && !gb) {
+        return g_heat_coef[ea][eb] * (tb - ta);
+    }
+    return gas_flux(h->cond[ay][ax], h->cap[ay][ax], ta, h->wind[ay][ax], ga, h->cond[by][bx],
+                    h->cap[by][bx], tb, h->wind[by][bx], gb);
 }
 
 static void compute_chunk(void *user, int index) {
@@ -64,15 +103,17 @@ static void compute_chunk(void *user, int index) {
     // Local copy of the chunk plus a one-cell border: element and physical temperature. Border
     // cells outside the world, or in a chunk not computed this tick, count as void (no exchange:
     // only pairs computed on both sides exchange heat, so energy cannot leak).
-    ElementId el[HALO][HALO];
-    float tp[HALO][HALO];
-    float cap[HALO][HALO];    // thermal mass, J/K (gases: their actual mass times cp)
-    uint8_t wind[HALO][HALO]; // gases: the current's speed (0..GAS_WIND_MAX)
+    HeatHalo halo;
+    ElementId(*el)[HALO] = halo.el;
+    float(*tp)[HALO] = halo.tp;
+    float(*cap)[HALO] = halo.cap;
+    float(*cond)[HALO] = halo.cond;
+    uint8_t(*wind)[HALO] = halo.wind;
     for (int ly = -1; ly <= CHUNK_SIZE; ly++) {
         for (int lx = -1; lx <= CHUNK_SIZE; lx++) {
             int x = bx + lx, y = by + ly;
             ElementId e = ELEM_VOID;
-            float t = 0.0f, k = 0.0f;
+            float t = 0.0f, k = 0.0f, kc = 0.0f;
             uint8_t wd = 0;
             bool inside = lx >= 0 && ly >= 0 && lx < CHUNK_SIZE && ly < CHUNK_SIZE;
             if (world_in_bounds(w, x, y) &&
@@ -81,62 +122,50 @@ static void compute_chunk(void *user, int index) {
                 Cell cell = w->cells[i];
                 e = cell.element;
                 t = elem_temp(e, w->temp[i]);
-                bool gas = g_elem_behavior[e] == BEHAVIOR_GAS;
-                k = gas ? w->mass[i] * g_elem_cp[e] : g_elem_cap[e];
+                bool gas = e == ELEM_GAS;
+                k = gas ? gas_heat_cap(&w->gas[i]) : g_elem_cap[e];
+                kc = gas ? gas_mix_conduct(&w->gas[i]) : g_elem_defs[e].conduct;
                 wd = gas ? (uint8_t)gas_wind_speed(cell.aux) : 0;
             }
             el[ly + 1][lx + 1] = e;
             tp[ly + 1][lx + 1] = t;
             cap[ly + 1][lx + 1] = k;
+            cond[ly + 1][lx + 1] = kc;
             wind[ly + 1][lx + 1] = wd;
         }
     }
 
     float max_change = 0.0f, max_temp = 0.0f;
     uint8_t fluid = 0;
+    // Each pair of neighbours is computed once (heat into the first cell from the second):
+    // horizontal pairs along the row, vertical pairs with the row below. What one cell gains its
+    // neighbour loses: energy is conserved exactly.
+    float down_prev[CHUNK_SIZE]; // heat into the row above from this row, per column
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        down_prev[lx] = pair_flux(&halo, 0, lx + 1, 1, lx + 1);
+    }
     for (int ly = 0; ly < CHUNK_SIZE; ly++) {
         size_t row = world_index(w, bx, by + ly);
+        int hy = ly + 1;
+        float right_prev = pair_flux(&halo, hy, 0, hy, 1); // into the left halo
         for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-            int hy = ly + 1, hx = lx + 1;
-            ElementId e = el[hy][hx];
+            int hx = lx + 1;
+            float from_right = pair_flux(&halo, hy, hx, hy, hx + 1);
+            float from_below = pair_flux(&halo, hy, hx, hy + 1, hx);
+            float sum = from_right - right_prev + from_below - down_prev[lx];
+            right_prev = from_right;
+            down_prev[lx] = from_below;
             size_t i = row + (size_t)lx;
             float ci = cap[hy][hx];
             if (ci == 0.0f) {
                 w->temp_next[i] = w->temp[i];
                 continue;
             }
-            fluid |= (uint8_t)elem_is_fluid(e);
-            // Flux from each neighbour, using physical temperatures. Each pair computes the same
-            // coefficient and opposite differences, so whatever one cell gains its neighbour
-            // loses: energy is conserved exactly.
-            float ti = tp[hy][hx];
-            float sum;
-            bool gas = g_elem_behavior[e] == BEHAVIOR_GAS ||
-                       g_elem_behavior[el[hy][hx - 1]] == BEHAVIOR_GAS ||
-                       g_elem_behavior[el[hy][hx + 1]] == BEHAVIOR_GAS ||
-                       g_elem_behavior[el[hy - 1][hx]] == BEHAVIOR_GAS ||
-                       g_elem_behavior[el[hy + 1][hx]] == BEHAVIOR_GAS;
-            if (PR_LIKELY(!gas)) {
-                const float *coef = g_heat_coef[e];
-                sum = coef[el[hy][hx - 1]] * (tp[hy][hx - 1] - ti) +
-                      coef[el[hy][hx + 1]] * (tp[hy][hx + 1] - ti) +
-                      coef[el[hy - 1][hx]] * (tp[hy - 1][hx] - ti) +
-                      coef[el[hy + 1][hx]] * (tp[hy + 1][hx] - ti);
-            } else {
-                uint8_t wi = wind[hy][hx];
-                sum = gas_flux(e, ci, ti, wi, el[hy][hx - 1], cap[hy][hx - 1], tp[hy][hx - 1],
-                               wind[hy][hx - 1]) +
-                      gas_flux(e, ci, ti, wi, el[hy][hx + 1], cap[hy][hx + 1], tp[hy][hx + 1],
-                               wind[hy][hx + 1]) +
-                      gas_flux(e, ci, ti, wi, el[hy - 1][hx], cap[hy - 1][hx], tp[hy - 1][hx],
-                               wind[hy - 1][hx]) +
-                      gas_flux(e, ci, ti, wi, el[hy + 1][hx], cap[hy + 1][hx], tp[hy + 1][hx],
-                               wind[hy + 1][hx]);
-            }
+            fluid |= (uint8_t)elem_is_fluid(el[hy][hx]);
             float change = sum / ci;
             w->temp_next[i] = w->temp[i] + change;
             max_change = PR_MAX(max_change, fabsf(change));
-            max_temp = PR_MAX(max_temp, ti + change);
+            max_temp = PR_MAX(max_temp, tp[hy][hx] + change);
         }
     }
     job->max_change = max_change;
@@ -166,36 +195,21 @@ static void apply_chunk(void *user, int index) {
             float cp = g_elem_defs[e < ELEM_COUNT ? e : 0].heat_cap;
             ElementId to = e;
             float t_new = t;
-            // Mass of the cell before and after (gases carry theirs; others are fixed).
-            float m = g_elem_behavior[e] == BEHAVIOR_GAS ? w->mass[i] : g_elem_mass[e];
-            float m_new = m;
+            // Gas cells have no phase change of their own (water vapour condenses in sim.c).
+            float m = g_elem_mass[e];
             if (up->temp > 0.0f && t > up->temp && cp * (t - up->temp) >= up->latent) {
-                // Melting or boiling. Boiling water keeps its mass: one cell of steam at very
-                // high pressure, which then expands (about 1700 cells at 1 atm).
+                // Melting or boiling. Boiling water keeps its mass: one cell of water vapour at
+                // very high pressure, which then expands (about 1700 cells at 1 atm).
                 to = up->to;
                 float rest = m * (cp * (t - up->temp) - up->latent); // J
-                if (g_elem_behavior[to] != BEHAVIOR_GAS) {
-                    m_new = g_elem_mass[to];
-                }
-                t_new = up->temp + rest / (m_new * g_elem_cp[to]);
+                float cp_new = to == ELEM_GAS ? g_species_cp[GAS_H2O] : g_elem_cp[to];
+                float m_new = to == ELEM_GAS ? m : g_elem_mass[to];
+                t_new = up->temp + rest / (m_new * cp_new);
             } else if (down->temp > 0.0f && t < down->temp &&
                        cp * (down->temp - t) >= down->latent) {
                 to = down->to;
                 float rest = m * (cp * (down->temp - t) - down->latent);
-                if (g_elem_behavior[e] == BEHAVIOR_GAS && g_elem_behavior[to] != BEHAVIOR_GAS) {
-                    // Condensing: a liquid cell has a fixed mass, more than a gas cell usually
-                    // holds. Become a full cell with probability m / m_liquid, else nothing:
-                    // mass is conserved on average (docs/SIMULATION.md -> Phase changes).
-                    m_new = g_elem_mass[to];
-                    uint64_t h = pr_splitmix64(w->seed ^ (w->tick * 0x9E3779B97F4A7C15ull) ^ i);
-                    float u = (float)(h >> 40) * (1.0f / 16777216.0f);
-                    if (u >= m / m_new) {
-                        to = ELEM_VOID;
-                    }
-                }
-                if (to != ELEM_VOID) {
-                    t_new = down->temp - rest / (m_new * g_elem_cp[to]);
-                }
+                t_new = down->temp - rest / (g_elem_mass[to] * g_elem_cp[to]);
             }
             if (to != e) {
                 c.element = to;
@@ -203,8 +217,10 @@ static void apply_chunk(void *user, int index) {
                 c.aux = g_elem_behavior[to] == BEHAVIOR_GAS ? 0 : (uint8_t)(c.aux & 0x80);
                 c.stamp = (uint8_t)(w->tick - 1);
                 w->cells[i] = c;
-                w->temp[i] = to == ELEM_VOID ? 0.0f : t_new;
-                w->mass[i] = g_elem_behavior[to] == BEHAVIOR_GAS ? m_new : 0.0f;
+                w->temp[i] = t_new;
+                if (to == ELEM_GAS) {
+                    w->gas[i] = gas_mix_pure(GAS_H2O, m);
+                }
                 job->phase++;
                 int lx = x - bx, ly = y - by;
                 dirty_rect_add(&job->changed, lx, ly, lx, ly);

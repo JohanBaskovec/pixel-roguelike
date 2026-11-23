@@ -12,10 +12,13 @@ enum {
     ELEM_IRON = 3,
     ELEM_ICE = 4,
     ELEM_WATER = 5,
+    // Gas species (M6a, D-035): a gas cell is ELEM_GAS and holds a mass of each. These IDs name
+    // the species (their rows give their properties); no cell holds them. Painting one paints a
+    // gas cell of that species alone.
     ELEM_OXYGEN = 6,
     ELEM_CO2 = 7,
     ELEM_HYDROGEN = 8,
-    ELEM_STEAM = 9,
+    ELEM_STEAM = 9, // water vapour
     ELEM_NITROGEN = 10,
     ELEM_BODY = 11, // a creature's body (M4c): solid to matter, moved only by its creature
     ELEM_SAND = 12,
@@ -30,6 +33,7 @@ enum {
     ELEM_MOLTEN_LEAD = 21,
     ELEM_BRASS = 22, // solid brass (molten casings, solidified)
     ELEM_MOLTEN_BRASS = 23,
+    ELEM_GAS = 24, // a gas cell: a mixture of the gas species (GasMix)
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.
@@ -72,11 +76,10 @@ typedef struct ElementDef {
 #define HEAT_TIME_SCALE_GAS 10.0f
 
 // Gases (M4): each gas cell holds a mass; pressure follows the ideal gas law.
-#define GAS_R       8.314462f // J/(mol*K)
-#define P_ATM       101325.0f // Pa
-#define T_ROOM      293.15f   // K
-#define AIR_O2_FRAC 0.21f     // the Air tool: 21% oxygen, the rest nitrogen (argon counted as N2)
-#define GRAVITY     9.81f     // m/s^2
+#define GAS_R   8.314462f // J/(mol*K)
+#define P_ATM   101325.0f // Pa
+#define T_ROOM  293.15f   // K
+#define GRAVITY 9.81f     // m/s^2
 
 // A phase change: when a cell passes `temp` (K), it becomes `to`, absorbing or releasing
 // `latent` J/kg. temp == 0: none.
@@ -102,21 +105,29 @@ typedef struct Reaction {
 #define FLAME_MAX_K    3000.0f // products are not heated beyond this (dissociation, not modelled)
 extern const Reaction g_reactions[REACTION_COUNT];
 extern uint8_t g_reaction_of[256];
-// Each gas's slot in a world's gas block counts (World.gas_blocks: 1..5; 0: not a gas; slot 0
-// counts all gas cells), per GAS_BLOCK x GAS_BLOCK block.
-extern uint8_t g_gas_slot[256];
-#define GAS_BLOCK_SHIFT 3
-#define GAS_BLOCK       (1 << GAS_BLOCK_SHIFT) // 8 cells
-#define GAS_SLOTS       6
 extern float g_min_ignite_k; // lowest ignition temperature of any reaction
 
-// Buoyancy scale K_BUOY and gas mixing probabilities (docs/SIMULATION.md), x/65536: P_GAS_MIX for
-// diffusion down a gradient (times the gradient), P_GAS_SPECKLE for breaking up small clusters,
-// both in still gas; P_GAS_MIX_STIRRED where the gas has a current (turbulence, times its speed).
-#define K_BUOY_16            65536u
-#define P_GAS_MIX_16         6144u
-#define P_GAS_SPECKLE_16     1024u
-#define P_GAS_MIX_STIRRED_16 32768u
+// Gas species (D-035): a gas cell holds a mass of each, in this order.
+#define GAS_SPECIES 5
+enum { GAS_O2 = 0, GAS_CO2 = 1, GAS_H2 = 2, GAS_H2O = 3, GAS_N2 = 4 };
+extern const ElementId g_species_elem[GAS_SPECIES]; // the element naming each species
+// Species index + 1 of a species element (ELEM_OXYGEN..ELEM_NITROGEN); 0 for any other element.
+extern uint8_t g_gas_slot[256];
+static inline int elem_species(ElementId e) {
+    return (int)g_gas_slot[e] - 1;
+}
+// Species tables (generated).
+extern float g_species_molar[GAS_SPECIES];     // kg/mol
+extern float g_species_inv_molar[GAS_SPECIES]; // mol/kg
+extern float g_species_cp[GAS_SPECIES];        // J/(kg K)
+extern float g_species_k[GAS_SPECIES];         // W/(m K)
+// Air as the Air brush paints it, by mole fraction: 78.1% N2 + 0.9% argon (counted as N2), 20.95%
+// O2, 0.04% CO2; dry.
+#define AIR_O2_FRAC  0.2095f
+#define AIR_CO2_FRAC 0.0004f
+
+// Buoyancy scale K_BUOY (docs/SIMULATION.md), x/65536.
+#define K_BUOY_16 65536u
 
 extern const ElementDef g_elem_defs[ELEM_COUNT];
 
@@ -130,18 +141,14 @@ extern uint8_t g_elem_spread[256];
 extern uint16_t g_buoy_p[ELEM_COUNT][ELEM_COUNT];
 
 // Gas tables (generated). Indexed by any ElementId; 0 for non-gases.
-extern float g_elem_molar_mass[256]; // kg/mol
-extern float g_gas_inv_molar[256];   // 1 / molar mass
-extern float g_gas_mass_atm[256];    // mass of one cell at 1 atm and 20 degC, kg
-// A gas cell splits into vacuum only if it holds at least this mass (twice the smallest cell
-// a split may leave: GAS_MIN_FRAC of the 1-atm mass). Thinner gas moves as single particles.
-extern float g_gas_split_mass[256];
-extern float g_gas_buoy_density[256]; // at 0 degC (O2 and N2: air); 0 if not a gas
-#define GAS_MIN_FRAC 0.01f
-// Buoyancy treats oxygen and nitrogen as air: same density at the same temperature
-// (docs/SIMULATION.md -> Gases). Otherwise air, painted as separate N2 and O2 cells, would unmix
-// in seconds; real air takes kilometres of height to separate.
-#define AIR_DENSITY_0C 1.2922f // kg/m^3 at 0 degC, 1 atm
+extern float g_elem_molar_mass[256]; // kg/mol (species elements)
+extern float g_gas_mass_atm[256];    // mass of one cell of the species at 1 atm and 20 degC, kg
+// Moles in one cell at 1 atm and 20 degC (any gas). A gas cell splits into vacuum only if it
+// holds at least GAS_SPLIT_MOLES (twice the smallest cell a split may leave, GAS_MIN_FRAC of
+// that); thinner gas moves as a single particle.
+#define GAS_MOLES_ATM   (P_ATM * CELL_VOLUME_M3 / (GAS_R * T_ROOM))
+#define GAS_MIN_FRAC    0.01f
+#define GAS_SPLIT_MOLES (2.0f * GAS_MIN_FRAC * GAS_MOLES_ATM)
 
 // Heat tables (generated).
 extern float g_elem_cap[256];     // thermal mass of one cell, J/K (0 for void)
@@ -185,15 +192,15 @@ static inline float elem_temp(ElementId e, float t) {
 // cooling), or -1 if the cell is not changing phase.
 float elem_phase_progress(ElementId e, float t, bool *heating);
 
-// Density of a fluid at physical temperature t (K), for buoyancy and convection. Gases follow the
-// ideal gas law at 1 atm whatever their pressure (a parcel at another pressure would be squeezed
-// or expanded to its surroundings' pressure long before it rose or sank), with oxygen and
-// nitrogen counted as air; water uses its real density curve (densest at 4 °C).
+// Density of a fluid at physical temperature t (K), for buoyancy and convection. A gas (ELEM_GAS
+// counts as air; sim.c uses a cell's own mixture) follows the ideal gas law at 1 atm whatever its
+// pressure (a parcel at another pressure would be squeezed or expanded to its surroundings'
+// pressure long before it rose or sank); water uses its real density curve (densest at 4 °C).
 float elem_fluid_density(ElementId e, float t);
 
-// Pressure (Pa) of a gas cell holding mass m (kg) at physical temperature t (K).
-static inline float gas_pressure(ElementId e, float m, float t) {
-    return m * g_gas_inv_molar[e] * GAS_R * t * (1.0f / CELL_VOLUME_M3);
+// Pressure (Pa) of n moles of gas in one cell at temperature t (K).
+static inline float gas_pressure_moles(float n, float t) {
+    return n * GAS_R * t * (1.0f / CELL_VOLUME_M3);
 }
 
 // Height in cells of a column of liquid `e` that weighs as much as pressure p (Pa), rounded:
@@ -203,7 +210,12 @@ static inline int32_t liquid_head(ElementId e, float p) {
     return (int32_t)PR_MIN(h + 0.5f, 1e6f);
 }
 
-// Mass (kg) of a gas cell at pressure p (Pa) and temperature t (K).
+// Mass (kg) of one cell of gas species element e at pressure p (Pa) and temperature t (K).
 static inline float gas_mass_at(ElementId e, float p, float t) {
     return p * CELL_VOLUME_M3 * g_elem_molar_mass[e] / (GAS_R * t);
 }
+
+// Saturation pressure of water vapour (Pa) at temperature t (K): Antoine's equation, two ranges
+// (1-100 degC, 99-374 degC); at or below 0 degC it is extrapolated (over ice it would be a little
+// lower).
+float water_saturation_pressure(float t);

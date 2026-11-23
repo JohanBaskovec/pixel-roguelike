@@ -93,20 +93,41 @@ static uint32_t mix(uint32_t a, uint32_t b, int t, int span) {
     return out;
 }
 
-// Gas opacity follows density: the element's alpha at 1 atm, times sqrt(mass / mass at 1 atm),
-// between GAS_ALPHA_MIN (thin gas stays faintly visible) and GAS_ALPHA_MAX times.
+// A gas cell's colour mixes its species' colours, each weighted by its opacity at 1 atm times
+// its mole fraction; the cell's opacity is that weighted sum, times sqrt(pressure / 1 atm) between
+// GAS_ALPHA_MIN (thin gas stays faintly visible) and GAS_ALPHA_MAX.
 #define GAS_ALPHA_MIN 0.3f
 #define GAS_ALPHA_MAX 2.5f
 
 static uint32_t gas_color(const WorldRenderer *r, const World *w, size_t i, Cell c) {
-    float ratio = w->mass[i] / g_gas_mass_atm[c.element];
-    float f = PR_CLAMP(sqrtf(ratio), GAS_ALPHA_MIN, GAS_ALPHA_MAX);
-    int a = (int)PR_MIN((float)g_elem_defs[c.element].alpha * f, 235.0f);
-    uint32_t fg = r->lut_solid[c.element][c.shade], bg = g_elem_defs[ELEM_VOID].color;
+    const GasMix *g = &w->gas[i];
+    float n = gas_moles(g);
+    if (n <= 0.0f) {
+        return g_elem_defs[ELEM_VOID].color | 0xFF000000u;
+    }
+    float acc[3] = {0.0f, 0.0f, 0.0f}, wsum = 0.0f;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        float x = g->m[s] * g_species_inv_molar[s] / n;
+        if (x <= 0.0f) {
+            continue;
+        }
+        ElementId e = g_species_elem[s];
+        float wt = (float)g_elem_defs[e].alpha * x;
+        uint32_t col = r->lut_solid[e][c.shade];
+        for (int k = 0; k < 3; k++) {
+            acc[k] += wt * (float)channel(col, 8 * k);
+        }
+        wsum += wt;
+    }
+    float f =
+        PR_CLAMP(sqrtf(gas_mix_pressure(g, w->temp[i]) / P_ATM), GAS_ALPHA_MIN, GAS_ALPHA_MAX);
+    int a = (int)PR_MIN(wsum * f, 235.0f);
+    uint32_t bg = g_elem_defs[ELEM_VOID].color;
     uint32_t out = 0xFF000000u;
-    for (int shift = 0; shift <= 16; shift += 8) {
-        int v = ((int)channel(fg, shift) * a + (int)channel(bg, shift) * (255 - a)) / 255;
-        out |= (uint32_t)v << shift;
+    for (int k = 0; k < 3; k++) {
+        int fg = wsum > 0.0f ? (int)(acc[k] / wsum) : 0;
+        int v = (fg * a + (int)channel(bg, 8 * k) * (255 - a)) / 255;
+        out |= (uint32_t)v << (8 * k);
     }
     return out;
 }

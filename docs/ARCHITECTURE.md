@@ -33,7 +33,7 @@ Fixed timestep for the simulation; rendering runs as fast as vsync allows.
 
 ```c
 const double TICK_DT = 1.0 / 60.0;
-const int    MAX_TICKS_PER_FRAME = 4;      // stops a spiral of death: the sim slows down instead
+const int    MAX_TICKS_PER_FRAME = 4;      // catching up after a hiccup
 
 while (running) {
     while (SDL_PollEvent(&ev)) app_handle_event(&app, &ev);  // mouse events build brush strokes
@@ -41,11 +41,13 @@ while (running) {
     sim_apply_edits(world, &app.edits);    // main thread, between ticks
     accumulator += frame_time;
     int ticks = 0;
-    while (accumulator >= TICK_DT && ticks < MAX_TICKS_PER_FRAME) {
+    int max_ticks = MAX_TICKS_PER_FRAME;
+    while (accumulator >= TICK_DT && ticks < max_ticks) {
         sim_tick(world, &stats);           // movement pass, then heat pass (M3)
+        if (that tick took longer than TICK_DT) max_ticks = 1;  // cannot catch up: slow down
         accumulator -= TICK_DT; ticks++;
     }
-    if (ticks == MAX_TICKS_PER_FRAME) accumulator = 0;  // drop the backlog
+    if (ticks == max_ticks && accumulator >= TICK_DT) accumulator = 0;  // drop the backlog
     render_upload(); render_draw();        // upload render-dirty chunks, draw the texture
     draw_panel();                          // toolbar, HUD, brush outline
     SDL_RenderPresent(renderer);
@@ -101,16 +103,17 @@ typedef struct World {
     JobPool  *jobs;                  // not owned; NULL runs single-threaded
     void     *sim_scratch;           // owned; per-phase job contexts
     struct PressureState *pressure;  // owned; water-pressure pieces, union-find, body tops
-    float    *mass;                  // kg per cell, gases only (M4); pressure = gas_pressure()
-    uint8_t  *gas_blocks;            // count of each gas per 8 x 8 block (diffusion gate, D-032)
+    GasMix   *gas;                   // per cell: kg of each gas species, gas cells only (D-035)
+    float    *rho;                   // per cell: gas density at 1 atm, for buoyancy (per tick)
 } World;
 ```
 
 **Why a hybrid SoA.** The movement pass mostly reads `element` and `flags`, so a 4-byte `Cell`
 puts 16 cells in a cache line. The heat pass reads `element` (to look up properties) and the
-temperature. Keeping temperature in its own array lets it be double-buffered and streamed. When a
-cell moves, the code swaps its `Cell`, its `temp` entry and its `mass`. See
-`DECISIONS.md` D-011.
+temperature. Keeping temperature in its own array lets it be double-buffered and streamed. A gas
+cell's mixture (`GasMix`: 5 floats, 20 bytes) is its own array too, read only for gas cells. When
+a cell moves, the code swaps its `Cell`, its `temp` entry, its `gas` and its `rho`. See
+`DECISIONS.md` D-011 and D-035.
 
 **Row-major, not chunk-major (for now).** A flat row-major array keeps indexing trivial
 (`y * width + x`). If profiling in M2 shows chunk-local storage helps the cache enough, switching
@@ -313,5 +316,5 @@ beyond toolbars and HUDs (`DECISIONS.md` D-009).
 
 All large buffers are allocated once at world creation with 64-byte alignment
 (`SDL_aligned_alloc`). Nothing is allocated per tick. Budget at 4096 × 2048 (8.4 M cells) today:
-cells 32 MB + temperature 2 × 32 MB + gas mass 32 MB + piece labels 8 MB + water-pressure tables
-≈ 14 MB + gas block counts 0.8 MB, plus the renderer's 32 MB staging buffer and 32 MB texture.
+cells 32 MB + temperature 2 × 32 MB + gas mixtures 160 MB + gas densities 32 MB + piece labels
+8 MB + water-pressure tables ≈ 14 MB, plus the renderer's 32 MB staging buffer and 32 MB texture.

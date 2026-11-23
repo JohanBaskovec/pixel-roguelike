@@ -50,7 +50,7 @@ typedef struct Creature {
     float health;           // 0..1; 0 is dead
     float metabolism_scale; // breathing and health run this much faster than real time (1)
     int32_t breath_timer;   // ticks to the next breath in
-    float lungs[GAS_SLOTS]; // gas breathed in and not yet out, kg, by gas slot (g_gas_slot)
+    GasMix lungs;           // gas breathed in and not yet out
     float po2, pco2;        // partial pressures of O2 and CO2 around the head, Pa
     float o2_short;         // fraction of the last breath's oxygen it could not get
     float submerged;        // fraction of its sides in liquid

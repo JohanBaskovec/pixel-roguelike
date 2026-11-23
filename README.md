@@ -69,7 +69,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `Home` | Show the whole world |
 | `P` | Pressure view: water coloured by depth below its surface, gas by pressure (log scale, green = 1 atm) |
 | `T` | Temperature view |
-| `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Steam, Dirt, Rock, Iron, Ice, Eraser |
+| `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Water vapour, Dirt, Rock, Iron, Ice, Eraser |
 | `N` / `G` | Nitrogen / Air (21% oxygen cells, evenly spread among nitrogen), at 1 atm |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `J` / `L` / `O` | Sand / Lava (1600 K) / Oil |

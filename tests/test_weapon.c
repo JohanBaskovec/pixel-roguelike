@@ -133,7 +133,7 @@ void test_shooting_same_for_any_thread_count(void) {
     size_t n = (size_t)a->width * a->height;
     EXPECT(memcmp(a->cells, b->cells, n * sizeof(Cell)) == 0);
     EXPECT(memcmp(a->temp, b->temp, n * sizeof(float)) == 0);
-    EXPECT(memcmp(a->mass, b->mass, n * sizeof(float)) == 0);
+    EXPECT(memcmp(a->gas, b->gas, n * sizeof(GasMix)) == 0);
     world_destroy(a);
     world_destroy(b);
     jobs_destroy(pool);
@@ -192,23 +192,17 @@ void test_player_runs_and_jumps(void) {
 }
 
 void test_air_brush_spreads_oxygen(void) {
-    // The Air brush paints 21% oxygen, never two oxygen cells side by side (evenly mixed), so the
-    // painted air does not shuffle: a big room of it is asleep within a fraction of a second.
+    // The Air brush paints the same mixture in every cell (20.95% oxygen by moles), so painted
+    // air does not move: a big room of it is asleep at once.
     World *w = test_world_box(256, 256, 107);
     fill(w, 1, 1, 254, 254, EDIT_AIR);
-    int64_t o2 = test_count(w, ELEM_OXYGEN), n2 = test_count(w, ELEM_NITROGEN);
-    EXPECT(fabs((double)o2 / (double)(o2 + n2) - (double)AIR_O2_FRAC) < 0.01);
-    int pairs = 0;
-    for (int y = 1; y < 254; y++) {
-        for (int x = 1; x < 254; x++) {
-            if (test_cell_is(w, x, y, ELEM_OXYGEN)) {
-                pairs += test_cell_is(w, x + 1, y, ELEM_OXYGEN);
-                pairs += test_cell_is(w, x, y + 1, ELEM_OXYGEN);
-            }
-        }
+    double o2 = test_mass(w, ELEM_OXYGEN) / (double)g_species_molar[GAS_O2];
+    double all = 0.0;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        all += test_mass(w, g_species_elem[s]) / (double)g_species_molar[s];
     }
-    EXPECT_EQ(pairs, 0);
-    sim_run_ticks(w, 40); // cells fall asleep on their chunk's full check (every 16 ticks)
+    EXPECT(fabs(o2 / all - (double)AIR_O2_FRAC) < 1e-4);
+    sim_run_ticks(w, 2);
     SimStats st;
     sim_tick(w, &st);
     EXPECT(st.cells_visited < 100);
@@ -380,9 +374,9 @@ void test_player_steers_in_the_air(void) {
 }
 
 void test_muzzle_gas(void) {
-    // Each shot blows the propellant out of the muzzle as hot gas (1.6 g: CO2 and nitrogen, at
-    // 1500 K). It glows for a moment, and its current mixes it (and its heat) into
-    // the air within a fraction of a second.
+    // Each shot blows the propellant out of the muzzle as hot gas (1.6 g: CO2, water vapour and
+    // nitrogen, at 1500 K, mixed into the air there). It glows for a moment, and its current mixes
+    // it (and its heat) into the air within a fraction of a second.
     int pl;
     World *w = range(117, ELEM_ROCK, &pl);
     double co2_0 = test_mass(w, ELEM_CO2);
@@ -400,7 +394,8 @@ void test_muzzle_gas(void) {
         }
     }
     EXPECT(hot >= 4); // the CO2 cells (the nitrogen mixes into the air's at once)
-    EXPECT(fabs(test_mass(w, ELEM_CO2) - co2_0 - 1.2e-3) < 0.01e-3);
+    EXPECT(fabs(test_mass(w, ELEM_CO2) - co2_0 - 0.88e-3) < 0.01e-3);
+    EXPECT(test_mass(w, ELEM_STEAM) > 0.42e-3); // water vapour too
     sim_run_ticks(w, 20);
     float hottest = 0.0f;
     for (int i = 0; i < w->width * w->height; i++) {

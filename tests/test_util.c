@@ -83,15 +83,39 @@ World *test_world_box(int w, int h, uint64_t seed) {
     return world;
 }
 
+// The species that holds most of the moles of gas cell i.
+static int dominant_species(const World *w, size_t i) {
+    int best = 0;
+    float most = -1.0f;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        float n = w->gas[i].m[s] * g_species_inv_molar[s];
+        if (n > most) {
+            most = n;
+            best = s;
+        }
+    }
+    return best;
+}
+
+// Does cell i count as element e? For a gas species: a gas cell mostly of it.
+static bool cell_counts_as(const World *w, size_t i, ElementId e) {
+    ElementId c = w->cells[i].element;
+    int s = elem_species(e);
+    if (s >= 0) {
+        return c == ELEM_GAS && dominant_species(w, i) == s;
+    }
+    return c == e;
+}
+
 bool test_cell_is(const World *w, int x, int y, ElementId e) {
-    return world_elem(w, x, y) == e;
+    return world_in_bounds(w, x, y) ? cell_counts_as(w, world_index(w, x, y), e) : e == ELEM_OUT;
 }
 
 int64_t test_count(const World *w, ElementId e) {
     int64_t n = 0;
     size_t total = (size_t)w->width * w->height;
     for (size_t i = 0; i < total; i++) {
-        n += w->cells[i].element == e;
+        n += cell_counts_as(w, i, e);
     }
     for (int i = 0; i < w->particle_count; i++) { // in flight
         n += w->particles[i].cell.element == e;
@@ -100,26 +124,30 @@ int64_t test_count(const World *w, ElementId e) {
 }
 
 double test_mean_y(const World *w, ElementId e) {
-    bool gas = g_elem_behavior[e] == BEHAVIOR_GAS;
+    int s = elem_species(e);
     double sum = 0.0, n = 0.0;
     for (int y = 0; y < w->height; y++) {
         for (int x = 0; x < w->width; x++) {
             size_t i = world_index(w, x, y);
-            if (w->cells[i].element == e) {
-                double weight = gas ? (double)w->mass[i] : 1.0;
-                sum += y * weight;
-                n += weight;
+            double weight = 0.0;
+            if (s >= 0) {
+                weight = w->cells[i].element == ELEM_GAS ? (double)w->gas[i].m[s] : 0.0;
+            } else {
+                weight = w->cells[i].element == e ? 1.0 : 0.0;
             }
+            sum += y * weight;
+            n += weight;
         }
     }
     return n > 0.0 ? sum / n : -1.0;
 }
 
 double test_mass(const World *w, ElementId e) {
+    int s = elem_species(e);
     double m = 0.0;
     for (int i = 0; i < w->width * w->height; i++) {
-        if (w->cells[i].element == e) {
-            m += (double)w->mass[i];
+        if (w->cells[i].element == ELEM_GAS) {
+            m += s >= 0 ? (double)w->gas[i].m[s] : (double)gas_total(&w->gas[i]);
         }
     }
     return m;

@@ -10,14 +10,16 @@ void test_hydrogen_burns_in_oxygen(void);
 void test_cold_hydrogen_does_not_burn(void);
 void test_burning_same_for_any_thread_count(void);
 
-// A sealed room of hydrogen and oxygen at 1 atm, mixed 2:1 by volume (stoichiometric), as
-// alternating cells.
+// A sealed room of hydrogen and oxygen at 1 atm, mixed 2:1 by volume (stoichiometric).
 static World *knallgas(uint64_t seed) {
     World *w = test_world_box(128, 64, seed);
+    GasMix g;
+    gas_mix_clear(&g);
+    g.m[GAS_H2] = GAS_MOLES_ATM * (2.0f / 3.0f) * g_species_molar[GAS_H2];
+    g.m[GAS_O2] = GAS_MOLES_ATM * (1.0f / 3.0f) * g_species_molar[GAS_O2];
     for (int y = 1; y < 63; y++) {
         for (int x = 1; x < 127; x++) {
-            ElementId e = (x + 2 * y) % 3 == 0 ? ELEM_OXYGEN : ELEM_HYDROGEN;
-            world_set_cell(w, x, y, e, (uint32_t)(x * 31 + y * 7));
+            world_set_mix(w, x, y, &g, T_ROOM, (uint32_t)(x * 31 + y * 7));
         }
     }
     world_wake_rect(w, 0, 0, 127, 63);
@@ -45,7 +47,7 @@ void test_hydrogen_burns_in_oxygen(void) {
         reactions += st.reactions;
     }
     for (int i = 0; i < w->width * w->height; i++) {
-        if (w->cells[i].element == ELEM_STEAM) {
+        if (test_cell_is(w, i % w->width, i / w->width, ELEM_STEAM)) { // mostly water vapour
             hottest = PR_MAX(hottest, w->temp[i]);
         }
     }
@@ -88,7 +90,7 @@ void test_burning_same_for_any_thread_count(void) {
     }
     size_t n = (size_t)a->width * a->height;
     EXPECT(memcmp(a->cells, b->cells, n * sizeof(Cell)) == 0);
-    EXPECT(memcmp(a->mass, b->mass, n * sizeof(float)) == 0);
+    EXPECT(memcmp(a->gas, b->gas, n * sizeof(GasMix)) == 0);
     EXPECT(memcmp(a->temp, b->temp, n * sizeof(float)) == 0);
     world_destroy(a);
     world_destroy(b);

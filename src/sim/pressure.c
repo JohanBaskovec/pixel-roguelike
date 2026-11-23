@@ -400,17 +400,16 @@ static bool find_source(const World *w, int32_t node, int top, ElementId e, int 
 #define JET_MAX_PER_REQUEST 8
 #define JET_SPREAD          0.06f
 
-// Liquid arrives at (qx, qy), which holds gas: squeeze that gas into the gas of its kind around
-// it (not (sx, sy)). Returns false if there is none (then it trades places).
+// Liquid arrives at (qx, qy), which holds gas: squeeze that gas into the gas around it (not
+// (sx, sy)). Returns false if there is none (then it trades places).
 static bool squeeze_gas(World *w, int qx, int qy, int sx, int sy) {
     size_t iq = world_index(w, qx, qy);
     int32_t found[GAS_REGION_CELLS];
-    int n = world_gas_region(w, qx, qy, w->cells[iq].element, sx, sy, GAS_REGION_RADIUS,
-                             GAS_REGION_CELLS, found);
+    int n = world_gas_region(w, qx, qy, sx, sy, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
     if (n == 0) {
         return false;
     }
-    world_gas_spread_add(w, found, n, w->mass[iq], w->temp[iq]);
+    world_gas_spread_add(w, found, n, &w->gas[iq], w->temp[iq]);
     for (int k = 0; k < n; k++) {
         world_note_moved(w, found[k] % w->width, found[k] / w->width);
     }
@@ -419,8 +418,8 @@ static bool squeeze_gas(World *w, int qx, int qy, int sx, int sy) {
     return true;
 }
 
-// Liquid left (sx, sy), now void. If gas lies above it, gas flows in from the gas of that kind
-// around it, leaving no vacuum hole at the surface to pull liquid back in.
+// Liquid left (sx, sy), now void. If gas lies above it, gas flows in from the gas around it,
+// leaving no vacuum hole at the surface to pull liquid back in.
 static void refill_with_gas(World *w, int sx, int sy) {
     if (sy <= 0) {
         return;
@@ -431,18 +430,19 @@ static void refill_with_gas(World *w, int sx, int sy) {
         return;
     }
     int32_t found[GAS_REGION_CELLS];
-    int n = world_gas_region(w, sx, sy, g, sx, sy, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
+    int n = world_gas_region(w, sx, sy, sx, sy, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
     if (n == 0) {
         return;
     }
     float t;
-    float m = world_gas_spread_take(w, found, n, &t);
+    GasMix m;
+    world_gas_spread_take(w, found, n, &m, &t);
     size_t is = world_index(w, sx, sy);
     Cell c = w->cells[ia];
     c.stamp = (uint8_t)w->tick;
     c.aux = 0;
     w->cells[is] = c;
-    w->mass[is] = m;
+    w->gas[is] = m;
     w->temp[is] = t;
     world_note_moved(w, sx, sy);
     world_wake_rect(w, sx - GAS_REGION_RADIUS, sy - GAS_REGION_RADIUS, sx + GAS_REGION_RADIUS,
@@ -480,7 +480,7 @@ static void vacate_source(World *w, int sx, int sy) {
     size_t is = world_index(w, sx, sy);
     w->cells[is] = (Cell){ELEM_VOID, (uint8_t)w->tick, w->cells[is].shade, 0};
     w->temp[is] = 0.0f;
-    w->mass[is] = 0.0f;
+    gas_mix_clear(&w->gas[is]);
     w->piece[is] = 0;
     refill_with_gas(w, sx, sy);
     world_wake_rect(w, sx - 1, sy - 1, sx + 1, sy + 1);
@@ -607,7 +607,7 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         if (q_gas && !same_region && squeeze_gas(w, qx, qy, sx, sy)) {
             replaced = (Cell){ELEM_VOID, replaced.stamp, replaced.shade, 0};
             w->temp[iq] = 0.0f;
-            w->mass[iq] = 0.0f;
+            gas_mix_clear(&w->gas[iq]);
         } else if (g_elem_behavior[replaced.element] == BEHAVIOR_LIQUID) {
             // A lighter liquid at Q: liquid entering under it lifts the column above Q by one cell.
             // Its cell goes to the first free cell above that column (whose void or gas takes the
@@ -624,23 +624,24 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
             }
             size_t it = world_index(w, qx, ty);
             Cell above = w->cells[it];
-            float tt = w->temp[it], mt = w->mass[it];
+            float tt = w->temp[it];
+            GasMix mt = w->gas[it];
             w->cells[it] = replaced;
             w->temp[it] = w->temp[iq];
-            w->mass[it] = 0.0f;
+            gas_mix_clear(&w->gas[it]);
             above.stamp = replaced.stamp;
             replaced = above;
             w->temp[iq] = tt;
-            w->mass[iq] = mt;
+            w->gas[iq] = mt;
             world_wake_rect(w, qx - 1, ty - 1, qx + 1, ty + 1);
             world_note_moved(w, qx, ty);
         }
         w->cells[is] = replaced;
         w->temp[is] = w->temp[iq];
-        w->mass[is] = w->mass[iq];
+        w->gas[is] = w->gas[iq];
         w->cells[iq] = moving;
         w->temp[iq] = t;
-        w->mass[iq] = 0.0f;
+        gas_mix_clear(&w->gas[iq]);
         if (w->cells[is].element == ELEM_VOID) {
             refill_with_gas(w, sx, sy);
         }

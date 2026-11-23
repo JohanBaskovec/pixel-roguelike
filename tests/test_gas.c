@@ -13,13 +13,13 @@ void test_gas_fills_vacuum(void);
 void test_gas_pressure_equalizes(void);
 void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
-void test_condensing_keeps_mass_on_average(void);
+void test_vapour_condenses_below_dew_point(void);
 void test_air_stays_mixed(void);
 void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
 void test_co2_blob_sinks_and_pools(void);
-void test_dilute_co2_stays_in_air(void);
-void test_bulk_buoyancy_same_for_any_thread_count(void);
+void test_warm_air_rises(void);
+void test_gas_same_for_any_thread_count(void);
 void test_pressurised_tank_drives_water_up_a_pipe(void);
 void test_air_holds_water_up_a_vacuum_tube(void);
 void test_trapped_air_is_compressed(void);
@@ -76,7 +76,7 @@ void test_gas_pressure_equalizes(void) {
     paint(w, 1, 1, 126, 62, ELEM_NITROGEN);
     for (int y = 1; y <= 62; y++) {
         for (int x = 1; x < 64; x++) {
-            w->mass[world_index(w, x, y)] *= 2.0f;
+            gas_mix_scale(&w->gas[world_index(w, x, y)], 2.0f);
         }
     }
     paint(w, 64, 1, 64, 50, ELEM_DIRT); // wall with a 12-cell gap at the bottom
@@ -84,7 +84,7 @@ void test_gas_pressure_equalizes(void) {
     double lo, hi, mean;
     pressure_range(w, 1, 1, 126, 62, &lo, &hi, &mean);
     EXPECT(fabs(mean - 1.5 * ATM) < 0.03 * ATM);
-    EXPECT(hi - lo < 0.03 * ATM);
+    EXPECT(hi - lo < 0.035 * ATM); // evens out to GAS_EQ_TOL_FAR per 16 cells of path
     world_destroy(w);
 }
 
@@ -108,18 +108,23 @@ void test_sealed_gas_pressure_follows_temperature(void) {
 }
 
 void test_boiling_keeps_mass(void) {
-    // A pool of boiling water in a room of air: each boiled cell becomes steam with the water's
-    // mass (at very high pressure), which pushes the air aside and expands. Steam mass equals
-    // the mass of water lost.
+    // A pool of boiling water in a room of hot air (390 K: the vapour does not condense): each
+    // boiled cell becomes water vapour with the water's mass (at very high pressure), which
+    // pushes the air aside and expands. The vapour's mass equals the mass of water lost.
     World *w = test_world_box(128, 128, 44);
     Edit air = {1, 1, 126, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
     for (int y = 1; y <= 126; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);
     }
+    for (int i = 0; i < w->width * w->height; i++) {
+        if (w->cells[i].element == ELEM_GAS) {
+            w->temp[i] = 390.0f;
+        }
+    }
     paint(w, 40, 120, 88, 126, ELEM_WATER);
     int64_t water0 = test_count(w, ELEM_WATER);
-    double air0 = test_mass(w, ELEM_OXYGEN) + test_mass(w, ELEM_NITROGEN);
+    double air0 = test_mass(w, ELEM_GAS) - test_mass(w, ELEM_STEAM);
     for (int t = 0; t < 120; t++) {
         for (int x = 40; x <= 88; x++) { // a hot floor under the pool
             w->temp[world_index(w, x, 126)] =
@@ -133,48 +138,78 @@ void test_boiling_keeps_mass(void) {
     double steam = test_mass(w, ELEM_STEAM);
     double expect = (double)boiled * (double)g_elem_mass[ELEM_WATER];
     EXPECT(fabs(steam - expect) < 1e-3 * expect);
-    double air1 = test_mass(w, ELEM_OXYGEN) + test_mass(w, ELEM_NITROGEN);
+    double air1 = test_mass(w, ELEM_GAS) - test_mass(w, ELEM_STEAM);
     EXPECT(fabs(air1 - air0) < 1e-4 * air0);
     world_destroy(w);
 }
 
-void test_condensing_keeps_mass_on_average(void) {
-    // Cells of steam holding 40% of a water cell's mass, cooled far below 100 °C: each becomes a
-    // full water cell with probability 0.4 (else vanishes), so the water made matches the steam's
-    // mass on average.
+void test_vapour_condenses_below_dew_point(void) {
+    // Humid air (air with 60% water vapour by moles: its dew point is 86 degC) at 90 degC stays
+    // vapour. Held at 20 degC (as a cooling brush would; condensing releases latent heat), the
+    // vapour condenses until the air is saturated (2.3% at 20 degC), into droplets of water that
+    // rain onto the floor; the droplets hold the vapour lost, on average (each is a full water
+    // cell).
     World *w = test_world_box(128, 128, 45);
-    float m = 0.4f * g_elem_mass[ELEM_WATER];
-    int n = 0;
-    for (int y = 10; y < 120; y += 2) {
-        for (int x = 10; x < 120; x += 2) {
-            world_set_gas(w, x, y, ELEM_STEAM, m, (uint32_t)(x * 31 + y));
-            w->temp[world_index(w, x, y)] = 373.15f - 2257e3f / 2080.0f - 1.0f;
-            n++;
+    const float t0 = 363.15f;
+    for (int y = 1; y <= 126; y++) {
+        for (int x = 1; x <= 126; x++) {
+            GasMix g = gas_mix_air(0.4f * P_ATM, t0);
+            g.m[GAS_H2O] = 0.6f * P_ATM * CELL_VOLUME_M3 / (GAS_R * t0) * g_species_molar[GAS_H2O];
+            world_set_mix(w, x, y, &g, t0, (uint32_t)(x * 31 + y));
         }
+    }
+    for (int i = 0; i < w->width * w->height; i++) {
+        w->temp[i] = t0;
     }
     world_wake_rect(w, 0, 0, 127, 127);
     world_wake_heat(w, 0, 0, 127, 127);
-    sim_tick(w, NULL);
-    EXPECT_EQ(test_count(w, ELEM_STEAM), 0);
-    double expect = 0.4 * n; // 1210 of 3025
-    double sd = sqrt(n * 0.4 * 0.6);
-    EXPECT(fabs((double)test_count(w, ELEM_WATER) - expect) < 4.0 * sd);
+    double v0 = test_mass(w, ELEM_STEAM);
+    sim_run_ticks(w, 60);
+    EXPECT_EQ(test_count(w, ELEM_WATER), 0);
+    EXPECT(fabs(test_mass(w, ELEM_STEAM) - v0) < 1e-4 * v0);
+    for (int t = 0; t < 600; t++) {
+        for (int i = 0; i < w->width * w->height; i++) {
+            if (w->cells[i].element == ELEM_GAS) {
+                w->temp[i] = 293.15f;
+            }
+        }
+        world_wake_heat(w, 0, 0, 127, 127);
+        sim_tick(w, NULL);
+    }
+    double v1 = test_mass(w, ELEM_STEAM);
+    // Saturated: the vapour's share of the gas's moles is about p_sat / p.
+    double n_gas = 0.0, n_v = 0.0;
+    for (int i = 0; i < w->width * w->height; i++) {
+        if (w->cells[i].element == ELEM_GAS) {
+            n_gas += (double)gas_moles(&w->gas[i]);
+            n_v += (double)(w->gas[i].m[GAS_H2O] * g_species_inv_molar[GAS_H2O]);
+        }
+    }
+    double x_sat = (double)water_saturation_pressure(293.15f) / ATM;
+    EXPECT(n_v / n_gas < 1.5 * x_sat);
+    int64_t drops = test_count(w, ELEM_WATER);
+    double expect = (v0 - v1) / (double)g_elem_mass[ELEM_WATER];
+    EXPECT(drops > 0);
+    EXPECT(fabs((double)drops - expect) < 4.0 * sqrt(expect) + 1.0);
     world_destroy(w);
 }
 
 void test_air_stays_mixed(void) {
-    // Air (21% oxygen, 79% nitrogen cells) does not unmix: oxygen does not pool at the floor.
-    // And a room of still air goes to sleep.
+    // Painted air is the same mixture in every cell (20.95% oxygen, 0.04% CO2, the rest
+    // nitrogen): it does not unmix, and a room of still air goes to sleep at once.
     World *w = test_world_box(64, 128, 46);
     Edit air = {1, 1, 62, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
     for (int y = 1; y <= 126; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);
     }
-    double frac = (double)test_count(w, ELEM_OXYGEN) / (62.0 * 126.0);
-    EXPECT(fabs(frac - (double)AIR_O2_FRAC) < 0.02);
-    sim_run_ticks(w, 2000);
-    EXPECT(fabs(test_mean_y(w, ELEM_OXYGEN) - test_mean_y(w, ELEM_NITROGEN)) < 3.0);
+    const GasMix *g = &w->gas[world_index(w, 30, 60)];
+    double x_o2 = (double)(g->m[GAS_O2] * g_species_inv_molar[GAS_O2] / gas_moles(g));
+    EXPECT(fabs(x_o2 - (double)AIR_O2_FRAC) < 1e-4);
+    double y_o2 = test_mean_y(w, ELEM_OXYGEN), y_n2 = test_mean_y(w, ELEM_NITROGEN);
+    sim_run_ticks(w, 300);
+    EXPECT(fabs(test_mean_y(w, ELEM_OXYGEN) - y_o2) < 0.01);
+    EXPECT(fabs(test_mean_y(w, ELEM_NITROGEN) - y_n2) < 0.01);
     SimStats st;
     sim_tick(w, &st);
     EXPECT(st.cells_visited < 200); // mixed and at one pressure: asleep
@@ -182,88 +217,84 @@ void test_air_stays_mixed(void) {
 }
 
 void test_gases_diffuse_into_each_other(void) {
-    // Oxygen on the left, nitrogen on the right (same buoyancy): they diffuse into each other,
-    // the mixed band widening as the square root of time (Fick), at the game's diffusivity (about
-    // 2.5e-3 m^2/s, gentle indoor turbulence): sqrt(D t / pi) = 3 cells of oxygen per row on the
-    // nitrogen side after 30 s, twice that after 2 min.
-    World *w = test_world_box(128, 64, 47);
-    paint(w, 1, 1, 63, 62, ELEM_OXYGEN);
-    paint(w, 64, 1, 126, 62, ELEM_NITROGEN);
-    int64_t o2_right[2];
+    // Nitrogen above, oxygen below (denser: a stable layering, so only diffusion acts): they
+    // diffuse into each other, the oxygen that crossed growing as the square root of time
+    // (Fick), at the game's diffusivity (about 2.5e-3 m^2/s, gentle indoor turbulence):
+    // sqrt(D t / pi) = 3 cells' worth of oxygen per column above the boundary after 30 s, twice
+    // that after 2 min.
+    World *w = test_world_box(64, 128, 47);
+    paint(w, 1, 1, 62, 63, ELEM_NITROGEN);
+    paint(w, 1, 64, 62, 126, ELEM_OXYGEN);
+    float cell = gas_mass_at(ELEM_OXYGEN, P_ATM, T_ROOM);
+    double crossed[2];
     for (int k = 0; k < 2; k++) {
         sim_run_ticks(w, k == 0 ? 1800 : 5400);
-        o2_right[k] = 0;
-        for (int y = 1; y <= 62; y++) {
-            for (int x = 64; x <= 126; x++) {
-                o2_right[k] += test_cell_is(w, x, y, ELEM_OXYGEN);
+        double m = 0.0;
+        for (int y = 1; y <= 63; y++) {
+            for (int x = 1; x <= 62; x++) {
+                m += (double)w->gas[world_index(w, x, y)].m[GAS_O2];
             }
         }
+        crossed[k] = m / (double)cell / 62.0; // cells' worth per column
     }
-    EXPECT(o2_right[0] > 2 * 62 && o2_right[0] < 5 * 62);
-    double ratio = (double)o2_right[1] / (double)o2_right[0];
-    EXPECT(ratio > 1.5 && ratio < 2.5); // sqrt(4) = 2
+    EXPECT(crossed[0] > 2.0 && crossed[0] < 5.0);
+    double ratio = crossed[1] / crossed[0];
+    EXPECT(ratio > 1.6 && ratio < 2.4); // sqrt(4) = 2
     world_destroy(w);
 }
 
-// A sealed room (1..126 x 1..126) of air, with CO2 where `co2(x, y, h)` says so (h: a hash).
-static World *co2_room(uint64_t seed, bool (*co2)(int x, int y, uint32_t h)) {
+// A sealed room (1..126 x 1..126) of air, with CO2 where `co2(x, y)` says so.
+static World *co2_room(uint64_t seed, bool (*co2)(int x, int y)) {
     World *w = test_world_box(128, 128, seed);
     for (int y = 1; y <= 126; y++) {
         for (int x = 1; x <= 126; x++) {
             uint32_t h = (uint32_t)(x * 7919 + y * 104729) * 2654435761u;
-            ElementId e = (h >> 16) % 100 < 21 ? ELEM_OXYGEN : ELEM_NITROGEN;
-            world_set_cell(w, x, y, co2(x, y, h) ? ELEM_CO2 : e, h);
+            world_set_cell(w, x, y, co2(x, y) ? ELEM_CO2 : ELEM_GAS, h);
         }
     }
     world_wake_rect(w, 0, 0, 127, 127);
     return w;
 }
 
-static bool co2_half(int x, int y, uint32_t h) {
-    (void)x;
-    (void)y;
-    return (h >> 8) & 1;
-}
-
-static bool co2_blob(int x, int y, uint32_t h) {
-    (void)h;
+static bool co2_blob(int x, int y) {
     return (x - 64) * (x - 64) + (y - 30) * (y - 30) < 12 * 12;
 }
 
-static bool co2_dilute(int x, int y, uint32_t h) {
-    (void)x;
-    (void)y;
-    return (h >> 8) % 100 < 5;
-}
-
 void test_gas_mixture_stays_mixed(void) {
-    // Half CO2, half air, mixed cell by cell: a mixture is a gas of its own (denser than air, but
-    // the same everywhere), so it does not unmix, and it goes to sleep.
-    World *w = co2_room(48, co2_half);
-    double y0 = test_mean_y(w, ELEM_CO2);
-    sim_run_ticks(w, 1500);
-    EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 3.0);
-    SimStats st;
-    sim_tick(w, &st);
-    EXPECT(st.cells_visited < 2000);
-    world_destroy(w);
+    // An even mixture (half CO2, half air, the same in every cell) is a gas of its own, denser
+    // than air but the same everywhere: it does not unmix, and it sleeps. So does air with 5% CO2
+    // (as breathed out into a room).
+    for (int k = 0; k < 2; k++) {
+        World *w = test_world_box(128, 128, 48 + (uint64_t)k);
+        float share = k == 0 ? 0.5f : 0.05f;
+        for (int y = 1; y <= 126; y++) {
+            for (int x = 1; x <= 126; x++) {
+                GasMix g = gas_mix_air((1.0f - share) * P_ATM, T_ROOM);
+                g.m[GAS_CO2] += gas_mass_at(ELEM_CO2, share * P_ATM, T_ROOM);
+                world_set_mix(w, x, y, &g, T_ROOM, (uint32_t)(x + y));
+            }
+        }
+        world_wake_rect(w, 0, 0, 127, 127);
+        double y0 = test_mean_y(w, ELEM_CO2);
+        sim_run_ticks(w, 300);
+        EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 0.01);
+        SimStats st;
+        sim_tick(w, &st);
+        EXPECT(st.cells_visited < 200);
+        world_destroy(w);
+    }
 }
 
-// Highest fraction of `e` among the gas cells of any 15 x 15 window with its top row in [y0, y1).
-static double max_window_fraction(const World *w, ElementId e, int y0, int y1) {
+// Highest CO2 mole fraction in any gas cell with y in [y0, y1).
+static double max_co2_fraction(const World *w, int y0, int y1) {
     double best = 0.0;
-    for (int y = y0; y + 15 <= y1; y += 3) {
-        for (int x = 1; x + 15 < w->width - 1; x += 3) {
-            int n = 0, gas = 0;
-            for (int yy = y; yy < y + 15; yy++) {
-                for (int xx = x; xx < x + 15; xx++) {
-                    ElementId c = world_elem(w, xx, yy);
-                    gas += g_elem_behavior[c] == BEHAVIOR_GAS;
-                    n += c == e;
-                }
-            }
-            if (gas > 100) {
-                best = fmax(best, (double)n / gas);
+    for (int y = y0; y < y1; y++) {
+        for (int x = 1; x < w->width - 1; x++) {
+            size_t i = world_index(w, x, y);
+            if (w->cells[i].element == ELEM_GAS) {
+                const GasMix *g = &w->gas[i];
+                best = fmax(best,
+                            (double)(g->m[GAS_CO2] * g_species_inv_molar[GAS_CO2] / gas_moles(g)));
             }
         }
     }
@@ -271,51 +302,61 @@ static double max_window_fraction(const World *w, ElementId e, int y0, int y1) {
 }
 
 void test_co2_blob_sinks_and_pools(void) {
-    // A ball of CO2 (1.2 m across) high in a room of air sinks as a whole (bulk buoyancy) and
-    // lands on the floor within seconds, with little left behind on the way. There it spreads and
-    // diffuses into the air: no clump stays pure, and the pool keeps thinning. Mass is kept.
+    // A ball of CO2 (1.2 m across) high in a room of air sinks (it is 50% denser), mixing with the
+    // air on the way, and pools on the floor within seconds. There it spreads over the whole floor
+    // (a gravity current) and keeps diffusing into the air: no pure CO2 is left, the pool thins,
+    // and it stays a layer of CO2-rich air under clean air. Mass is kept.
     World *w = co2_room(49, co2_blob);
     double m = test_mass(w, ELEM_CO2);
+    double y0 = test_mean_y(w, ELEM_CO2);
     sim_run_ticks(w, 600);
-    int64_t low = 0, all = test_count(w, ELEM_CO2);
-    for (int y = 106; y <= 126; y++) {
-        for (int x = 1; x <= 126; x++) {
-            low += test_cell_is(w, x, y, ELEM_CO2);
-        }
-    }
-    EXPECT(low > all / 2);                                  // most of it in the bottom 20 rows
-    EXPECT(max_window_fraction(w, ELEM_CO2, 1, 85) < 0.25); // only a faint wake above
-    double peak = max_window_fraction(w, ELEM_CO2, 1, 127);
+    EXPECT(test_mean_y(w, ELEM_CO2) > y0 + 40.0); // it sank
+    EXPECT(max_co2_fraction(w, 1, 127) < 0.9);    // and mixed
+    double peak = max_co2_fraction(w, 1, 127);
     sim_run_ticks(w, 1800);
     EXPECT(fabs(test_mass(w, ELEM_CO2) - m) < 1e-4 * m);
-    EXPECT(test_mean_y(w, ELEM_CO2) > 90.0);
-    EXPECT(max_window_fraction(w, ELEM_CO2, 1, 127) < peak - 0.05); // the pool thins
-    EXPECT(max_window_fraction(w, ELEM_CO2, 1, 127) < 0.7);         // no pure clump
-    int columns = 0; // columns of the bottom 20 rows holding CO2: it spread over the floor
+    EXPECT(test_mean_y(w, ELEM_CO2) > 70.0);          // a layer over the floor (63.5: evenly mixed)
+    EXPECT(max_co2_fraction(w, 1, 127) < 0.8 * peak); // the pool thins
+    EXPECT(max_co2_fraction(w, 1, 20) < 0.03);        // nearly clean air above it
+    int columns = 0; // columns with at least 2% CO2 at the floor: it spread over it
     for (int x = 1; x <= 126; x++) {
-        bool any = false;
-        for (int y = 106; y <= 126 && !any; y++) {
-            any = test_cell_is(w, x, y, ELEM_CO2);
-        }
-        columns += any;
+        const GasMix *g = &w->gas[world_index(w, x, 125)];
+        columns += g->m[GAS_CO2] * g_species_inv_molar[GAS_CO2] > 0.02f * gas_moles(g);
     }
-    EXPECT(columns > 50);
+    EXPECT(columns > 80);
     world_destroy(w);
 }
 
-void test_dilute_co2_stays_in_air(void) {
-    // Air with 5% CO2 (as breathed out into a room): the CO2 stays mixed in, it does not rain out
-    // onto the floor cell by cell.
-    World *w = co2_room(50, co2_dilute);
-    double y0 = test_mean_y(w, ELEM_CO2);
-    sim_run_ticks(w, 1500);
-    EXPECT(fabs(test_mean_y(w, ELEM_CO2) - y0) < 3.0);
+void test_warm_air_rises(void) {
+    // A pocket of air 30 K warmer than the room, near the floor, rises (it is 10% lighter): its
+    // heat is at least 15 rows (75 cm) higher after 4 s.
+    World *w = test_world_box(64, 128, 50);
+    paint(w, 1, 1, 62, 126, EDIT_AIR);
+    for (int y = 110; y <= 120; y++) {
+        for (int x = 26; x <= 36; x++) {
+            w->temp[world_index(w, x, y)] = T_ROOM + 30.0f;
+        }
+    }
+    world_wake_rect(w, 0, 0, 63, 127);
+    world_wake_heat(w, 0, 0, 63, 127);
+    sim_run_ticks(w, 240);
+    double sum = 0.0, wsum = 0.0; // mean height of the excess heat
+    for (int y = 1; y <= 126; y++) {
+        for (int x = 1; x <= 62; x++) {
+            double d = (double)w->temp[world_index(w, x, y)] - (double)T_ROOM;
+            if (d > 0.5) {
+                sum += d * y;
+                wsum += d;
+            }
+        }
+    }
+    EXPECT(wsum > 0.0 && sum / wsum < 100.0); // it started at 115
     world_destroy(w);
 }
 
-void test_bulk_buoyancy_same_for_any_thread_count(void) {
-    // The ball of CO2 sinks through the boundary between chunks (lifts reach 31 cells, and the
-    // bulk windows 16): bit-identical on 1 and 4 threads.
+void test_gas_same_for_any_thread_count(void) {
+    // The ball of CO2 sinks through the boundary between chunks: bit-identical on 1 and 4
+    // threads.
     JobPool *pool = jobs_create(4);
     World *a = co2_room(51, co2_blob), *b = co2_room(51, co2_blob);
     world_set_job_pool(b, pool);
@@ -323,7 +364,7 @@ void test_bulk_buoyancy_same_for_any_thread_count(void) {
     sim_run_ticks(b, 300);
     size_t n = (size_t)a->width * a->height;
     EXPECT(memcmp(a->cells, b->cells, n * sizeof(Cell)) == 0);
-    EXPECT(memcmp(a->mass, b->mass, n * sizeof(float)) == 0);
+    EXPECT(memcmp(a->gas, b->gas, n * sizeof(GasMix)) == 0);
     EXPECT(memcmp(a->temp, b->temp, n * sizeof(float)) == 0);
     EXPECT(test_mean_y(a, ELEM_CO2) > 64.0); // it did cross into the lower chunks
     world_destroy(a);
@@ -343,14 +384,13 @@ static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     world_wake_heat(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
 }
 
-// Fills the rect with air (each cell oxygen or nitrogen) at `atm` atmospheres.
+// Fills the rect with air at `atm` atmospheres.
 static void fill_air(World *w, int x0, int y0, int x1, int y1, float atm) {
     for (int y = y0; y <= y1; y++) {
         for (int x = x0; x <= x1; x++) {
             uint32_t h = (uint32_t)(x * 7919 + y * 104729) * 2654435761u;
-            ElementId e = (h >> 16) % 100 < 21 ? ELEM_OXYGEN : ELEM_NITROGEN;
-            world_set_cell(w, x, y, e, h);
-            w->mass[world_index(w, x, y)] *= atm;
+            world_set_cell(w, x, y, ELEM_GAS, h);
+            gas_mix_scale(&w->gas[world_index(w, x, y)], atm);
         }
     }
     world_wake_rect(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
@@ -443,12 +483,12 @@ void test_trapped_air_is_compressed(void) {
     fill(w, 81, 176, 92, 180, ELEM_WATER);
     fill(w, 20, 168, 80, 180, ELEM_WATER); // over the channel, so no air gets into it
     fill_air(w, 20, 140, 80, 167, 0.1f);
-    double air0 = test_mass(w, ELEM_OXYGEN) + test_mass(w, ELEM_NITROGEN);
+    double air0 = test_mass(w, ELEM_GAS);
     double p0 = mean_pressure(w, 20, 140, 80, 167);
     sim_run_ticks(w, 3000);
     int room = water_top(w, 50, 140, 180), column = water_top(w, 91, 20, 180);
     double p1 = mean_pressure(w, 20, 140, 80, 180);
-    double air1 = test_mass(w, ELEM_OXYGEN) + test_mass(w, ELEM_NITROGEN);
+    double air1 = test_mass(w, ELEM_GAS);
     EXPECT(room > 0 && room < 168); // water came in
     EXPECT(p1 > 1.1 * p0);          // the air was compressed
     EXPECT(fabs(air1 - air0) < 1e-4 * air0);

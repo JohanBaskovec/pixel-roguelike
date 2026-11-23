@@ -64,10 +64,6 @@ static bool in_swept_square(float px, float py, float ax, float ay, float bx, fl
            clip(-dy, ay - (py - h), &t0, &t1) && clip(dy, (py + h) - ay, &t0, &t1);
 }
 
-// The Air brush paints oxygen with this probability where no neighbour is oxygen (tuned so that
-// AIR_O2_FRAC of the cells are oxygen; tested).
-#define AIR_O2_PAINT_P 0.335f
-
 // Small clumps (docs/SIMULATION.md -> Powders and digging): a group of at most CLUMP_MAX_CELLS
 // solid cells (4-connected) that holds on to nothing else breaks loose, so the player never gets
 // stuck on a few pixels left floating after digging or shooting.
@@ -205,22 +201,8 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             }
             uint32_t bits = rng_next(rng);
             ElementId el = e->element;
-            if (el == EDIT_AIR) {
-                // Air is mixed molecule by molecule: no two oxygen cells side by side (the most
-                // even mix one gas per cell allows, which diffusion leaves alone, so painted air
-                // is settled at once). Oxygen with probability AIR_O2_PAINT_P where no neighbour
-                // is oxygen: about AIR_O2_FRAC of the cells.
-                bool o2_near = false;
-                static const int8_t k_n[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-                for (int k = 0; k < 4; k++) {
-                    ElementId n = world_elem(w, x + k_n[k][0], y + k_n[k][1]);
-                    o2_near |= n == ELEM_OXYGEN;
-                }
-                el = !o2_near && (bits >> 16) < (uint32_t)(AIR_O2_PAINT_P * 65536.0f)
-                         ? ELEM_OXYGEN
-                         : ELEM_NITROGEN;
-            }
-            world_set_cell(w, x, y, el, bits);
+            // Air: every cell the same mixture (gas_mix_air), so painted air is settled at once.
+            world_set_cell(w, x, y, el == EDIT_AIR ? ELEM_GAS : el, bits);
             written++;
         }
     }

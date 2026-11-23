@@ -14,18 +14,18 @@ bool particle_add(World *w, const Particle *p) {
 }
 
 // Puts the particle's cell at (x, y), which must pass (void or gas). Gas there is squeezed into
-// the gas of its kind around (spread out, as when water flows into gas). Returns false if that
-// gas has nowhere to go.
+// the gas around (spread out, as when water flows into gas). Returns false if that gas has
+// nowhere to go.
 static bool place(World *w, const Particle *p, int x, int y) {
     size_t i = world_index(w, x, y);
     ElementId here = w->cells[i].element;
     if (here != ELEM_VOID) {
         int32_t found[GAS_REGION_CELLS];
-        int n = world_gas_region(w, x, y, here, x, y, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
+        int n = world_gas_region(w, x, y, x, y, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
         if (n == 0) {
             return false;
         }
-        world_gas_spread_add(w, found, n, w->mass[i], w->temp[i]);
+        world_gas_spread_add(w, found, n, &w->gas[i], w->temp[i]);
         for (int k = 0; k < n; k++) {
             world_note_moved(w, found[k] % w->width, found[k] / w->width);
         }
@@ -42,7 +42,7 @@ static bool place(World *w, const Particle *p, int x, int y) {
     c.aux = (uint8_t)((p->vx > 0.0f ? 0x80 : 0) | speed);
     w->cells[i] = c;
     w->temp[i] = p->temp;
-    w->mass[i] = 0.0f;
+    gas_mix_clear(&w->gas[i]);
     world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
     world_wake_heat(w, x, y, x, y);
     world_note_moved(w, x, y);
@@ -147,7 +147,7 @@ bool particle_step(World *w, Particle *p, float fraction) {
 // not dig like a fired one.)
 #define BULLET_FAST 10.0f
 // Current a bullet leaves in the gas it passes through (a speed, as in GAS_WIND_MAX units).
-#define BULLET_WIND 16
+#define BULLET_WIND 8
 
 // Speed a bullet loses passing through one cell of `e` (cells per tick; it flies at 300).
 // Negative: it cannot get through (it stops in front of it). Rock: it chips the cell and stops.
@@ -196,7 +196,7 @@ static void bullet_eject(World *w, int x, int y, float ux, float uy, uint64_t *h
     }
     w->cells[i] = (Cell){ELEM_VOID, (uint8_t)w->tick, w->cells[i].shade, 0};
     w->temp[i] = 0.0f;
-    w->mass[i] = 0.0f;
+    gas_mix_clear(&w->gas[i]);
     world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
 }
 

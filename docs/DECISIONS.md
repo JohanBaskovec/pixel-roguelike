@@ -50,7 +50,7 @@ to watch).
 ## D-005 — One element per cell; particle gases first, mass and pressure later
 
 - **Status:** Accepted for M1–M3; revisited at M4: one element per cell kept, gases got mass
-  (D-024)
+  (D-024). **Superseded for gases by D-035 (M6a):** a gas cell holds a mixture.
 - **Context:** Noita uses one particle per pixel. ONI uses a mass per cell plus pressure. Particles
   are simpler and fast. Mass and pressure are more realistic: gas fills a vacuum and thins out, and
   pressure exists.
@@ -385,7 +385,7 @@ to watch).
 
 ## D-030 — Gas mixtures: bulk buoyancy instead of per-cell buoyancy between gases
 
-- **Status:** Accepted (M5)
+- **Status:** Superseded by D-035 (M6a)
 - **Context:** With one gas per cell, buoyancy between different gases acted cell by cell: every
   CO2 cell sank through every air cell. Mixtures unmixed into pure layers within seconds, and
   breathed-out CO2 rained onto the floor. A user asked why CO2 and oxygen never mix. In reality
@@ -433,7 +433,7 @@ to watch).
 
 ## D-032 — Gas diffusion follows concentration gradients at several scales
 
-- **Status:** Accepted (M6a)
+- **Status:** Superseded by D-035 (M6a); its diffusivity (2.5e-3 m²/s) is kept
 - **Context:** Gases only mixed where a swap lowered the same-gas contacts next to the two cells.
   That evened out an interface a few cells deep and then stopped, so the inside of a clump
   never mixed and large pure clumps (a CO2 pool, a dilute wake) stayed forever. The user asked
@@ -487,3 +487,32 @@ to watch).
   bullets or falling matter evens out its temperature quickly; still air (and convection, which
   makes no currents) is unchanged. Energy is still conserved exactly. The heat pass reads one
   more byte per cell (the cell's current); the benchmark is unchanged.
+
+## D-035 — A gas cell holds a mixture of gases
+
+- **Status:** Accepted (M6a). Supersedes D-005 for gases, and D-030 and D-032.
+- **Context:** With one gas per cell, a cell has no concentration: rules had to count the cells
+  around (diffusion read up to 800 of them, bulk buoyancy 450), every tick, for every awake cell,
+  and a mixture never looked settled cell by cell. Shooting into a 1000 × 1000 room of air, or a
+  big ball of CO2, dropped the game to 10 frames per second. The user also wants realistic mixing
+  (and later, mixed liquids: ONI's separate "water" and "dirty water" felt strange).
+- **Decision:** A gas cell is `ELEM_GAS` and holds a mass of each species (O2, CO2, H2, water
+  vapour, N2: `GasMix`, 20 bytes). Diffusion trades each species down its mole-fraction difference
+  with a neighbour (Fick, no statistics); buoyancy compares real densities (at 1 atm) of column
+  windows, 1 to 16 rows, and lifts or shifts columns; heavy gas spreads by comparing column
+  weights to the side; pressure evens out with jumps of up to 16 cells; reactions happen in the
+  cell; water vapour condenses at its dew point. Cells sleep when they match their neighbours
+  within tolerances (and exactly-equal cells cost a few loads). Painted air is one uniform
+  mixture, settled at once. The species keep their element IDs as names and property rows.
+- **Alternatives:** keep one gas per cell and tune it (3–5× faster at best, the statistical
+  machinery stays); a coarser gas grid (blocks of 4 × 4 cells), against "every pixel is a cell".
+- **Consequences:** Air, mixtures and their pressures are exact and mix smoothly; humidity exists;
+  mixtures never unmix; hydrogen burns where it has mixed with air. Gas memory: 20 bytes per cell
+  for the mixture and 4 for its cached density (190 MB at 4096 × 2048). Measured on 4 threads in a
+  1000 × 1000 room: shooting 1.2–1.4× faster, a big CO2 ball 1.6–2× faster, the default level
+  settles at once; a soup of random single cells of pure gases (`pr-bench`) is 20–25% slower
+  (every cell differs from its neighbours), and gas expanding into a world of vacuum (the demo)
+  2.5× slower. Not the 4–5× hoped for: most visited cells are woken by chunk-wide dirty rects
+  rather than active, and heat keeps pressure moving (ROADMAP M6c). Pressure precision is 0.3%
+  between neighbours and 0.2% per 16 cells (a finer one made shooting costlier). The model can be
+  reused for liquids carrying dissolved or suspended matter (ROADMAP).

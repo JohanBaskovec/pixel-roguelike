@@ -129,9 +129,9 @@ void test_creature_breathes_at_real_rates(void) {
     // It breathes the air in (all its gases) and out again: what is not in the room is in the
     // lungs (the last breath in), and only O2 and CO2 change.
     EXPECT(c->holding);
-    double lung_o2 = (double)c->lungs[g_gas_slot[ELEM_OXYGEN]];
-    double lung_co2 = (double)c->lungs[g_gas_slot[ELEM_CO2]];
-    double lung_n2 = (double)c->lungs[g_gas_slot[ELEM_NITROGEN]];
+    double lung_o2 = (double)c->lungs.m[GAS_O2];
+    double lung_co2 = (double)c->lungs.m[GAS_CO2];
+    double lung_n2 = (double)c->lungs.m[GAS_N2];
     EXPECT(lung_n2 > 3.0 * lung_o2 && lung_o2 > 0.0); // a breath of air
     EXPECT(fabs((o2_0 - test_mass(w, ELEM_OXYGEN) - lung_o2) - c->o2_used) < 1e-4 * o2_0);
     EXPECT(fabs((test_mass(w, ELEM_CO2) + lung_co2 - co2_0) - c->co2_made) <
@@ -243,7 +243,7 @@ void test_creatures_same_for_any_thread_count(void) {
     World *b = creature_world(pool);
     size_t n = (size_t)a->width * a->height;
     EXPECT(memcmp(a->cells, b->cells, n * sizeof(Cell)) == 0);
-    EXPECT(memcmp(a->mass, b->mass, n * sizeof(float)) == 0);
+    EXPECT(memcmp(a->gas, b->gas, n * sizeof(GasMix)) == 0);
     EXPECT(memcmp(a->creatures, b->creatures, (size_t)a->creature_count * sizeof(Creature)) == 0);
     world_destroy(a);
     world_destroy(b);
@@ -252,24 +252,42 @@ void test_creatures_same_for_any_thread_count(void) {
 
 // ---- Gas currents: moving matter stirs the air ----
 
-// A sealed room (192 x h world) of horizontal stripes of oxygen and nitrogen, 16 cells thick
-// (thick enough that diffusion alone blurs only their edges in a few seconds).
+// A sealed room (192 x h world) of horizontal stripes, 16 cells thick (thick enough that diffusion
+// alone blurs only their edges in a few seconds), of nitrogen and of a blend of the same density
+// (86.7% oxygen and 13.3% hydrogen by moles: molar mass 28, as N2), so only stirring mixes them.
 static World *striped_room(uint64_t seed, int h) {
     World *w = test_world_box(192, h, seed);
+    double n = (double)GAS_MOLES_ATM;
+    GasMix blend;
+    gas_mix_clear(&blend);
+    blend.m[GAS_O2] = (float)(n * 0.867 * (double)g_species_molar[GAS_O2]);
+    blend.m[GAS_H2] = (float)(n * 0.133 * (double)g_species_molar[GAS_H2]);
     for (int y = 1; y <= h - 2; y++) {
-        fill(w, 1, y, 190, y, ((y / 16) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN);
+        if ((y / 16) & 1) {
+            for (int x = 1; x <= 190; x++) {
+                world_set_mix(w, x, y, &blend, T_ROOM, (uint32_t)(x + y));
+            }
+        } else {
+            fill(w, 1, y, 190, y, ELEM_NITROGEN);
+        }
     }
+    world_wake_rect(w, 0, 0, 191, h - 1);
     return w;
 }
 
-// Cells in the rect not holding their stripe's gas: how stirred it is.
+// Gas cells in the rect whose nitrogen fraction is off their stripe's by more than 0.25: how
+// stirred it is.
 static int64_t out_of_stripe(const World *w, int x0, int y0, int x1, int y1) {
     int64_t n = 0;
     for (int y = y0; y <= y1; y++) {
-        ElementId want = ((y / 16) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN;
+        float want = ((y / 16) & 1) ? 0.0f : 1.0f;
         for (int x = x0; x <= x1; x++) {
-            ElementId e = world_elem(w, x, y);
-            n += g_elem_behavior[e] == BEHAVIOR_GAS && e != want;
+            size_t i = world_index(w, x, y);
+            if (w->cells[i].element == ELEM_GAS) {
+                const GasMix *g = &w->gas[i];
+                float x_n2 = g->m[GAS_N2] * g_species_inv_molar[GAS_N2] / gas_moles(g);
+                n += fabsf(x_n2 - want) > 0.25f;
+            }
         }
     }
     return n;
@@ -382,23 +400,27 @@ void test_breath_in_and_out(void) {
     World *w = air_room(128, 64, 121);
     int id = creature_spawn(w, 60, 27);
     Creature *c = &w->creatures[id];
+    double co2_0 = test_mass(w, ELEM_CO2); // air holds 0.04%
     sim_run_ticks(w, 257);
     EXPECT(c->holding);
-    EXPECT_EQ(test_count(w, ELEM_CO2), 0);
-    EXPECT(c->lungs[g_gas_slot[ELEM_CO2]] > 0.0f);
-    EXPECT(c->lungs[g_gas_slot[ELEM_NITROGEN]] >
-           1.5f * c->lungs[g_gas_slot[ELEM_OXYGEN]]); // air (79% N2)
+    EXPECT(c->lungs.m[GAS_CO2] > 0.0f);
+    EXPECT(c->lungs.m[GAS_N2] > 3.0f * c->lungs.m[GAS_O2]); // air: 78% N2, 21% O2
     sim_run_ticks(w, 104);
     EXPECT(!c->holding);
-    EXPECT(fabs(test_mass(w, ELEM_CO2) - c->co2_made) < 1e-3 * c->co2_made);
-    // The CO2 is near the mouth (in front of the face, at row 30).
-    int near = 0;
+    EXPECT(fabs(test_mass(w, ELEM_CO2) - co2_0 - c->co2_made) < 1e-3 * c->co2_made);
+    // The CO2 is near the mouth (in front of the face, at row 30): there, the air holds
+    // more than 0.1%; far off, still 0.04%.
+    double best = 0.0;
     for (int y = 30 - 6; y <= 30 + 6; y++) {
         for (int x = c->x + c->w; x <= c->x + c->w + 8; x++) {
-            near += test_cell_is(w, x, y, ELEM_CO2);
+            const GasMix *g = &w->gas[world_index(w, x, y)];
+            if (world_elem(w, x, y) == ELEM_GAS) {
+                best = fmax(best,
+                            (double)(g->m[GAS_CO2] * g_species_inv_molar[GAS_CO2] / gas_moles(g)));
+            }
         }
     }
-    EXPECT(near >= 1);
+    EXPECT(best > 0.001);
     world_destroy(w);
 }
 

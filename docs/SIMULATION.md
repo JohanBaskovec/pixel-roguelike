@@ -253,195 +253,95 @@ problem altogether, and is also cheaper (no gradient traces).
 - Transfers move a cell from the top of the body to the opening in one step. Visually this reads
   as the surface lowering and the water flowing out, but water does not travel through the body.
 
-### Gases (M4): mass and pressure
+### Gases (M4; mixtures since M6a, D-035)
 
-Each gas cell holds one gas with a **mass** (`World.mass`, kg). Its pressure follows the ideal gas
-law, `P = (m / M) · R · T / V_cell`, with M the molar mass and T the physical temperature. A cell
-painted with the brush holds the mass of 1 atm at its spawn temperature (0.15 g of air). Mass is
-conserved by every rule below (tested to 1e-4).
+Code: `update_gas()` and the functions before it in `src/sim/sim.c`; `GasMix` and its helpers in
+`src/sim/world.h`.
 
-A gas cell does the following each tick, in order:
+**A gas cell is a mixture.** Every gas cell is the element `ELEM_GAS` and holds a mass of each gas
+species (`World.gas`, a `GasMix` of kg: O₂, CO₂, H₂, water vapour, N₂) at one temperature. The
+species elements (`ELEM_OXYGEN`...) name the species and give their properties (molar mass, heat
+capacity, conductivity, colour); no cell holds them. Painting oxygen paints a gas cell of oxygen
+alone; the **Air** brush paints air, the same mixture in every cell: 20.95% O₂, 0.04% CO₂ and the
+rest nitrogen (78.1% N₂ and 0.9% argon counted as N₂) by moles, at 1 atm, dry. Pressure follows
+the ideal gas law for the cell's moles, `P = n · R · T / V_cell`; partial pressures are each
+species' share. Mass is conserved by every rule below, species by species (tested to 1e-4), except
+condensation (on average).
 
-1. **Buoyancy.** If the cell above is a denser fluid → swap with probability
-   `p = K_BUOY · (ρ_above − ρ_self) / (ρ_above + ρ_self)`. Gas densities are taken **at 1 atm**
-   for the cell's temperature (`elem_fluid_density`), whatever its actual pressure: a parcel at
-   another pressure would be squeezed or expanded to its surroundings' pressure long before it rose
-   or sank. So hot gas rises through cold gas, but thin gas does not shoot up. **Between two
-   different gases** a single cell does not sink or rise by its kind: a warmer cell rises (a
-   thermal, `K_BUOY · (T_self − T_above) / (T_self + T_above)`), and otherwise gas moves by **bulk
-   buoyancy** (next section): CO2 sinks and H2 rises as layers, blobs and plumes, while a mixture
-   stays mixed. **Oxygen and nitrogen count as air** (`AIR_DENSITY_0C`, the same density), so air
-   never stratifies; real air needs kilometres of height to separate.
-2. **One random direction** (4-neighbourhood) per tick. The neighbour there decides:
-   - **Void:** a dense cell (at least `2 · GAS_MIN_FRAC` = 2% of its 1-atm mass) **splits**: half
-     its mass goes 1..`SPREAD` cells into the void. Gas fills a vacuum and thins out. A thinner
-     cell moves whole, as a particle (up to `SPREAD` cells), so a little gas in a big vacuum is a
-     few drifting particles, not ever-thinner cells.
-   - **Any gas at less than 1/`GAS_PUSH_RATIO` (1/2.1) of this pressure:** **push**. The
-     neighbour's gas moves on into its own neighbour (straight on, else either side) where that is
-     the same gas (it merges) or void, and this cell expands into the freed cell, half its mass
-     each. Below a ratio of 2 the push would leave both halves below the gas it squeezed, which
-     would push back next tick. Boiling water (one steam cell at ~1700 atm) clears the air this
-     way, and suddenly heated gas pushes cold gas aside instead of mixing its heat into it.
-   - **The same gas,** both thin (sum under 2% of 1 atm): the two **merge**.
-   - **A different gas more than `GAS_BALANCE_TOL` (1%) below this pressure:** with probability
-     1/16, **balance**. Its cell changes over to this gas: its gas is squeezed into the cells of
-     its kind around, and the cell is refilled from the cells of this gas around (each region up to
-     64 cells within 8, `world_gas_region`), so each region's pressure moves by a percent or two.
-     Judged by the two regions' mean pressures, and only if this gas is still at least the other's
-     afterwards (no flipping back). This is how total pressure evens out across different gases
-     below the push ratio. Cells stay awake for it above a 3% difference.
-   - **Else, a different gas:** the two **mix** (trade places): by **diffusion** down the
-     concentration gradient in still gas, or by **turbulence** where the gas has a current (see
-     Gas mixtures and diffusion below). Mixing never moves the denser gas down on its own
-     account: bulk buoyancy does that.
-   - Then, for any gas there: **pressure equalisation.** Walk a random 1..`GAS_REACH` (16) cells
-     in that direction through gas of any kind, to the last cell of the same gas. If its
-     temperature is within `GAS_JUMP_MAX_DT` (2 K), trade mass with it, otherwise with the
-     adjacent cell (if it is the same gas). The amount leaves both at the same pressure:
-     `dm = (m·T − m'·T') / (2·T_sender)`, because the moved gas keeps the sender's temperature
-     and its heat mixes into the receiver (energy-conserving). Pressures within `GAS_EQ_TOL`
-     (0.1%) count as equal; above the push ratio the push handles it.
-3. **Did not move:** stay awake only if something is still possible: void beside it, a pressure
-   difference or a merge with the same gas, a push, a balance, a mixing move, or buoyancy
-   (including bulk buoyancy and spreading). A room of gas at one pressure (including mixed air,
-   or any settled mixture) sleeps.
+Each tick, a gas cell:
 
-Pressure spreads by diffusion, sped up by the long jumps: a 2:1 pressure step across a 128-cell
-room (6 m) evens out to 1% in about 5 s. Gas released into vacuum spreads at a few metres per
-second, not at the speed of sound.
+0. **Sleeps at once** if it is still (no current, nothing hot near, no water vapour) and exactly
+   like every gas neighbour (same masses and temperature), with no void or liquid beside it:
+   still air costs a few loads. A cell like its neighbours only **within tolerance** (pressures
+   within `GAS_EQ_TOL`, 0.3%; mole fractions within `GAS_MIX_TOL`, 0.1%; densities within
+   `GAS_BUOY_TOL`, 0.02%; and the pressure of the cells `GAS_REACH` (16) to the right and below
+   within `GAS_EQ_TOL_FAR`, 0.2%, so a smooth pressure gradient does not freeze) also sleeps,
+   after the checks below that apply anywhere.
+1. **Follows its current** (gas wind, see Gas currents): moving air carries the gas along.
+2. **Burns** (Reactions) and **condenses** water vapour (Phase changes) when that applies.
+3. **Buoyancy.** It rises through denser gas above. Densities are compared **at 1 atm** for each
+   cell's temperature and molar mass (`World.rho`, recomputed each tick for the awake chunks),
+   whatever its actual pressure: a parcel at another pressure would be squeezed or expanded to
+   its surroundings' pressure long before it rose or sank. So warm air rises, CO₂-rich air sinks,
+   hydrogen rises, and **an even mixture is the same everywhere, so it does not unmix** (tested).
+   Not only against the cell above: diffusion blurs every boundary, so a heavy layer on a light
+   one differs little from cell to cell, yet the columns' weights differ. Mean densities over
+   `GAS_BUOY_SCALES` windows of the cell's column (1, 4, 8 and 16 rows above it, against as many
+   from it down) give a contrast at each height; the drive is the largest contrast times
+   √height (bigger structures rise faster: buoyant speed grows as the square root of their size),
+   and the cell rises with probability `K_BUOY · drive`. At height 1 it trades places with the cell
+   above; at a bigger one it is **lifted** to the top of the denser gas above it (up to that height)
+   and that column shifts down a row, so a heavy layer or blob sinks as a whole. (A quick test
+   first: gas clearly lighter just above means stable.) As a **bubble** under liquid it rises
+   through it.
+4. **Heavy gas spreads sideways** (a gravity current). A cell resting on something (not on lighter
+   gas), next to lighter gas, compares the weight of the `GAS_SPREAD_H` (8) rows at and above it
+   with that of the column 1, 4, 8 or 16 cells to the side (the hydrostatic pressure at its height;
+   a gravity current is driven by the difference over its length): drive = the largest contrast ×
+   √distance. Moving, the row from it to the shortest distance showing most of the contrast shifts
+   one cell outward, and the gas there takes its place (the light gas flowing back over the
+   current): beside a sharp boundary that is the next cell, at a smooth pool edge further. A pool
+   of CO₂ flattens over the floor; cold air flows under warm air.
+5. **One random direction** (4-neighbourhood):
+   - **Void:** a dense cell (at least `GAS_SPLIT_MOLES`, 2% of the moles of 1 atm) **splits**: half
+     its gas goes 1..spread cells into the void (spread: 3 for air, more for lighter gas, as √ of
+     the molar mass ratio, 1..6). A thinner cell moves whole, as a particle.
+   - **Gas, both thin:** the two **merge**.
+   - **Gas: diffusion.** Each species moves down its mole-fraction difference, `GAS_DIFFUSE_K`
+     (3.3%) of it times the cells' mean moles per tick, which moves no net moles (pressure is
+     untouched) and carries each species' heat. Each pair is picked about every other tick:
+     effective diffusivity 2.5e-3 m²/s, gentle indoor turbulence, about 150× molecular (D-032).
+     A current multiplies it by `1 + GAS_TURB_PER_WIND · speed` (eddy diffusivity, as for heat),
+     up to evening out the pair.
+   - **Gas: pressure equalisation** (only where a pressure difference was found). Half the time
+     the full `GAS_REACH` (16), else a random 1..16 cells, along that direction through gas, to the
+     last gas cell (the adjacent one if their temperatures differ by more than
+     `GAS_JUMP_MAX_DT`, 2 K: long jumps between different temperatures would smear heat). The
+     sender gives half the difference of moles × temperature, with its composition and heat
+     (temperatures mix by heat capacity; energy is conserved). Pressures count as equal within
+     `GAS_EQ_TOL` (0.3%) for partners under 8 cells apart and `GAS_EQ_TOL_FAR` (0.2%) further, so a
+     smooth gradient evens out to about 0.2% per 16 cells of path (tested: two rooms at 2 and 1 atm
+     joined by a gap end at 1.5 atm, within 2%); differences under 0.3% of 0.1 atm always count as
+     equal. A 1700-atm cell of boiling water vapour gives half its gas each time: it expands within
+     ticks. Thin gas drifting in a vacuum (under `GAS_SPLIT_MOLES`, touching void) is not fed by gas
+     more than `GAS_FEED_RATIO` (2.1) times denser: dense gas expands into a vacuum by splitting,
+     otherwise every drifting cell would grow dense and split again.
+6. Otherwise, if something is still possible (step 0), it stays awake.
 
-**Phase changes with mass.** Boiling water keeps its 125 g: one steam cell at very high pressure,
-which then pushes and splits until it fills about 1700 cells at 1 atm. Steam condensing becomes a
-full water cell (125 g) with probability `m / m_water`, otherwise nothing (deterministic hash of
-seed, tick and cell), so mass is conserved on average. The condensation point does not depend on
-pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not 100 °C).
+Pressure spreads by diffusion, sped up by the long jumps: a 2:1 step across a 128-cell room (6 m)
+evens out within a few seconds. Gas released into vacuum spreads at a few metres per second, not at
+the speed of sound.
 
-### Gas mixtures and diffusion
+**Tested:** a blob of oxygen fills a vacuum box ten times its size at 0.1 atm; sealed gas follows
+P ∝ T; painted air and even mixtures (50% and 5% CO₂) stay put and sleep; nitrogen over oxygen
+diffuses as √t at the game's diffusivity; CO₂ over oxygen and oxygen over hydrogen turn over within
+seconds; a ball of CO₂ sinks, spreads over the whole floor within 10 s and stays a CO₂-rich layer
+under clean air, thinning; a warm pocket rises; the same result on 1 and 4 threads.
 
-Code: `gas_gradient()`, `gas_blocks_differ()`, `gas_mix_gain()` and step 2e of `update_gas()` in
-`src/sim/sim.c`; `gas_blocks_update()` (block counts).
-
-Real molecular diffusion is far too slow to matter at this scale (CO2 in air: about 80 s to
-cover 5 cm, 9 hours to cover 1 m). What mixes a room is gentle turbulence, roughly 100 to 1000
-times faster. The game uses an effective diffusivity of about 2.5e-3 m²/s (about 150× molecular,
-a deliberate deviation: indoor air is never perfectly still), so nothing stays an unmixed clump:
-a sharp edge blurs by about 15 cm in 30 s, and a metre-wide haze spreads out in a few minutes.
-
-- **Diffusion down the gradient.** A gas cell `a` and a different gas `b` next to it trade places
-  when there is clearly more of `a` on its side than on b's side. Each side is a window across
-  the direction, 4, 8, 16 or 32 cells long (7 to 15 wide, sampled every 1 or 2 cells: 27 to 240
-  samples; `a` and `b` themselves not counted). "Clearly" means the fractions of `a` (among gas
-  cells) differ by `DIFFUSE_Z` (3) standard errors of a common mixture (pooled binomial), and `b`
-  is not rarer on its own side. The shortest scale where that holds is used: short windows see a
-  sharp edge, long, wide ones (less noise) a weak or smeared difference. The swap happens with
-  probability `P_GAS_MIX` (9.4%) times the gradient (the difference per cell, times 4, divided by
-  `4 p (1 − p)`, at most 1): dividing by the share of pairs that can swap makes the flow
-  proportional to the gradient alone, as in Fick's law, so a dilute haze spreads as fast as a
-  strong mix. Tested: oxygen and nitrogen side by side spread into each other as √t (3 cells of
-  oxygen per row past the middle after 30 s, twice that after 2 min).
-- **Small clusters** (a few cells of one gas side by side, too small to show as a gradient) are
-  broken up with probability `P_GAS_SPECKLE` (1.6%) where a swap lowers the share of same-gas
-  contacts around the two cells (walls count for neither side). Every such swap lowers that
-  share, so it comes to rest.
-- **Turbulence.** Where either cell has a current, they trade places at random with probability
-  `P_GAS_MIX_STIRRED` (50%) times the current's speed / 31: a step or a breath mixes fast, a
-  fading current gently.
-- **Coming to rest.** Once the gases are evenly mixed (no clear gradient at any scale, no small
-  cluster), nothing moves and the region sleeps. The precise gradient test is expensive (up to
-  800 cell reads), so it runs only after the swap's random draw, and only where the **gas block
-  counts** show a difference nearby: at the start of each tick, each awake chunk counts each gas
-  in its 8 × 8 blocks (`World.gas_blocks`, in parallel); `gas_blocks_differ()` compares the
-  cell's block with the blocks 1 to 4 away in each direction (2 standard errors). Still air
-  fails that at once and costs almost nothing. Cells next to a different gas stay awake until
-  their chunk's full check (every `BULK_FULL_EVERY` ticks), which decides whether they sleep.
-
-Tested: a ball of CO2 lands within 10 s with only a faint wake above it (no 15 × 15 window above
-the floor layer holds a quarter CO2), then the pool thins and spreads over the floor (its
-densest window drops by more than 5 points in 30 s, no window holds 70%); a random 50/50 mixture
-of CO2 and air stays put and sleeps; painted air sleeps.
-
-### Gas mixtures and bulk buoyancy
-
-Code: `buoyancy_p()`, `gas_lift()`, `gas_spread_p()` and `gas_is_bubble()` in `src/sim/sim.c`.
-
-Each cell holds one gas, so a mixture is a speckle of cells of each gas: a cell of CO2 among air
-cells stands for CO2 mixed into the air molecule by molecule. Such a cell must not sink on its
-own. If it did, every mixture would unmix (CO2 breathed out would rain onto the floor, a 50/50
-mixture would separate into layers), when in reality a mixed gas stays mixed: its scale height
-of separation is kilometres. What sinks is a **mixture that is denser in bulk**: a layer, a blob
-or a plume, which moves as a whole and mixes at its edges. The gases compare windows of cells,
-each gas at its density at 0 °C (`g_gas_buoy_density`; other cells not counted):
-
-- **The test.** Two windows differ when the difference of their mean densities is at least
-  `BULK_Z` (2) standard errors and at least `BULK_MIN_CONTRAST` (1%) as a contrast
-  `(ρ_a − ρ_b) / (ρ_a + ρ_b)`. The standard error is the one the two windows would have if they
-  held the same mixture: the pooled spread of their cells' densities. So the noise of a mixture
-  never moves it, whatever the gases (a cell-level mix of H2 and CO2 is far noisier than one of
-  CO2 and oxygen), while two pure gases differ at any contrast: a sharp layer or blob always
-  moves.
-- **Rising, lighter gas under a denser one.** The window above the cell (7 wide) is compared
-  with the window below it (7 wide, from the cell down), and with the lighter of the two windows
-  beside it (7 wide on each side, at the rows above; `SIDE_NOISE` = 1.5 times the standard
-  errors, as the lighter of two is noisier). Windows are 4, 8 and 16 rows tall, and each stops at
-  a cell of the column that is not gas: a sharp edge shows in the small ones, a smeared gradient
-  only in the tall ones, which have less noise. The probability is
-  `K_BUOY · min(1, BULK_K · contrast)`, with `BULK_K` = 4: a ball of CO2 in air (contrast 21%)
-  sinks at up to a cell a tick, a few m/s, close to the speed `√(g' · d)` of a heavy blob a
-  metre or so across.
-- **Lift.** The parcel moves down one cell as a whole: the light cell is lifted to the top of
-  the parcel (up the column while the cells are denser gases, or their 3-cell row has at least
-  the density half-way between parcel and surroundings; at most `PARCEL_MAX` = 31 rows) and the
-  column shifts down by one. So a blob sinks intact instead of crumbling cell by cell, and a
-  heavy layer on top of a light one turns over, mixing as the light gas is lifted into it.
-- **Bubbles.** A light cell alone in heavy gas rises (lifted again). Alone means the 3 cells
-  above it are denser gases, and so are all but at most 2 of the 21 cells above it. Such a cell
-  is left inside a parcel taller than `PARCEL_MAX`. In a mixture it always has its own kind
-  near. **Known limitation** (found with the muzzle gas, M6a): a single cell of a lighter gas in
-  air (a cell of steam or hydrogen) counts as a bubble too, the air above it as its parcel, so
-  it is lifted up to 31 rows a tick (about 90 m/s); a real 5 cm bubble of light gas rises at
-  well under 1 m/s.
-- **Spreading, a gravity current.** A light cell resting on something (not void, nor a gas
-  lighter than the heavy one) trades places sideways with a denser gas next to it, where the gas
-  in the 6 × 10 cells from the heavy cell on (at and above this row) is denser than on this
-  side by `SPREAD_Z` (2.5) standard errors. So a pile of CO2 on the floor flattens out and fills
-  pits, and a falling blob does not shed its sides (there is light gas under the air beside it).
-  The test is stricter than for rising because moving sideways does not lower the gas, so
-  nothing would settle a mixture it acted on.
-- **Schedule (cost).** The window sums cost up to 450 cell reads, so a cell tries the 4-row
-  windows one tick in `BULK_EVERY` (2) and spreading one in `SPREAD_EVERY` (8), each at that
-  many times the probability. Every `BULK_FULL_EVERY` (16) ticks (all cells of a chunk on the
-  same tick, chunks taking turns) it tries everything. Only then can a cell with a denser gas
-  above or beside it fall asleep, so a settled mixture sleeps.
-- A cell **warmer** than the different gas above it rises by itself (a thermal, as above):
-  breath (at 37 °C, 4% CO2) rises off the face.
-- Moves between gases of different densities wake every cell whose windows see them (11 cells
-  to each side, 16 above and below). Oxygen and nitrogen share one density, so stirring air
-  wakes nothing extra.
-
-Tested: a 50/50 random mixture stays mixed and sleeps; air with 5% CO2 stays mixed; a ball of
-CO2 high in a room of air sinks and pools over the floor; a CO2 layer on oxygen, and oxygen on
-hydrogen, turn over; breathed-out CO2 stays mixed in a sealed room, so it reaches the danger
-level (5 kPa) before oxygen falls to 10 kPa, as in real sealed rooms.
-
-**Known limitations.**
-
-- Different gases never share a cell. Total pressure evens out across them only cell by cell
-  (2b's push, or the balance step), so two gases side by side can stay up to ~3% apart.
-- Bulk buoyancy only sees differences above the noise of a mixture, so a thin CO2-rich haze over
-  clean air sinks only where it is concentrated enough to stand out of its own noise (in reality
-  it would sink, slowly). A heavy layer on top of a light one turns over, but it can stall with a
-  weak top-heavy gradient left. A sinking blob leaves a faint wake (diffusion blurs its edge as
-  it falls), and lands as a mound that spreads by diffusion rather than flowing out flat at once.
-- Diffusion stops where the remaining gradient is below the noise of the largest windows (about
-  1% per cell): a very shallow gradient over several metres stays. The air the player stirs and
-  breathes into keeps diffusing near the player (a few thousand more cells awake).
-- A gas cell suddenly heated far above its neighbours expands partly by trading mass with them,
-  which mixes some of its heat into them. Gradual heating (a hot plate) is barely affected, since
-  the mass moved is proportional to the temperature step.
-
-All constants live at the top of the gas section of `src/sim/sim.c` and in `src/sim/elements.h`.
-Their current values are in `ELEMENTS.md`.
+**Known limitations.** Buoyant motion is a cell or a column shift at a time, a coarse stand-in for
+flow; a warm pocket rises at about a third of the speed a real one would. A gradient gentler than
+the tolerances freezes (asleep) until something wakes it. Gas pressure is not hydrostatic (air's
+own weight, 12 Pa per metre, is ignored).
 
 ### Gas currents: moving matter stirs the air (M5)
 
@@ -457,12 +357,15 @@ would only swap the cells they touch, and a room's air would stay perfectly stil
   time: a current at full speed dies out in about 2 s. Cells with a current stay awake; then the
   air sleeps again (tested).
 - **Sources:** a creature's step pushes the air in front of it (speed 12) and drags a wake behind
-  it (18); each breath out blows a puff from the mouth (14, rising a little). Liquid or powder
-  falling through gas kicks the displaced gas sideways and upward and drags the gas beside it
-  down (6 plus the fall speed / 4).
-- Currents move cells, so they **mix** the gases they pass through, and mass is conserved
-  exactly (tested: walking along a striped room of oxygen and nitrogen, or sand falling through
-  it, mixes the stripes there far more than in the same room left alone).
+  it (18); each breath out blows a puff from the mouth (14, rising a little); a bullet leaves a
+  current along its path (8), and the muzzle blast a full one. Liquid or powder falling through
+  gas kicks the displaced gas sideways and upward and drags the gas beside it down (6 plus the
+  fall speed / 4).
+- Currents move cells, and they **mix** the gases they pass through: diffusion and heat exchange
+  between gas cells are multiplied by `1 + GAS_TURB_PER_WIND · speed` (turbulence, D-034). Mass is
+  conserved exactly (tested: walking along a striped room of nitrogen and a blend of the same
+  density, or sand falling through it, mixes the stripes there far more than in the same room
+  left alone).
 
 ### Reactions (M5)
 
@@ -472,22 +375,18 @@ releasing `heat_per_kg` J per kg of a. So far one: **hydrogen burning**, 2 H₂ 
 (steam): 7.94 kg of O₂ per kg of H₂, 120 MJ per kg of H₂ (lower heating value), igniting at
 773 K.
 
-- Checked first in a fuel cell's update, only in chunks where something is hot enough to ignite
-  (the chunk or one around it has a temperature at or above the lowest ignition temperature), and
-  only if the cell or one of its 4 neighbours is at least `ignite_k`.
-- The partner is the nearest oxidiser cell within `REACT_REACH` (3 cells, square rings from a
-  random corner). Burning gases mix molecule by molecule; with one gas per cell, the push of the
-  hot products would otherwise leave fuel and oxidiser in separate pockets.
-- **Mass is exact:** with enough oxidiser, the fuel cell becomes the product holding the fuel and
-  the oxidiser used (the oxidiser cell keeps the rest); with too little, the oxidiser cell becomes
-  the product and the fuel keeps what is left.
-- **Heat:** the product's temperature is the reactants' heat plus the heat released, over its heat
-  capacity, but at most `FLAME_MAX_K` (3000 K): hotter, real flames lose energy to dissociation,
-  which is not modelled (the excess is dropped; a deviation).
-- The hot, dense product (10 atm and more) pushes the gas around and ignites its neighbours: a
-  flame front that crosses a room of stoichiometric hydrogen and oxygen in under a second
-  (tested: most of the hydrogen burns; mass is conserved; the steam is hot and does not condense
-  yet). Cold mixtures never burn (tested). Light a mixture with the Heat brush.
+- **In the cell** (D-035): a gas cell holding the fuel and the oxidiser burns when it, or one of
+  its 4 neighbours, is at least `ignite_k`; checked only in chunks where something is hot enough
+  (the chunk or one around it). All the fuel the oxidiser allows reacts at once into the product,
+  in the same cell: **mass is exact**.
+- **Heat:** the heat released goes into the cell (its mixture's heat capacity), up to
+  `FLAME_MAX_K` (3000 K): hotter, real flames lose energy to dissociation, which is not modelled
+  (the excess is dropped; a deviation).
+- The hot product expands and heats its neighbours, which ignite: a flame front that crosses a
+  room of stoichiometric hydrogen and oxygen (premixed: knallgas) in a few seconds (tested: most
+  of the hydrogen burns; mass is conserved; the vapour is hot and does not condense yet). Cold
+  mixtures never burn (tested). Hydrogen meeting air burns where the two have mixed. Light a
+  mixture with the Heat brush.
 
 ### Free particles (M4b; D-026)
 
@@ -555,24 +454,25 @@ list order, at the start of each tick (before heat and movement).
   around the mouth. **Breathing in** draws a tidal volume of 0.5 L (`TIDAL_CELLS`, 4 cells; ×3
   walking) into the lungs: the same fraction of every gas cell among the `DRAW_MIN` (32) gas cells
   nearest the mouth (more for a bigger breath: each gives at most half its gas), whatever the
-  gas: nitrogen, oxygen, CO2, hydrogen. The lungs hold each gas's mass (`Creature.lungs`). The
+  gas: nitrogen, oxygen, CO2, hydrogen. The lungs hold a mixture (`Creature.lungs`, a `GasMix`). The
   body then takes the oxygen it uses (250 mL/min at rest, ×3 walking) from the lungs, at most
   `O2_EXTRACT_MAX` (half) of what they hold, and adds the CO2 it makes for it (200 mL/min). At
   rest a breath goes in at about 21% oxygen and out at 17%, with 3% CO2 (real: 16% and 4%).
-  **Breathing out**, after `INHALE_TICKS` (1.7 s), puts every gas back near the mouth at 34 °C
-  (`EXHALE_K`): into the cells of its kind among the nearest gas cells, or into the nearest cell
-  that takes it (CO2 in fresh air: a new cell, the gas there squeezed into its kind around), with
-  a puff away from the face (breathing in draws a gentler current toward it). So the breath out
-  is warm and stale, and other gases breathed in (hydrogen, CO2) come back out. **With its mouth
+  **Breathing out**, after `INHALE_TICKS` (1.7 s), mixes the lungs' air back into the gas cells
+  nearest the mouth (as many as it was drawn from) at 34 °C (`EXHALE_K`), or fills the mouth cell
+  if it is void, with a puff away from the face (breathing in draws a gentler current toward it).
+  So the breath out is warm and stale, and other gases breathed in (hydrogen, CO2) come back out.
+  **With its mouth
   in liquid it holds its breath:** it does not breathe out, and the body keeps taking oxygen from
   the lungs (at most half of what is left each breath) until they run out. A dying creature
-  breathes out its last breath. Water vapour is not breathed out (humidity is not modelled).
+  breathes out its last breath. Water vapour is not breathed out yet.
   Tested: oxygen used and CO2 made match the real rates; O2, CO2 and nitrogen are conserved
   (counting the lungs); the first breath out leaves CO2 in front of the face; under water it
   holds its breath and puts no gas into the water. Each breath in also **stirs** the air: `STIR_CELLS` (16 cells, 2 L) times the speed-up and work, swapping gas
   within 16 cells of the mouth with gas up to 64 cells away. Without it, the air next to the face
-  goes stale while the room stays fresh (gases mix only at interfaces; D-005), and a person
-  suffocates long before the room's oxygen runs low. Underwater it gets no new air.
+  goes stale while the room stays fresh (the breath's own currents and diffusion are too slow for
+  breathing sped up 200× in tests), and a person suffocates long before the room's oxygen runs
+  low. Underwater it gets no new air.
 - **Health** from the partial pressures around the head (window of 16 cells around the mouth,
   smoothed over breaths): O2 below 16 kPa → impaired (slower); O2 below 10 kPa, CO2 above 5 kPa,
   or a breath that found less than half its oxygen → in danger, losing health (dead after 120 s);
@@ -580,7 +480,7 @@ list order, at the start of each tick (before heat and movement).
   1 m³ of air), one person at rest reaches danger after about 4 hours of game time, from CO2
   (5 kPa), within 5% of what its CO2 output predicts for evenly mixed air (oxygen would last
   7 hours; the test runs breathing 200× faster, with stirring in proportion). Breathed-out CO2
-  stays mixed in the air (D-030). In a smaller room (3.1 × 3.1 m) the warm breath collects near
+  stays mixed in the air (D-035). In a smaller room (3.1 × 3.1 m) the warm breath collects near
   the head, and danger comes about 30% before the room's average CO2 reaches 5 kPa.
 - **Body heat:** held at 37 °C, giving up to 100 W (×3 walking), scaled by the gas conduction
   speed-up like the heat the body loses (`HEAT_TIME_SCALE_GAS`). Tested: in cold air the body
@@ -625,7 +525,7 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
 - **Flight.** A bullet faster than `BULLET_FAST` (30 m/s) covers its whole path for the tick in
   half-cell steps, at the end of the tick with the other particles (serial, deterministic, not
   bound by the 32-cell reach). Through void, gas and falling liquid it flies on, and gives each
-  gas cell it crosses a current along its path (`BULLET_WIND`, 16): it stirs the air.
+  gas cell it crosses a current along its path (`BULLET_WIND`, 8): it stirs the air.
 - **Impacts.** Each cell of dirt or powder it enters costs it 50 cells/tick of its 300 (about
   30 cm of earth or sand stops it). The cell is knocked out of the grid as debris: a particle
   (dirt loosened to soil) thrown back out of the hole at 4–12 m/s, which lands as a pixel. Rock:
@@ -633,19 +533,17 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
   of water), and the first liquid cell it enters splashes out. Iron, ice, bodies and the world's
   edge stop it in front of them. After each dug cell, small clumps around it break loose.
 - **Muzzle gas** (`muzzle_gas()`): the propellant, 1.6 g (about a 5.56 mm cartridge's), leaves the
-  muzzle behind the bullet as gas at 1500 K (`MUZZLE_K`, after expanding): 75% CO2, 25% nitrogen
-  by mass. (Single-base powder gives about 55% CO2 and CO, 25% water vapour, 18% nitrogen and
-  1–2% hydrogen. Carbon monoxide has no element and is counted as CO2; with the hydrogen it would
-  burn in the air in a "secondary flash", which flash hiders suppress. Water vapour is left out,
-  its mass split between the two: the model condenses steam below 100 °C, and the hot steam
-  shot to the ceiling, see the bubble lift in Gas mixtures and bulk buoyancy.) Each gas goes into
-  a few cells (about 6 atm each) along and beside the line of fire in the first 6 cells: added
-  to cells of its kind, else the cell becomes it and the gas there is squeezed into its kind
-  around. The cells get a full current along the line of fire. The gas glows (the hot-matter
-  glow) for about 5 ticks while its current mixes it, and its heat, into the air (turbulent heat
-  exchange, Heat pass), then expands and drifts as warm CO2 and nitrogen; sustained fire in a
-  closed room fills it with CO2. Tested: one shot puts 1.2 g of CO2 in front of the muzzle, above
-  1000 K; 20 ticks later no gas glows, and the air in front is still warm.
+  muzzle behind the bullet as gas at 1500 K (`MUZZLE_K`, after expanding): 55% CO2, 27% water
+  vapour, 18% nitrogen by mass. (Single-base powder gives about 55% CO2 and CO, 25% water vapour,
+  18% nitrogen and 1–2% hydrogen. Carbon monoxide has no species and is counted as CO2; with the
+  hydrogen it would burn in the air in a "secondary flash", which flash hiders suppress.) It is
+  mixed, in equal shares, into the gas of the first `MUZZLE_REACH` (6) cells along the line of
+  fire, which it heats and pressurises, and the gas there and either side of it gets a full
+  current along the line of fire. The hot gas glows (the hot-matter glow) for a few ticks while its
+  current mixes it, and its heat, into the air (turbulence), then expands and drifts as warm,
+  humid, CO2-rich air; sustained fire in a closed room fills it with CO2. Tested: one shot puts
+  0.88 g of CO2 and 0.43 g of vapour in front of the muzzle, above 1000 K; 20 ticks later no gas
+  glows, and the air in front is still warm.
 - **Falling.** Stopped, the bullet drops from the last cell it reached (bouncing back at 0.3
   cells/tick) as an ordinary particle and lands as a powder pixel. Repeated shooting leaves piles
   of bullets and casings.
@@ -694,9 +592,12 @@ T_i'   = T_i + Σ_j a_ij · (T_j − T_i) / C_i       // physical temperatures o
 
 - `a_ij` is a precomputed symmetric table (`g_heat_coef`), so what one cell gains its neighbour
   loses: **energy is conserved exactly** (tested), and stays so whatever the thread count.
-- **Gases:** a gas cell's thermal mass is its actual mass times c (`m · c`), so thin gas holds
-  little heat. Any pair involving a gas uses `min(raw coefficient, C_min / 8)` computed per pair
-  (`g_heat_coef_raw`); `C_min / 8` never exceeds the table's limit and keeps the step monotone.
+- **Gases:** a gas cell's thermal mass is its mixture's, `Σ m_s · c_s`, so thin gas holds little
+  heat, and its conductivity the mole-fraction-weighted mean of its species' (an approximation).
+  Any pair involving a gas computes its coefficient (two half-cells in series, the gas speed-up)
+  and `min(that, C_min / 8)`; `C_min / 8` never exceeds the table's limit and keeps the step
+  monotone. Each pair of neighbours is computed once per tick (a horizontal and a vertical pair
+  per cell), and pairs at one temperature cost nothing.
 - The limit makes every step monotone: one tick never pushes two cells past their common
   temperature, even with all four neighbours pushing the same way. There is no overshoot with
   extreme contrasts, e.g. 3000 K hydrogen on 100 K iron (tested).
@@ -754,7 +655,7 @@ it, so a hot pocket rises while mixing rather than as a tight plume.
 
 ### Phase changes
 
-Ice ↔ water at 0 °C (L = 334 kJ/kg), water ↔ steam at 100 °C (L = 2257 kJ/kg), rock ↔ lava at
+Ice ↔ water at 0 °C (L = 334 kJ/kg), water → water vapour at 100 °C (L = 2257 kJ/kg), rock ↔ lava at
 1500 K (L = 400 kJ/kg) and iron ↔ molten iron at 1811 K (L = 247 kJ/kg; M5); lead (spent bullets,
 solid lead) ↔ molten lead at 600.6 K (327 °C, L = 23 kJ/kg) and brass (casings, solid brass) ↔
 molten brass at 1208 K (935 °C, between cartridge brass's solidus and liquidus; L ≈ 168 kJ/kg;
@@ -764,10 +665,23 @@ lava melt and sink to the bottom; cooled, they become lead and brass, every cell
 (the boiling point does not depend on pressure yet). After each conduction step, a cell
 whose stored temperature is far enough past its transition point that the heat beyond it pays for
 the latent heat, `c · (T − T_thr) ≥ L`, changes phase. It keeps the remainder:
-`T_new = T_thr ± m·(c·|T − T_thr| − L) / C_new`, where m is the cell's mass (a gas cell's own;
-see Gases for boiling and condensing). The full latent heat acts as a natural
-hysteresis (no flicker). A melted, frozen, condensed or boiled cell wakes its neighbourhood
+`T_new = T_thr ± m·(c·|T − T_thr| − L) / C_new`, where m is the cell's mass. The full latent heat
+acts as a natural hysteresis (no flicker). A melted, frozen or boiled cell wakes its neighbourhood
 (movement, rendering, water pressure).
+
+**Boiling** water keeps its 125 g: the cell becomes a gas cell of water vapour alone at very high
+pressure (about 1700 atm), which expands within ticks. **Water vapour condenses at its dew point**
+(D-035; `condense()` in `src/sim/sim.c`): in a gas cell whose vapour is beyond saturation (Antoine's
+equation, tabulated: 2.3 kPa at 20 °C, 1 atm at 100 °C), as much vapour condenses as warms the cell
+back to the dew point (the latent heat goes into the gas) and no more than the excess, so it keeps
+condensing as long as the gas is cooled. The condensed water becomes a droplet, a full water cell
+(125 g) whose gas is pushed into the gas around, with probability mass / 125 g; otherwise it is
+gone (deterministic per-chunk RNG), so mass is conserved **on average**. Saturation is taken at
+1 atm total pressure (the vapour's mole fraction times 1 atm): a cell of vapour just boiled off,
+at 1700 atm, does not condense back at once. So air can be humid: air with 1% vapour (dew point
+7 °C) stays vapour at room temperature, and cooled below 7 °C it rains out (tested: humid air held
+at 20 °C condenses to saturation, and the droplets hold the vapour lost). Water does not evaporate
+below 100 °C (no evaporation from surfaces yet).
 
 ## Randomness
 

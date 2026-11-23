@@ -30,15 +30,15 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->cells = pr_aligned_alloc_zero(64, n * sizeof(Cell));
     w->temp = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->temp_next = pr_aligned_alloc_zero(64, n * sizeof(float));
-    w->mass = pr_aligned_alloc_zero(64, n * sizeof(float));
+    w->gas = pr_aligned_alloc_zero(64, n * sizeof(GasMix));
+    w->rho = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->piece = pr_aligned_alloc_zero(64, n * sizeof(uint8_t));
     w->chunks = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(Chunk));
     w->particles = pr_aligned_alloc_zero(64, PARTICLE_MAX * sizeof(Particle));
     w->creatures = pr_aligned_alloc_zero(64, CREATURE_MAX * sizeof(Creature));
-    w->gas_blocks = pr_aligned_alloc_zero(64, n / (GAS_BLOCK * GAS_BLOCK) * GAS_SLOTS);
     w->pressure = w->chunks ? pressure_create(w) : NULL;
-    if (!w->cells || !w->temp || !w->temp_next || !w->mass || !w->particles || !w->creatures ||
-        !w->piece || !w->chunks || !w->pressure || !w->gas_blocks) {
+    if (!w->cells || !w->temp || !w->temp_next || !w->gas || !w->rho || !w->particles ||
+        !w->creatures || !w->piece || !w->chunks || !w->pressure) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
         return NULL;
@@ -54,14 +54,14 @@ void world_destroy(World *w) {
     pr_aligned_free(w->cells);
     pr_aligned_free(w->temp);
     pr_aligned_free(w->temp_next);
-    pr_aligned_free(w->mass);
+    pr_aligned_free(w->gas);
+    pr_aligned_free(w->rho);
     heat_free(w);
     pr_aligned_free(w->piece);
     pressure_destroy(w->pressure);
     pr_aligned_free(w->chunks);
     pr_aligned_free(w->particles);
     pr_aligned_free(w->creatures);
-    pr_aligned_free(w->gas_blocks);
     pr_aligned_free(w->sim_scratch);
     free(w);
 }
@@ -71,7 +71,8 @@ void world_clear(World *w) {
     for (size_t i = 0; i < n; i++) {
         w->cells[i] = (Cell){0};
         w->temp[i] = 0.0f;
-        w->mass[i] = 0.0f;
+        gas_mix_clear(&w->gas[i]);
+        w->rho[i] = 0.0f;
         w->piece[i] = 0;
     }
     w->particle_count = 0;
@@ -136,26 +137,51 @@ void world_wake_rect(World *w, int x0, int y0, int x1, int y1) {
     }
 }
 
+GasMix gas_mix_air(float p, float t) {
+    float n = p * CELL_VOLUME_M3 / (GAS_R * t);
+    GasMix g;
+    gas_mix_clear(&g);
+    g.m[GAS_O2] = n * AIR_O2_FRAC * g_species_molar[GAS_O2];
+    g.m[GAS_CO2] = n * AIR_CO2_FRAC * g_species_molar[GAS_CO2];
+    g.m[GAS_N2] = n * (1.0f - AIR_O2_FRAC - AIR_CO2_FRAC) * g_species_molar[GAS_N2];
+    return g;
+}
+
 void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits) {
     PR_ASSERT(world_in_bounds(w, x, y));
     PR_ASSERT(e < ELEM_COUNT);
     size_t i = world_index(w, x, y);
+    int s = elem_species(e);
+    bool gas = g_elem_behavior[e] == BEHAVIOR_GAS;
     Cell c;
-    c.element = e;
+    c.element = gas ? ELEM_GAS : e;
     // Not equal to the stamp of the next tick, so the cell is simulated in it.
     c.stamp = (uint8_t)(w->tick - 1);
     c.shade = (uint8_t)random_bits;
     // Liquids: random initial flow direction, zero speed. Gases: no current.
-    c.aux = g_elem_behavior[e] == BEHAVIOR_GAS ? 0 : (uint8_t)((random_bits >> 8) & 0x80);
+    c.aux = gas ? 0 : (uint8_t)((random_bits >> 8) & 0x80);
     w->cells[i] = c;
     w->temp[i] = g_elem_defs[e].spawn_temp;
-    w->mass[i] = g_elem_behavior[e] == BEHAVIOR_GAS ? gas_mass_at(e, P_ATM, w->temp[i]) : 0.0f;
+    if (s >= 0) {
+        w->gas[i] = gas_mix_pure(s, gas_mass_at(e, P_ATM, w->temp[i]));
+    } else if (gas) {
+        w->gas[i] = gas_mix_air(P_ATM, w->temp[i]);
+    } else {
+        gas_mix_clear(&w->gas[i]);
+    }
 }
 
 void world_set_gas(World *w, int x, int y, ElementId e, float m, uint32_t random_bits) {
-    PR_ASSERT(g_elem_behavior[e] == BEHAVIOR_GAS && m > 0.0f);
+    PR_ASSERT(elem_species(e) >= 0 && m > 0.0f);
     world_set_cell(w, x, y, e, random_bits);
-    w->mass[world_index(w, x, y)] = m;
+    w->gas[world_index(w, x, y)] = gas_mix_pure(elem_species(e), m);
+}
+
+void world_set_mix(World *w, int x, int y, const GasMix *g, float t, uint32_t random_bits) {
+    world_set_cell(w, x, y, ELEM_GAS, random_bits);
+    size_t i = world_index(w, x, y);
+    w->gas[i] = *g;
+    w->temp[i] = t;
 }
 
 float world_gas_pressure(const World *w, int x, int y) {
@@ -163,16 +189,26 @@ float world_gas_pressure(const World *w, int x, int y) {
         return 0.0f;
     }
     size_t i = world_index(w, x, y);
-    ElementId e = w->cells[i].element;
-    if (g_elem_behavior[e] != BEHAVIOR_GAS) {
+    if (w->cells[i].element != ELEM_GAS) {
         return 0.0f;
     }
-    return gas_pressure(e, w->mass[i], elem_temp(e, w->temp[i]));
+    return gas_mix_pressure(&w->gas[i], w->temp[i]);
+}
+
+float world_gas_partial_pressure(const World *w, int x, int y, int s) {
+    if (!world_in_bounds(w, x, y)) {
+        return 0.0f;
+    }
+    size_t i = world_index(w, x, y);
+    if (w->cells[i].element != ELEM_GAS) {
+        return 0.0f;
+    }
+    return gas_pressure_moles(w->gas[i].m[s] * g_species_inv_molar[s], w->temp[i]);
 }
 
 #define REGION_SIDE (2 * GAS_REGION_RADIUS + 1)
 
-int world_gas_region(const World *w, int x, int y, ElementId g, int ex, int ey, int radius, int max,
+int world_gas_region(const World *w, int x, int y, int ex, int ey, int radius, int max,
                      int32_t *found) {
     PR_ASSERT(radius <= GAS_REGION_RADIUS && max <= GAS_REGION_CELLS);
     uint8_t seen[REGION_SIDE][REGION_SIDE];
@@ -195,77 +231,60 @@ int world_gas_region(const World *w, int x, int y, ElementId g, int ex, int ey, 
             }
             seen[dy + GAS_REGION_RADIUS][dx + GAS_REGION_RADIUS] = 1;
             int cx = x + dx, cy = y + dy;
-            ElementId e = world_elem(w, cx, cy);
-            if (g_elem_behavior[e] != BEHAVIOR_GAS || (cx == ex && cy == ey)) {
+            if (world_elem(w, cx, cy) != ELEM_GAS || (cx == ex && cy == ey)) {
                 continue;
             }
             queue[tail][0] = (int8_t)dx;
             queue[tail][1] = (int8_t)dy;
             tail++;
-            if (e == g) {
-                found[n++] = (int32_t)world_index(w, cx, cy);
-            }
+            found[n++] = (int32_t)world_index(w, cx, cy);
         }
     }
     return n;
 }
 
-void world_gas_spread_add(World *w, const int32_t *found, int n, float m, float t) {
-    float share = m / (float)n;
+void world_gas_spread_add(World *w, const int32_t *found, int n, const GasMix *g, float t) {
+    float f = 1.0f / (float)n;
+    float ca = gas_heat_cap(g) * f;
     for (int k = 0; k < n; k++) {
         size_t i = (size_t)found[k];
-        float mi = w->mass[i];
-        w->temp[i] = (mi * w->temp[i] + share * t) / (mi + share);
-        w->mass[i] = mi + share;
+        w->temp[i] = gas_mix_temp(gas_heat_cap(&w->gas[i]), w->temp[i], ca, t);
+        gas_mix_add(&w->gas[i], g, f);
     }
 }
 
-float world_gas_spread_take(World *w, const int32_t *found, int n, float *t) {
-    float m = 0.0f, e = 0.0f;
+void world_gas_spread_take(World *w, const int32_t *found, int n, GasMix *out, float *t) {
+    gas_mix_clear(out);
+    float c = 0.0f, e = 0.0f, f = 1.0f / (float)(n + 1);
     for (int k = 0; k < n; k++) {
         size_t i = (size_t)found[k];
-        float dm = w->mass[i] / (float)(n + 1);
-        w->mass[i] -= dm;
-        m += dm;
-        e += dm * w->temp[i];
+        GasMix part = w->gas[i];
+        gas_mix_scale(&part, f);
+        gas_mix_add(&w->gas[i], &part, -1.0f);
+        gas_mix_add(out, &part, 1.0f);
+        float cp = gas_heat_cap(&part);
+        c += cp;
+        e += cp * w->temp[i];
     }
-    *t = m > 0.0f ? e / m : 0.0f;
-    return m;
+    *t = c > 0.0f ? e / c : T_ROOM;
 }
 
-bool world_gas_emit(World *w, int x, int y, ElementId g, float m, float t, uint32_t random_bits) {
-    PR_ASSERT(g_elem_behavior[g] == BEHAVIOR_GAS);
-    if (!world_in_bounds(w, x, y) || m <= 0.0f) {
+bool world_gas_emit(World *w, int x, int y, const GasMix *g, float t, uint32_t random_bits) {
+    if (!world_in_bounds(w, x, y) || gas_total(g) <= 0.0f) {
         return false;
     }
     size_t i = world_index(w, x, y);
     ElementId here = w->cells[i].element;
-    int r = 1;
-    if (here == g) {
+    if (here == ELEM_GAS) {
         int32_t self = (int32_t)i;
-        world_gas_spread_add(w, &self, 1, m, t);
+        world_gas_spread_add(w, &self, 1, g, t);
+    } else if (here == ELEM_VOID) {
+        world_set_mix(w, x, y, g, t, random_bits);
     } else {
-        if (here != ELEM_VOID) {
-            if (g_elem_behavior[here] != BEHAVIOR_GAS) {
-                return false;
-            }
-            int32_t region[GAS_REGION_CELLS];
-            int n =
-                world_gas_region(w, x, y, here, x, y, GAS_REGION_RADIUS, GAS_REGION_CELLS, region);
-            if (n == 0) {
-                return false;
-            }
-            world_gas_spread_add(w, region, n, w->mass[i], w->temp[i]);
-            for (int k = 0; k < n; k++) {
-                world_note_moved(w, region[k] % w->width, region[k] / w->width);
-            }
-            r = GAS_REGION_RADIUS;
-        }
-        world_set_gas(w, x, y, g, m, random_bits);
-        w->temp[i] = t;
+        return false;
     }
     world_note_moved(w, x, y);
-    world_wake_rect(w, x - r, y - r, x + r, y + r);
+    world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
     world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
     return true;
 }

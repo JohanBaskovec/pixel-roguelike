@@ -19,7 +19,7 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 6 | Oxygen (O₂) | GAS | 1.429 | 918 | 0.026 | condenses 90.2 K (liquid O₂, later) | `#9CC8F0` α 0.43 | 1 |
 | 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice (later) | `#7A7A7A` α 0.55 | 1 |
 | 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.43 | 1 |
-| 9 | Steam | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses 373.15 K → water | `#E6ECF2` α 0.25 | 3 |
+| 9 | Water vapour (steam) | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses at its dew point → water | `#E6ECF2` α 0.25 | 3 |
 | 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | `#7C86A8` α 0.16 | 4 |
 | 11 | Body (a creature) | STATIC | 985 | 3500 | 0.5 | none (held at 37 °C) | `#D9A066` | 4c |
 | 12 | Sand | POWDER | 1600 (bulk, dry) | 830 | 0.25 | (melts ≈ 1990 K, later) | `#C2B280` | 5 |
@@ -34,28 +34,34 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 21 | Molten lead | LIQUID | 10660 | 142 | 16 | freezes 600.6 K → lead; painted at 700 K | `#A8AEB8` | 6a |
 | 22 | Brass | STATIC | 8500 | 380 | 110 | melts 1208 K → molten brass | `#B8923A` | 6a |
 | 23 | Molten brass | LIQUID | 7600 (approx.) | 470 (approx.) | 70 (approx.) | freezes 1208 K → brass; painted at 1300 K | `#D8A848`, glows | 6a |
+| 24 | Gas (a mixture of species 6–10) | GAS | its mixture's (air: 1.2922) | its mixture's (air: 1005) | its mixture's (air: 0.026) | its water vapour condenses | mixed from its species | 6a |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
   2 (wet).
-- **Gas colours** are a deliberate deviation, since real gases are invisible. The α is the blend
-  of one gas pixel at 1 atm over the void background. From M4 it scales with density:
-  α · √(m / m_1atm), between 0.3× and 2.5× (`GAS_ALPHA_MIN`, `GAS_ALPHA_MAX` in
+- **Gas colours** are a deliberate deviation, since real gases are invisible. A gas cell's colour
+  mixes its species' colours, each weighted by its α (the blend of the species alone at 1 atm over
+  the void background) times its mole fraction; the cell's opacity is that weighted sum times
+  √(p / 1 atm), between 0.3× and 2.5× (`GAS_ALPHA_MIN`, `GAS_ALPHA_MAX` in
   `src/render/render.c`), so thin gas stays faintly visible. Nitrogen is the faintest, so air
-  looks like a light haze of oxygen.
+  looks like a light haze of oxygen, and a mixture fades smoothly as it thins.
 - **Per-pixel variation:** every element's brightness varies by up to ± its `shade_var` (0–255
   scale; void 3, dirt 18, rock 14, iron 8, ice 10, water 10, gases 30), so materials look
   textured.
-- **Gas mass and pressure** (M4): a gas cell holds a mass; pressure `P = (m/M)·R·T/V`. Molar
-  masses: O₂ 0.031999, CO₂ 0.04401, H₂ 0.002016, H₂O 0.018015, N₂ 0.028014 kg/mol. A cell of air at
-  1 atm and 20 °C holds 0.15 g. The densities in the table are at 0 °C and 1 atm (steam: 100 °C).
-- **Buoyancy** treats O₂ and N₂ as air: both get `AIR_DENSITY_0C` = 1.2922 kg/m³ for buoyancy only
-  (deviation 7 below).
-- **Nitrogen** (M4) is inert. With it, air can be realistic: 78% N₂, 21% O₂, ~1% argon (ignored),
-  0.04% CO₂ by volume. The Air brush paints `AIR_O2_FRAC` = 21% of the cells oxygen, else nitrogen
-  (argon counted as nitrogen), with no two oxygen cells side by side and none against a solid or
-  liquid: the most even mix one gas per cell allows, which diffusion leaves alone, so painted air
-  is settled at once (M6a; before, random cells reshuffled for minutes). Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
+- **Gas mixtures** (D-035): the gases (IDs 6–10) are **species**: a gas cell is `ELEM_GAS` (24)
+  and holds a mass of each (a `GasMix`); no cell holds a species element. Pressure
+  `P = Σ(m_s/M_s)·R·T/V`. Molar masses: O₂ 0.031999, CO₂ 0.04401, H₂ 0.002016, H₂O 0.018015,
+  N₂ 0.028014 kg/mol. A cell of air at 1 atm and 20 °C holds 0.15 g. A cell's heat capacity is
+  `Σ m_s · c_s`; its conductivity the mole-fraction-weighted mean of its species'; its density
+  (for buoyancy) its real one at 1 atm: air (28.97 g/mol) is lighter than oxygen, heavier than
+  nitrogen. The densities in the table are at 0 °C and 1 atm (water vapour: 100 °C). `ELEM_GAS`'s
+  row stands for air in the tables (against liquids).
+- **Nitrogen** (M4) is inert. With it, air is realistic: the Air brush paints every cell with the
+  same mixture, 20.95% O₂ (`AIR_O2_FRAC`), 0.04% CO₂ (`AIR_CO2_FRAC`), the rest N₂ (78.1% N₂ and
+  0.9% argon) by moles, at 1 atm, dry. It is settled at once. Breathing (M4c) consumes ~250 mL/min
+  of O₂ at rest.
+- **Water vapour** (M6a): condenses at its dew point (saturation by Antoine's equation, at 1 atm
+  total pressure), so air can be humid.
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
@@ -90,40 +96,25 @@ Movement constants. These are game-feel values, not physics.
 | Element | `spread` (cells/tick) | Meaning |
 |---|---|---|
 | Water | 5 | Sideways dispersion. Landing speed adds to it for one tick |
-| Oxygen | 3 | Random-walk step length into void |
-| CO₂ | 2 | Heavier molecules, slower spread |
-| Hydrogen | 6 | Lighter molecules, faster spread |
-| Steam | 4 | Water vapour (18 g/mol), between oxygen and hydrogen |
-| Nitrogen | 3 | Like oxygen |
-
-For gases, `spread` is how far a split-off half (dense gas) or a particle (thin gas) moves into
-void.
+For gases, the spread (how far a split-off half of dense gas, or thin gas as a particle, moves
+into void per tick) follows the mixture: 3 × √(29 g/mol / molar mass), between 1 and 6: air 3,
+CO₂ 2, water vapour 4, hydrogen 6.
 
 All are clamped to `MAX_MOVE` = 32.
 
 | Global | Value | Where | Meaning |
 |---|---|---|---|
 | `K_BUOY` | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
-| `P_GAS_MIX` | 9.4% | `sim/elements.h` | Diffusion: two different gases trade places with this probability times the concentration gradient (deviation 12) |
-| `P_GAS_SPECKLE` | 1/64 | `sim/elements.h` | Breaking up small clusters of one gas (where a swap lowers the share of same-gas contacts) |
-| `P_GAS_MIX_STIRRED` | 1/2 | `sim/elements.h` | Turbulence: where either cell has a current, a random swap with this probability times its speed / 31 |
-| `DIFFUSE_Z`, diffusion windows | 3; 4, 8, 16, 32 cells long, 7–15 wide | `sim/sim.c` | Diffusion: a gradient must be this many standard errors; the window scales |
-| `GATE_Z` | 2 | `sim/sim.c` | Gas block counts (8 × 8) gate the precise diffusion test |
-| `BULK_Z` | 2 | `sim/sim.c` | Bulk buoyancy between gases: windows differ by this many standard errors (pooled spread of their densities) |
-| `BULK_MIN_CONTRAST` | 1% | `sim/sim.c` | ... and by at least this contrast `(ρ_a − ρ_b) / (ρ_a + ρ_b)` |
-| `BULK_K` | 4 | `sim/sim.c` | A parcel sinks with probability `BULK_K · contrast` per tick (at most 1) |
-| `SIDE_NOISE` | 1.5 | `sim/sim.c` | Against the lighter of the two side windows: `BULK_Z` times this |
-| `PARCEL_MAX` | 31 | `sim/sim.c` | Farthest a light cell is lifted through a sinking parcel (reach) |
-| `SPREAD_W`, `SPREAD_H`, `SPREAD_Z` | 6, 10, 2.5 | `sim/sim.c` | Heavy gas spreading sideways: window size and significance |
-| `BULK_EVERY`, `SPREAD_EVERY`, `BULK_FULL_EVERY` | 2, 8, 16 | `sim/sim.c` | Ticks between tries of bulk buoyancy, spreading, and all window heights (cost) |
-| `GAS_MIN_FRAC` | 0.01 | `sim/elements.h` | Smallest cell a split may leave, as a fraction of the 1-atm mass; thinner gas moves as particles |
-| `GAS_REACH` | 16 | `sim/sim.c` | Farthest cell of the same gas a cell equalises pressure with in one tick |
+| `GAS_DIFFUSE_K` | 3.3% | `sim/sim.c` | Diffusion: a pair trades this share of each species' mole-fraction difference (times their mean moles) when picked, about every other tick: 2.5e-3 m²/s (deviation 12) |
+| `GAS_MIX_TOL`, `GAS_BUOY_TOL` | 0.1%, 0.02% | `sim/sim.c` | Mole fractions, and densities at 1 atm, closer than this count as equal (no move; may sleep) |
+| `GAS_BUOY_SCALES` | 1, 4, 8, 16 rows | `sim/sim.c` | Buoyancy: column windows compared above and below; drive = contrast × √height |
+| `GAS_SPREAD_H`, spread distances | 8 rows; 1, 4, 8, 16 cells | `sim/sim.c` | Heavy gas spreading: column weight compared with columns this far to the side |
+| `GAS_MIN_FRAC` | 0.01 | `sim/elements.h` | Smallest cell a split may leave, as a fraction of the moles of 1 atm; thinner gas moves as a particle |
+| `GAS_REACH` | 16 | `sim/sim.c` | Farthest gas cell a cell equalises pressure with in one tick (the full reach half the time) |
 | `GAS_JUMP_MAX_DT` | 2 K | `sim/sim.c` | Long equalisation jumps only between cells this close in temperature |
-| `GAS_EQ_TOL` | 0.1% | `sim/sim.c` | Pressures closer than this count as equal (no transfer; may sleep) |
-| `GAS_PUSH_RATIO` | 2.1 | `sim/sim.c` | Pressure ratio above which a gas pushes a neighbouring gas cell aside |
-| `GAS_BALANCE_TOL` | 1% | `sim/sim.c` | A gas this far above a different neighbouring gas takes its cell over (spread over both regions) |
-| `GAS_BALANCE_P16` | 1/16 | `sim/sim.c` | Chance per tick of trying that (regions of 64 cells within 8) |
-| `GAS_REGION_CELLS` | 256 | `sim/world.h` | Cells of gas a compression or expansion by a liquid is spread over (within `GAS_REGION_RADIUS` = 16) |
+| `GAS_EQ_TOL`, `GAS_EQ_TOL_FAR` | 0.3%, 0.2% | `sim/sim.c` | Pressures closer than this count as equal (no transfer; may sleep): for cells under 8 apart, and further |
+| `GAS_FEED_RATIO` | 2.1 | `sim/sim.c` | Thin gas drifting in a vacuum is not fed by gas this many times denser (dense gas splits into the vacuum instead) |
+| `GAS_REGION_CELLS` | 256 | `sim/world.h` | Cells of gas a compression by a liquid or a landing particle is spread over (within `GAS_REGION_RADIUS` = 16) |
 | `GAS_SAME_REGION` | 5% | `sim/pressure.c` | Gas at an opening this close to the gas above the source just trades places with the liquid |
 | `GAS_LIQUID_INTERVAL` | 2 ticks | `sim/pressure.c` | A body may compress or expand gas at most once per this many ticks |
 | `PARTICLE_GRAVITY` | 0.0545 cells/tick² | `sim/particle.h` | Free particles' gravity (9.81 m/s²) |
@@ -142,23 +133,20 @@ All are clamped to `MAX_MOVE` = 32.
 | `AIR_CONTROL` | 10% of walking speed per tick | `sim/creature.c` | Steering in the air (deviation 15): full speed in 0.17 s |
 | `LIFT_SIDE` | 0.6 cells/tick | `sim/creature.c` | Powder in mid-air a body moves into slides off it this fast as it falls |
 | `FLOW_SIDE` | 8 columns | `sim/creature.c` | How far beside a body moving up or down its displaced liquid goes to the surface |
-| `PROPELLANT_KG`, `MUZZLE_K` | 1.6 g, 1500 K | `sim/weapon.c` | Muzzle gas per shot (75% CO₂, 25% N₂ by mass) and its temperature |
-| `MUZZLE_CELL_ATM`, `MUZZLE_REACH` | 6 atm, 6 cells | `sim/weapon.c` | Muzzle gas: pressure of the cells it goes into, and how far along the line of fire |
-| `TURB_PER_WIND` | 23 | `sim/heat.c` | Turbulent heat exchange between gas cells: coefficient × (1 + this × current speed) |
+| `PROPELLANT_KG`, `MUZZLE_K` | 1.6 g, 1500 K | `sim/weapon.c` | Muzzle gas per shot (55% CO₂, 27% water vapour, 18% N₂ by mass) and its temperature |
+| `GAS_TURB_PER_WIND` | 23 | `sim/world.h` | Turbulence: heat exchange and diffusion between gas cells × (1 + this × current speed) |
 | `RIFLE_BULLET_SPEED` | 900 m/s (300 cells/tick) | `sim/weapon.h` | Muzzle velocity |
 | `RIFLE_INTERVAL` | 5 ticks | `sim/weapon.h` | Between shots: 720 rounds per minute |
 | `RIFLE_SPREAD` | ±0.005 rad | `sim/weapon.h` | Random spread of a shot (about ±0.3°) |
 | `BULLET_FAST` | 10 cells/tick (30 m/s) | `sim/particle.c` | Below this a bullet just falls (an ordinary particle): spent bullets kicked or knocked out never dig |
-| `BULLET_WIND` | 16 | `sim/particle.c` | Current a bullet leaves in the gas along its path |
+| `BULLET_WIND` | 8 | `sim/particle.c` | Current a bullet leaves in the gas along its path |
 | bullet resistance | dirt and powders 50, liquids 15 × ρ/1000 cells/tick per cell; rock: chips one cell and stops | `sim/particle.c` | Speed a bullet loses per cell (it flies at 300): about 30 cm of earth or sand, 1 m of water |
 | `CLUMP_MAX_CELLS` | 20 | `sim/edit.c` | Solid clumps this small, held by nothing, break loose |
 | `KICK_ROWS` | 8 cells (40 cm) | `sim/creature.c` | Powder piles at most this high in a walker's path are kicked ahead |
 | `KICK_AHEAD` | 12 cells | `sim/creature.c` | Not kicked if powder rises higher within this many columns (a heap: climbed) |
-| `AIR_O2_PAINT_P` | 0.335 | `sim/edit.c` | Air brush: oxygen where no neighbour is oxygen or solid (gives 21%) |
 | `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from falling matter (plus fall speed / 4) |
 | Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |
 | `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
-| `REACT_REACH` | 3 cells | `sim/sim.c` | Farthest oxidiser cell a fuel cell reacts with |
 | `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
 | `WALK_SPEED` | 1.4 m/s | `sim/creature.c` | Walking speed (half when impaired or in liquid) |
 | `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
@@ -193,23 +181,23 @@ Keep this list complete.
 1. Gases are tinted so they are visible.
 2. Heat conduction is sped up: 1000× in solids and liquids, 10× where a gas is involved
    (`HEAT_TIME_SCALE`, `HEAT_TIME_SCALE_GAS`). Relative conductivities stay real.
-3. One gas per cell (D-005): different gases never share a cell, so total pressure evens out
-   between two gases cell by cell, to within about 3%. Pressure spreads by
-   diffusion (a few seconds across a room), not at the speed of sound. Condensing steam becomes a
-   full water cell with probability m / m_water (mass conserved on average), at 100 °C whatever
-   its partial pressure.
+3. A gas cell holds a mixture (D-035; it was one gas per cell, D-005). Pressure spreads by
+   diffusion (a few seconds across a room), not at the speed of sound, and evens out to within
+   0.3% between neighbours and 0.2% per 16 cells of path (`GAS_EQ_TOL`, `GAS_EQ_TOL_FAR`).
+   Condensing vapour becomes a full water cell with probability m / m_water (mass conserved on
+   average), at its dew point taken at 1 atm total pressure. Water does not evaporate below 100 °C.
 4. Liquids are incompressible. Pressure moves water from the top of a body straight to the
    opening it is pushed toward, and the flow rate through an opening is not proportional to the
    square root of the depth (see SIMULATION.md → Liquid pressure).
 5. No heat radiation: vacuum is a perfect insulator (D-017).
 6. Gas pressure pushes on liquids, but gas-driven flow is rate limited (`GAS_LIQUID_INTERVAL`),
    so a barometer fills in about 20 s rather than at once.
-7. For buoyancy, oxygen and nitrogen have the same density (air, `AIR_DENSITY_0C`), so painted
-   air does not unmix. Real O₂ is 14% denser than N₂, but air stays mixed because it is mixed
-   molecule by molecule, which one-gas-per-cell cannot represent.
+7. Buoyancy between gases compares column windows (1 to 16 rows) and moves a cell or shifts a
+   column at a time: a coarse stand-in for flow (a warm pocket rises at about a third of the real
+   speed). A gradient gentler than the tolerances is left alone.
 8. Reactions (M5): products are not heated beyond `FLAME_MAX_K` (3000 K), since dissociation is
-   not modelled; the rest of the heat is dropped. Fuel finds its oxidiser up to 3 cells away
-   (`REACT_REACH`), standing in for molecular mixing.
+   not modelled; the rest of the heat is dropped. All the fuel the oxidiser in a cell allows burns
+   in one tick.
 9. Lava and molten iron flow like water under water pressure; only their sideways spread is
    smaller (viscosity is not modelled). Rock melts at a single temperature (real rock melts over
    a range, about 1300–1500 K for granite).
@@ -218,26 +206,24 @@ Keep this list complete.
     about 2 s). They are made by bodies and falling matter, not by pressure differences.
 11. Creatures (M4c): each breath in also stirs the air around a person, swapping 2 L worth of gas cells
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
-   currents, which one-gas-per-cell diffusion cannot do. Body heat is held at 37 °C with up to
+   currents, which the game's diffusion is too slow for when breathing is sped up. Body heat is held at 37 °C with up to
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a
    9 × 35 rectangle. `metabolism_scale` speeds up breathing and health for gameplay or tests (1:
    real time).
-12. Gas mixtures (D-030): a cell of one gas among cells of others stands for gas mixed molecule by
-    molecule, so it does not sink or rise by its kind; only bulk mixtures that are denser by more
-    than the noise of a mixture sink (a thin CO₂ haze does not). Still gas diffuses down its
-    concentration gradient at about 2.5e-3 m²/s, about 150× real molecular diffusion
-    (`P_GAS_MIX`): indoor air is never perfectly still, and nothing should stay an unmixed
-    clump. Stirred gas mixes faster still (`P_GAS_MIX_STIRRED`), standing in for turbulence.
+12. Gas mixtures (D-035): still gas diffuses down each species' mole-fraction difference at about
+    2.5e-3 m²/s, about 150× real molecular diffusion (`GAS_DIFFUSE_K`): indoor air is never
+    perfectly still, and nothing should stay an unmixed clump. Stirred gas mixes faster still
+    (`GAS_TURB_PER_WIND`), standing in for turbulence. Argon is counted as nitrogen.
 13. Weapons (M6a): a bullet is one cell (5 cm), far bigger than a real 5.56 mm bullet; its
     penetration (about 30 cm of earth, one chip of rock) is a rough figure, not a ballistic model,
     and it does not ricochet. Spent bullets and casings are full cells of lead and brass at their
     solid densities (a real casing is hollow). The rifle never runs out of ammunition. Muzzle
     velocity is real (900 m/s): a bullet crosses the screen in a few ticks, so the game draws a
-    faint streak behind it (rendering only). The muzzle gas has no carbon monoxide, hydrogen or
-    water vapour (counted as CO₂ and nitrogen), so it does not burn in a secondary flash; a gas
-    cell with a current exchanges heat with its gas neighbours by turbulence (`TURB_PER_WIND`, an
-    eddy diffusivity of one cell times the current's speed), which is what cools it in about
-    5 ticks.
+    faint streak behind it (rendering only). The muzzle gas has no carbon monoxide or hydrogen
+    (counted as CO₂ and water vapour), so it does not burn in a secondary flash; a gas cell with a
+    current exchanges heat with its gas neighbours by turbulence (`GAS_TURB_PER_WIND`, an eddy
+    diffusivity of one cell times the current's speed), which is what cools it within a few
+    ticks.
 14. Breathing (M6a): a breath draws the same fraction of every gas cell near the mouth, standing
     in for the mixed air the mouth draws in; the lungs hold only the tidal volume (real lungs keep
     about 2.5 L more), so a held breath lasts a few breaths, not a minute or two. The breath out

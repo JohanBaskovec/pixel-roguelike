@@ -10,7 +10,7 @@
 #include <math.h>
 
 #define TICK_DT             (1.0 / 60.0)
-#define MAX_TICKS_PER_FRAME 4
+#define MAX_TICKS_PER_FRAME 4 // catching up after a hiccup (a frame that took long)
 #define PANEL_W             240.0f
 #define BRUSH_MAX           256
 #define WINDOW_W            1440
@@ -25,9 +25,8 @@ static const float k_zoom[] = {0.25f, 1.0f / 3.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f,
 // Inspector: partial pressures are averaged over a (2r+1)^2 window around the cursor.
 #define INSPECT_RADIUS 7
 
-static const char *const k_gas_short[ELEM_COUNT] = {
-    [ELEM_OXYGEN] = "O2", [ELEM_CO2] = "CO2",     [ELEM_HYDROGEN] = "H2",
-    [ELEM_STEAM] = "H2O", [ELEM_NITROGEN] = "N2",
+static const char *const k_gas_short[GAS_SPECIES] = {
+    [GAS_O2] = "O2", [GAS_CO2] = "CO2", [GAS_H2] = "H2", [GAS_H2O] = "H2O", [GAS_N2] = "N2",
 };
 
 typedef struct Tool {
@@ -380,12 +379,11 @@ static void draw_brush_outline(App *app) {
     SDL_RenderLines(app->renderer, pts, SEGMENTS + 1);
 }
 
-// Partial pressures of the gases around (wx, wy): each gas's share of the gas-filled cells in a
-// window around the cursor, times their pressure (Dalton: the partial pressures add up to the
-// total). Two per line, in kPa.
+// Partial pressures of the gases around (wx, wy), averaged over the cells gas could fill in a
+// window around the cursor (Dalton: they add up to the total). Two per line, in kPa.
 static float draw_partial_pressures(App *app, Ui *ui, float x, float y, int wx, int wy) {
     const int r = INSPECT_RADIUS;
-    double p[ELEM_COUNT] = {0};
+    double p[GAS_SPECIES] = {0};
     int cells = 0;
     for (int yy = wy - r; yy <= wy + r; yy++) {
         for (int xx = wx - r; xx <= wx + r; xx++) {
@@ -393,8 +391,10 @@ static float draw_partial_pressures(App *app, Ui *ui, float x, float y, int wx, 
             if (e != ELEM_OUT && g_elem_behavior[e] != BEHAVIOR_STATIC) {
                 cells++; // void and fluids: the space gas could fill
             }
-            if (g_elem_behavior[e] == BEHAVIOR_GAS) {
-                p[e] += (double)world_gas_pressure(app->world, xx, yy);
+            if (e == ELEM_GAS) {
+                for (int s = 0; s < GAS_SPECIES; s++) {
+                    p[s] += (double)world_gas_partial_pressure(app->world, xx, yy, s);
+                }
             }
         }
     }
@@ -403,12 +403,14 @@ static float draw_partial_pressures(App *app, Ui *ui, float x, float y, int wx, 
     }
     char line[64];
     int len = 0, on_line = 0;
-    for (int e = 0; e < ELEM_COUNT; e++) {
-        if (p[e] <= 0.0) {
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        if (p[s] / cells < 0.05) { // below 0.05 Pa
             continue;
         }
-        len += SDL_snprintf(line + len, sizeof(line) - (size_t)len, "%s%s %.1f",
-                            on_line ? "  " : "", k_gas_short[e], p[e] / cells / 1000.0);
+        double kpa = p[s] / cells / 1000.0;
+        len += SDL_snprintf(line + len, sizeof(line) - (size_t)len,
+                            kpa < 1.0 ? "%s%s %.3f" : "%s%s %.1f", on_line ? "  " : "",
+                            k_gas_short[s], kpa);
         if (++on_line == 2) {
             ui_text(ui, x, y, 0x9FC8E8, "%s", line);
             y += 12.0f;
@@ -524,8 +526,8 @@ static void draw_panel(App *app) {
                         (double)sim_liquid_pressure(app->world, wx, wy) / 1000.0);
                 y += 12.0f;
             }
-            if (g_elem_behavior[e] == BEHAVIOR_GAS) {
-                float m = app->world->mass[world_index(app->world, wx, wy)];
+            if (e == ELEM_GAS) {
+                float m = gas_total(&app->world->gas[world_index(app->world, wx, wy)]);
                 ui_text(ui, x, y, 0xE8E8E8, "%.1f kPa  %.3g mg",
                         (double)world_gas_pressure(app->world, wx, wy) / 1000.0, (double)m * 1e6);
                 y += 12.0f;
@@ -750,12 +752,19 @@ bool app_frame(App *app, double frame_dt) {
     } else {
         app->accumulator += frame_dt;
         int ticks = 0;
-        while (app->accumulator >= TICK_DT && ticks < MAX_TICKS_PER_FRAME) {
+        // A tick slower than real time cannot be caught up: run one per frame (the game slows
+        // down a little) instead of several (the frame rate would collapse).
+        int max_ticks = MAX_TICKS_PER_FRAME;
+        while (app->accumulator >= TICK_DT && ticks < max_ticks) {
+            double t0 = pr_time_seconds();
             run_tick(app);
+            if (pr_time_seconds() - t0 > TICK_DT) {
+                max_ticks = 1;
+            }
             app->accumulator -= TICK_DT;
             ticks++;
         }
-        if (ticks == MAX_TICKS_PER_FRAME) {
+        if (ticks == max_ticks && app->accumulator >= TICK_DT) {
             app->accumulator = 0.0; // too slow: drop the backlog instead of spiralling
         }
     }

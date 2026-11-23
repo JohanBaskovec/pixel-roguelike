@@ -1,5 +1,7 @@
 #include "sim/elements.h"
 
+#include <math.h>
+
 // Reference values: docs/ELEMENTS.md. Change both together.
 // clang-format off
 const ElementDef g_elem_defs[ELEM_COUNT] = {
@@ -13,7 +15,7 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_OXYGEN]   = {"Oxygen",         BEHAVIOR_GAS,    1.429f,   918.0f,   0.026f,  293.15f, 0x9CC8F0, 110, 30,  3},
     [ELEM_CO2]      = {"Carbon dioxide", BEHAVIOR_GAS,    1.977f,   844.0f,   0.0166f, 293.15f, 0x7A7A7A, 140, 30,  2},
     [ELEM_HYDROGEN] = {"Hydrogen",       BEHAVIOR_GAS,    0.0899f,  14300.0f, 0.18f,   293.15f, 0xE9A6E0, 110, 30,  6},
-    [ELEM_STEAM]    = {"Steam",          BEHAVIOR_GAS,    0.59f,    2080.0f,  0.025f,  383.15f, 0xE6ECF2, 64,  30,  4},
+    [ELEM_STEAM]    = {"Water vapour",   BEHAVIOR_GAS,    0.59f,    2080.0f,  0.025f,  383.15f, 0xE6ECF2, 64,  30,  4},
     [ELEM_NITROGEN] = {"Nitrogen",       BEHAVIOR_GAS,    1.2506f,  1040.0f,  0.026f,  293.15f, 0x7C86A8, 40,  30,  3},
     [ELEM_BODY]     = {"Body",           BEHAVIOR_STATIC, 985.0f,   3500.0f,  0.5f,    310.15f, 0xD9A066, 255, 12,  0},
     [ELEM_SAND]     = {"Sand",           BEHAVIOR_POWDER, 1600.0f,  830.0f,   0.25f,   293.15f, 0xC2B280, 255, 16,  0},
@@ -28,13 +30,15 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_MOLTEN_LEAD] = {"Molten lead", BEHAVIOR_LIQUID, 10660.0f, 142.0f,   16.0f,   700.0f,  0xA8AEB8, 255,  6,  4},
     [ELEM_BRASS]    = {"Brass",          BEHAVIOR_STATIC, 8500.0f,  380.0f,   110.0f,  293.15f, 0xB8923A, 255,  8,  0},
     [ELEM_MOLTEN_BRASS] = {"Molten brass", BEHAVIOR_LIQUID, 7600.0f, 470.0f,  70.0f,   1300.0f, 0xD8A848, 255,  8,  3},
+    // A gas cell: its properties come from its mixture; these (air's) stand for any gas in the
+    // tables (buoyancy against liquids, conduction tables).
+    [ELEM_GAS]      = {"Gas",            BEHAVIOR_GAS,    1.2922f,  1005.0f,  0.026f,  293.15f, 0x9CC8F0, 110, 30,  3},
 };
 // clang-format on
 
 // clang-format off
 const PhaseChange g_elem_below[ELEM_COUNT] = {
-    [ELEM_WATER]       = {273.15f, ELEM_ICE,   334e3f},  // freezing
-    [ELEM_STEAM]       = {373.15f, ELEM_WATER, 2257e3f}, // condensing
+    [ELEM_WATER]       = {273.15f, ELEM_ICE,   334e3f},  // freezing (vapour condenses: sim.c)
     [ELEM_LAVA]        = {1500.0f, ELEM_ROCK,  400e3f},  // solidifying
     [ELEM_MOLTEN_IRON] = {1811.0f, ELEM_IRON,  247e3f},  // solidifying
     [ELEM_MOLTEN_LEAD] = {600.6f,  ELEM_LEAD,  23.0e3f}, // solidifying
@@ -42,7 +46,7 @@ const PhaseChange g_elem_below[ELEM_COUNT] = {
 };
 const PhaseChange g_elem_above[ELEM_COUNT] = {
     [ELEM_ICE]   = {273.15f, ELEM_WATER,       334e3f},  // melting
-    [ELEM_WATER] = {373.15f, ELEM_STEAM,       2257e3f}, // boiling
+    [ELEM_WATER] = {373.15f, ELEM_GAS,         2257e3f}, // boiling: into water vapour
     [ELEM_ROCK]  = {1500.0f, ELEM_LAVA,        400e3f},  // melting
     [ELEM_IRON]  = {1811.0f, ELEM_MOLTEN_IRON, 247e3f},  // melting
     [ELEM_BULLET] = {600.6f, ELEM_MOLTEN_LEAD, 23.0e3f}, // melting
@@ -60,6 +64,12 @@ const Reaction g_reactions[REACTION_COUNT] = {
 uint8_t g_reaction_of[256];
 uint8_t g_gas_slot[256];
 float g_min_ignite_k = 1e30f;
+const ElementId g_species_elem[GAS_SPECIES] = {ELEM_OXYGEN, ELEM_CO2, ELEM_HYDROGEN, ELEM_STEAM,
+                                               ELEM_NITROGEN};
+float g_species_molar[GAS_SPECIES];
+float g_species_inv_molar[GAS_SPECIES];
+float g_species_cp[GAS_SPECIES];
+float g_species_k[GAS_SPECIES];
 
 // Molar masses of gases, kg/mol.
 static const float k_molar_mass[ELEM_COUNT] = {
@@ -67,23 +77,13 @@ static const float k_molar_mass[ELEM_COUNT] = {
     [ELEM_STEAM] = 0.018015f,  [ELEM_NITROGEN] = 0.028014f,
 };
 
-// Reference temperature of a gas's tabulated density (STP is 273.15 K; steam is given at 100 °C).
-static float gas_ref_temp(ElementId e) {
-    return e == ELEM_STEAM ? 373.15f : 273.15f;
-}
-
-// Density a gas is given for buoyancy, at gas_ref_temp (see AIR_DENSITY_0C).
-static float gas_buoy_density(ElementId e) {
-    return (e == ELEM_OXYGEN || e == ELEM_NITROGEN) ? AIR_DENSITY_0C : g_elem_defs[e].density;
-}
-
-// Buoyancy density of any element; gases at 0 degC, so that two gases at one temperature compare
-// exactly (liquids and solids: their table density).
+// Buoyancy density of any element (gases: ELEM_GAS as air at 0 degC; species: at 0 degC, steam
+// given at 100 degC), for the table of fluid pairs (liquids against gas).
 static double buoy_ref_density(int e) {
-    if (g_elem_defs[e].behavior != BEHAVIOR_GAS) {
-        return (double)g_elem_defs[e].density;
+    if (e == ELEM_STEAM) {
+        return (double)g_elem_defs[e].density * 373.15 / 273.15;
     }
-    return (double)gas_buoy_density((ElementId)e) * (double)gas_ref_temp((ElementId)e) / 273.15;
+    return (double)g_elem_defs[e].density;
 }
 
 uint8_t g_elem_behavior[256];
@@ -98,11 +98,28 @@ float g_elem_high_t[256];
 float g_heat_coef[ELEM_COUNT][ELEM_COUNT];
 float g_heat_coef_raw[ELEM_COUNT][ELEM_COUNT];
 float g_elem_molar_mass[256];
-float g_gas_inv_molar[256];
 float g_gas_mass_atm[256];
-float g_gas_split_mass[256];
-float g_gas_buoy_density[256];
 float g_elem_cp[256];
+
+// Antoine's equation: log10(p / mmHg) = A - B / (C + T / degC).
+static float antoine(float t) {
+    float c = t - 273.15f;
+    float lg =
+        c < 99.0f ? 8.07131f - 1730.63f / (233.426f + c) : 8.14019f - 1810.94f / (244.485f + c);
+    return powf(10.0f, lg) * 133.322f;
+}
+
+// Tabulated at 1 K steps from SAT_T0 (it is read for every gas cell holding vapour).
+#define SAT_T0 150
+#define SAT_N  500
+static float g_sat[SAT_N + 1];
+
+float water_saturation_pressure(float t) {
+    float u = PR_CLAMP(t - (float)SAT_T0, 0.0f, (float)SAT_N - 0.001f);
+    int k = (int)u;
+    float f = u - (float)k;
+    return g_sat[k] + (g_sat[k + 1] - g_sat[k]) * f;
+}
 
 void elements_init(void) {
     static bool initialised = false;
@@ -114,13 +131,14 @@ void elements_init(void) {
         g_elem_density_q[i] = UINT32_MAX;
         g_elem_spread[i] = 0;
     }
-    int slots = 0;
-    for (int i = 0; i < ELEM_COUNT; i++) {
-        if (g_elem_defs[i].behavior == BEHAVIOR_GAS) {
-            g_gas_slot[i] = (uint8_t)++slots;
-        }
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        ElementId e = g_species_elem[s];
+        g_gas_slot[e] = (uint8_t)(s + 1);
+        g_species_molar[s] = k_molar_mass[e];
+        g_species_inv_molar[s] = 1.0f / k_molar_mass[e];
+        g_species_cp[s] = g_elem_defs[e].heat_cap;
+        g_species_k[s] = g_elem_defs[e].conduct;
     }
-    PR_ASSERT_ALWAYS(slots < GAS_SLOTS);
     for (int r = 0; r < REACTION_COUNT; r++) {
         g_reaction_of[g_reactions[r].a] = (uint8_t)(r + 1);
         g_min_ignite_k = PR_MIN(g_min_ignite_k, g_reactions[r].ignite_k);
@@ -153,13 +171,10 @@ void elements_init(void) {
         g_elem_high_t[i] = g_elem_above[i].temp;
         g_elem_cp[i] = d->heat_cap;
         if (d->behavior == BEHAVIOR_GAS) {
-            g_elem_molar_mass[i] = k_molar_mass[i];
-            g_gas_inv_molar[i] = 1.0f / k_molar_mass[i];
+            // A gas cell's thermal mass depends on its mixture (the heat pass uses that); the
+            // table value is the nominal one at 1 atm and 20 degC (air for ELEM_GAS).
+            g_elem_molar_mass[i] = i == ELEM_GAS ? 0.02897f : k_molar_mass[i];
             g_gas_mass_atm[i] = gas_mass_at((ElementId)i, P_ATM, T_ROOM);
-            g_gas_split_mass[i] = 2.0f * GAS_MIN_FRAC * g_gas_mass_atm[i];
-            g_gas_buoy_density[i] = (float)buoy_ref_density(i);
-            // A gas cell's thermal mass depends on its actual mass (the heat pass uses that);
-            // the table value is the nominal one at 1 atm and 20 degC.
             g_elem_mass[i] = g_gas_mass_atm[i];
             g_elem_cap[i] = g_elem_mass[i] * d->heat_cap;
             g_elem_inv_cap[i] = 1.0f / g_elem_cap[i];
@@ -187,6 +202,9 @@ void elements_init(void) {
             g_heat_coef[a][b] = coef;
         }
     }
+    for (int k = 0; k <= SAT_N; k++) {
+        g_sat[k] = antoine((float)(SAT_T0 + k));
+    }
     initialised = true;
 }
 
@@ -210,7 +228,7 @@ float elem_phase_progress(ElementId e, float t, bool *heating) {
 float elem_fluid_density(ElementId e, float t) {
     const ElementDef *d = &g_elem_defs[e < ELEM_COUNT ? e : 0];
     if (d->behavior == BEHAVIOR_GAS) {
-        return gas_buoy_density(e) * gas_ref_temp(e) / PR_MAX(t, 1.0f);
+        return (float)buoy_ref_density(e) * 273.15f / PR_MAX(t, 1.0f);
     }
     if (e == ELEM_WATER) {
         // Thiesen's formula for pure water, 0-100 degC.

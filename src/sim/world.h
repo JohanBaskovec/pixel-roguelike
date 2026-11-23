@@ -21,6 +21,11 @@ typedef struct Cell {
 
 _Static_assert(sizeof(Cell) == 4, "Cell must stay 4 bytes");
 
+// What a gas cell holds (D-035): kg of each gas species (GAS_O2...). All zero in other cells.
+typedef struct GasMix {
+    float m[GAS_SPECIES];
+} GasMix;
+
 // Dirty rect in chunk-local coordinates, inclusive. Empty when min_x > max_x.
 typedef struct DirtyRect {
     int16_t min_x, min_y, max_x, max_y;
@@ -48,8 +53,11 @@ typedef struct World {
     Cell *cells;      // width * height, row-major
     float *temp;      // per cell, K; for phase-changing cells it also holds latent heat (elem_temp)
     float *temp_next; // heat pass scratch (Jacobi)
-    float *mass;      // per cell, kg; gases only (0 elsewhere). Pressure: gas_pressure()
-    uint8_t *piece;   // water pressure: body piece id of still liquid within its chunk (pressure.h)
+    GasMix *gas;      // per cell; gas cells only (zero elsewhere). Pressure: gas_mix_pressure()
+    // Per cell: a gas cell's density at 1 atm and its temperature (kg/m^3; 0 for other cells), for
+    // buoyancy. Recomputed at the start of every tick for the awake chunks (sim.c).
+    float *rho;
+    uint8_t *piece; // water pressure: body piece id of still liquid within its chunk (pressure.h)
     Chunk *chunks;
     uint64_t seed;
     uint64_t tick;
@@ -63,9 +71,6 @@ typedef struct World {
     struct Creature *creatures;    // owned; creatures (creature.h)
     int32_t creature_count;
     uint32_t creature_next_id;
-    // Owned; gas counts per GAS_BLOCK x GAS_BLOCK block (GAS_SLOTS bytes each: all gas cells, then
-    // each gas by g_gas_slot), recounted at the start of every tick for the awake chunks (sim.c).
-    uint8_t *gas_blocks;
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.
@@ -108,6 +113,82 @@ static inline bool gas_push_wind(Cell *c, int dir, int speed) {
     }
     c->aux = gas_wind(dir, speed);
     return true;
+}
+
+// ---- Gas mixtures (D-035) ----
+
+// Turbulence: a gas current (speed 0..GAS_WIND_MAX) mixes heat and gas faster, by 1 +
+// GAS_TURB_PER_WIND * speed: an eddy diffusivity of u * l (the current's speed, 2.9 m/s at full
+// speed, times one cell) is about 700 times air's sped-up thermal diffusivity at full speed
+// (heat.c; D-034), 23 per unit of speed. Gas mixing uses the same factor (sim.c).
+#define GAS_TURB_PER_WIND 23.0f
+
+// Moles of gas in a mixture.
+static inline float gas_moles(const GasMix *g) {
+    float n = 0.0f;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        n += g->m[s] * g_species_inv_molar[s];
+    }
+    return n;
+}
+
+// Total mass, kg.
+static inline float gas_total(const GasMix *g) {
+    float m = 0.0f;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        m += g->m[s];
+    }
+    return m;
+}
+
+// Heat capacity, J/K.
+static inline float gas_heat_cap(const GasMix *g) {
+    float c = 0.0f;
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        c += g->m[s] * g_species_cp[s];
+    }
+    return c;
+}
+
+// Pressure (Pa) of a cell of this mixture at temperature t (K).
+static inline float gas_mix_pressure(const GasMix *g, float t) {
+    return gas_pressure_moles(gas_moles(g), t);
+}
+
+// Density (kg/m^3) the mixture would have at 1 atm and temperature t: what buoyancy compares.
+static inline float gas_mix_density_atm(const GasMix *g, float t) {
+    float n = gas_moles(g);
+    return n > 0.0f ? gas_total(g) / n * (P_ATM / GAS_R) / PR_MAX(t, 1.0f) : 0.0f;
+}
+
+static inline void gas_mix_clear(GasMix *g) {
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        g->m[s] = 0.0f;
+    }
+}
+
+static inline void gas_mix_scale(GasMix *g, float f) {
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        g->m[s] *= f;
+    }
+}
+
+// d += f * a.
+static inline void gas_mix_add(GasMix *d, const GasMix *a, float f) {
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        d->m[s] += a->m[s] * f;
+    }
+}
+
+// Air (AIR_O2_FRAC, AIR_CO2_FRAC, the rest nitrogen) at pressure p and temperature t, one cell.
+GasMix gas_mix_air(float p, float t);
+
+// Species s alone, m kg.
+static inline GasMix gas_mix_pure(int s, float m) {
+    GasMix g;
+    gas_mix_clear(&g);
+    g.m[s] = m;
+    return g;
 }
 
 // Still liquid: liquid that is not falling. Only still liquid carries pressure.
@@ -188,40 +269,52 @@ static inline bool liquid_surface_free(const World *w, int x, int y, ElementId e
     return a.element == e && !cell_is_still_liquid(a);
 }
 
-// Puts a fresh cell of `e` at (x, y), with spawn temperature and random shade (a gas at 1 atm).
+// Puts a fresh cell of `e` at (x, y), with spawn temperature and random shade. A gas species
+// (ELEM_OXYGEN...) makes a gas cell of that species alone at 1 atm; ELEM_GAS, air at 1 atm.
 // Does not wake.
 void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits);
 
-// Same, for a gas cell holding mass m (kg).
+// A gas cell of species element e alone, holding mass m (kg), at e's spawn temperature.
 void world_set_gas(World *w, int x, int y, ElementId e, float m, uint32_t random_bits);
+
+// A gas cell holding the mixture g at stored temperature t.
+void world_set_mix(World *w, int x, int y, const GasMix *g, float t, uint32_t random_bits);
 
 // Pressure (Pa) of the gas at (x, y); 0 if it is not a gas.
 float world_gas_pressure(const World *w, int x, int y);
 
-// Gas regions: compressing or expanding gas at one spot (liquid moving into or out of it, one gas
-// taking a cell from another) is spread over the gas of that kind around it, so no single cell
-// jumps in pressure. world_gas_region() lists up to `max` (at most GAS_REGION_CELLS) cells of gas
-// `g`, found by a breadth-first walk from (x, y) through gas of any kind (so it reaches the oxygen
-// cells of mixed air) within `radius` (at most GAS_REGION_RADIUS) on each axis, skipping (x, y)
-// and (ex, ey). Results are world indices, in a deterministic order.
+// Partial pressure (Pa) of gas species s at (x, y); 0 if it is not a gas.
+float world_gas_partial_pressure(const World *w, int x, int y, int s);
+
+// Gas regions: compressing or expanding gas at one spot (liquid moving into or out of it, a
+// particle landing in it) is spread over the gas around it, so no single cell jumps in pressure.
+// world_gas_region() lists up to `max` (at most GAS_REGION_CELLS) gas cells, found by a
+// breadth-first walk from (x, y) through gas within `radius` (at most GAS_REGION_RADIUS) on each
+// axis, skipping (x, y) and (ex, ey). Results are world indices, in a deterministic order.
 #define GAS_REGION_RADIUS 16
 #define GAS_REGION_CELLS  256
-int world_gas_region(const World *w, int x, int y, ElementId g, int ex, int ey, int radius, int max,
+int world_gas_region(const World *w, int x, int y, int ex, int ey, int radius, int max,
                      int32_t *found);
 
-// Adds mass m (kg, at stored temperature t) to the listed cells, an equal share each; their
-// temperatures mix by mass.
-void world_gas_spread_add(World *w, const int32_t *found, int n, float m, float t);
+// Adds the mixture g (at stored temperature t) to the listed cells, an equal share each; their
+// temperatures mix by heat capacity (energy is conserved).
+void world_gas_spread_add(World *w, const int32_t *found, int n, const GasMix *g, float t);
 
-// Takes 1/(n+1) of each listed cell's mass (so all end like a new cell holding the sum); returns
-// the mass taken, and its mean stored temperature in *t.
-float world_gas_spread_take(World *w, const int32_t *found, int n, float *t);
+// Takes 1/(n+1) of each listed cell's gas (so all end like a new cell holding the sum) into
+// *out; its mean temperature (by heat capacity) into *t.
+void world_gas_spread_take(World *w, const int32_t *found, int n, GasMix *out, float *t);
 
-// Puts mass m (kg) of gas g, at stored temperature t, into the cell (x, y): added to it if it
-// holds g; else the cell becomes g, and the gas it held (if any) is squeezed into the gas of its
-// kind around (world_gas_region). Wakes the area. Returns false if the cell holds no gas or void,
-// or its gas has nowhere to go. Serial use only (between ticks, or in creature or particle code).
-bool world_gas_emit(World *w, int x, int y, ElementId g, float m, float t, uint32_t random_bits);
+// Mixes gas g (at stored temperature t) into the cell (x, y): added to its gas, temperatures
+// mixing by heat capacity, or, in void, a new gas cell. Wakes the area. Returns false if the cell
+// holds neither gas nor void. Serial use only (between ticks, or in creature or particle code).
+bool world_gas_emit(World *w, int x, int y, const GasMix *g, float t, uint32_t random_bits);
+
+// Adds energy-conserving: cell i's gas (heat capacity ci at temperature ti) receives gas of heat
+// capacity ca at temperature ta. Returns the mixed temperature.
+static inline float gas_mix_temp(float ci, float ti, float ca, float ta) {
+    float c = ci + ca;
+    return c > 0.0f ? (ci * ti + ca * ta) / c : ta;
+}
 
 // Gas pressure at (x, y) as a height of liquid `liquid` (liquid_head); 0 if not a gas.
 static inline int32_t world_gas_head(const World *w, int x, int y, ElementId liquid) {

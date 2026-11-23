@@ -14,8 +14,8 @@ typedef enum EditMode {
     EDIT_DIG = 3,   // loosen solids: dirt becomes loose soil, rock becomes rubble (they fall)
 } EditMode;
 
-// Paint element meaning "air": each cell becomes oxygen with probability AIR_O2_FRAC, else
-// nitrogen (one element per cell), at 1 atm.
+// Paint element meaning "air": every cell becomes air at 1 atm (AIR_O2_FRAC oxygen, AIR_CO2_FRAC
+// CO2, the rest nitrogen; gas_mix_air).
 #define EDIT_AIR 0xFE
 
 #define EDIT_HEAT_STEP_K 8.0f

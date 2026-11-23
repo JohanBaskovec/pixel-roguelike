@@ -115,7 +115,7 @@ static bool lift_powder(World *w, const Creature *c, int x, int y) {
     }
     w->cells[i] = (Cell){ELEM_VOID, (uint8_t)(w->tick - 1), cell.shade, 0};
     w->temp[i] = 0.0f;
-    w->mass[i] = 0.0f;
+    gas_mix_clear(&w->gas[i]);
     world_note_moved(w, x, y);
     world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
     world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
@@ -132,9 +132,9 @@ static void swap_world_cells(World *w, int x0, int y0, int x1, int y1) {
     float t = w->temp[a];
     w->temp[a] = w->temp[b];
     w->temp[b] = t;
-    float m = w->mass[a];
-    w->mass[a] = w->mass[b];
-    w->mass[b] = m;
+    GasMix g = w->gas[a];
+    w->gas[a] = w->gas[b];
+    w->gas[b] = g;
     world_note_moved(w, x0, y0);
     world_note_moved(w, x1, y1);
 }
@@ -334,7 +334,7 @@ static bool kick(World *w, Creature *c, int dx) {
         particle_add(w, &p);
         w->cells[i] = (Cell){ELEM_VOID, (uint8_t)(w->tick - 1), cell.shade, 0};
         w->temp[i] = 0.0f;
-        w->mass[i] = 0.0f;
+        gas_mix_clear(&w->gas[i]);
         world_note_moved(w, lx, y);
     }
     world_wake_rect(w, lx - 1, c->y + c->h - KICK_ROWS - 1, lx + 1, c->y + c->h);
@@ -492,23 +492,21 @@ static void mouth_cell(const World *w, const Creature *c, int *mx, int *my) {
     }
 }
 
-// Partial pressures of O2 and CO2 around the mouth: each gas's pressure summed over its cells,
-// divided by the cells gas could fill (void and gas; Dalton).
+// Partial pressures of O2 and CO2 around the mouth: the mean over the cells gas could fill (void
+// and gas) in the window.
 static void measure_air(const World *w, Creature *c, int mx, int my) {
     double o2 = 0.0, co2 = 0.0;
     int n = 0;
     for (int y = my - HEAD_RADIUS; y <= my + HEAD_RADIUS; y++) {
         for (int x = mx - HEAD_RADIUS; x <= mx + HEAD_RADIUS; x++) {
             ElementId e = world_elem(w, x, y);
-            uint8_t b = g_elem_behavior[e];
-            if (b != BEHAVIOR_NONE && b != BEHAVIOR_GAS) {
+            if (e != ELEM_VOID && e != ELEM_GAS) {
                 continue;
             }
             n++;
-            if (e == ELEM_OXYGEN) {
-                o2 += (double)world_gas_pressure(w, x, y);
-            } else if (e == ELEM_CO2) {
-                co2 += (double)world_gas_pressure(w, x, y);
+            if (e == ELEM_GAS) {
+                o2 += (double)world_gas_partial_pressure(w, x, y, GAS_O2);
+                co2 += (double)world_gas_partial_pressure(w, x, y, GAS_CO2);
             }
         }
     }
@@ -593,15 +591,6 @@ static int breath_draw_cells(float volume, int available) {
     return PR_MIN(n, available);
 }
 
-static ElementId gas_of_slot(int slot) {
-    for (int e = 0; e < ELEM_COUNT; e++) {
-        if (g_gas_slot[e] == slot) {
-            return (ElementId)e;
-        }
-    }
-    return ELEM_VOID;
-}
-
 // Breathing in: the lungs fill with a breath of the gas around the mouth (if it is in gas; they
 // are not already full). Then, full or held, the body takes the oxygen it needs from the lungs (at
 // most O2_EXTRACT_MAX of what they hold) and puts the CO2 it makes for it into them.
@@ -618,10 +607,10 @@ static void inhale(World *w, Creature *c, float work) {
         int n = breath_draw_cells(volume, n_all);
         float f = PR_MIN(volume / (float)n, DRAW_MAX_FRAC);
         for (int k = 0; k < n; k++) {
-            size_t i = (size_t)found[k];
-            float dm = w->mass[i] * f;
-            w->mass[i] -= dm;
-            c->lungs[g_gas_slot[w->cells[i].element]] += dm;
+            GasMix part = w->gas[found[k]];
+            gas_mix_scale(&part, f);
+            gas_mix_add(&w->gas[found[k]], &part, -1.0f);
+            gas_mix_add(&c->lungs, &part, 1.0f);
         }
         // The air flows in toward the mouth.
         int out = mx >= c->x + c->w ? 1 : -1;
@@ -634,19 +623,18 @@ static void inhale(World *w, Creature *c, float work) {
     c->holding = 1; // until breathed out
     float seconds = (float)BREATH_TICKS * TICK_SECONDS * c->metabolism_scale * work;
     float need = O2_KG_PER_S * seconds;
-    int so2 = g_gas_slot[ELEM_OXYGEN], sco2 = g_gas_slot[ELEM_CO2];
-    float take = PR_MIN(need, O2_EXTRACT_MAX * c->lungs[so2]);
-    c->lungs[so2] -= take;
+    float take = PR_MIN(need, O2_EXTRACT_MAX * c->lungs.m[GAS_O2]);
+    c->lungs.m[GAS_O2] -= take;
     float made = take * (CO2_KG_PER_S / O2_KG_PER_S);
-    c->lungs[sco2] += made;
+    c->lungs.m[GAS_CO2] += made;
     c->o2_short = need > 0.0f ? 1.0f - take / need : 0.0f;
     c->o2_used += (double)take;
     c->co2_made += (double)made;
 }
 
-// Breathing out (if the mouth is in gas or void): each gas in the lungs goes into the cells of its
-// kind among the nearest gas cells to the mouth, at EXHALE_K, or else (CO2 in fresh air) into the
-// nearest cell that takes it (world_gas_emit), with a puff away from the face.
+// Breathing out (if the mouth is in gas or void): the air in the lungs, at EXHALE_K, mixes into
+// the nearest gas cells to the mouth (as many as it was drawn from), or fills the mouth cell if it
+// is void; with a puff away from the face.
 static void exhale(World *w, Creature *c, float work) {
     int mx, my;
     mouth_cell(w, c, &mx, &my);
@@ -655,49 +643,19 @@ static void exhale(World *w, Creature *c, float work) {
     if (n_all == 0 && !particle_passes(w, mx, my)) {
         return; // the mouth is in liquid: hold it
     }
-    int n = breath_draw_cells(breath_volume(c, work), n_all);
-    int32_t kind[BREATH_CELLS];
-    for (int s = 1; s < GAS_SLOTS; s++) {
-        float m = c->lungs[s];
-        if (m <= 0.0f) {
-            continue;
-        }
-        ElementId g = gas_of_slot(s);
-        int nk = 0;
-        for (int k = 0; k < n; k++) {
-            if (w->cells[found[k]].element == g) {
-                kind[nk++] = found[k];
+    if (gas_total(&c->lungs) > 0.0f) {
+        if (n_all > 0) {
+            int n = breath_draw_cells(breath_volume(c, work), n_all);
+            world_gas_spread_add(w, found, n, &c->lungs, EXHALE_K);
+            for (int k = 0; k < n; k++) {
+                world_note_moved(w, found[k] % w->width, found[k] / w->width);
             }
+        } else {
+            world_gas_emit(w, mx, my, &c->lungs, EXHALE_K, c->id * 2654435761u);
         }
-        bool done = false;
-        if (nk > 0) {
-            world_gas_spread_add(w, kind, nk, m, EXHALE_K);
-            for (int k = 0; k < nk; k++) {
-                world_note_moved(w, kind[k] % w->width, kind[k] / w->width);
-            }
-            done = true;
-        }
-        uint32_t bits = c->id * 2654435761u + (uint32_t)s;
-        for (int k = 0; k < n_all && !done; k++) {
-            done =
-                world_gas_emit(w, found[k] % w->width, found[k] / w->width, g, m, EXHALE_K, bits);
-        }
-        if (!done && n_all == 0) {
-            done = world_gas_emit(w, mx, my, g, m, EXHALE_K, bits); // the mouth is in void
-            if (done) {
-                found[n_all++] = (int32_t)world_index(w, mx, my);
-            }
-        }
-        if (done) {
-            c->lungs[s] = 0.0f;
-        }
+        gas_mix_clear(&c->lungs);
     }
     c->holding = 0;
-    for (int s = 1; s < GAS_SLOTS; s++) {
-        if (c->lungs[s] > 0.0f) {
-            c->holding = 1; // nowhere to put it all: the rest goes out next time
-        }
-    }
     // The breath out: a puff away from the face, rising a little (it is warm).
     int out = mx >= c->x + c->w ? 1 : -1;
     for (int k = -1; k <= 1; k++) {
@@ -789,10 +747,11 @@ int creature_spawn_sized(World *w, int x, int y, int cw, int ch) {
         ch > CREATURE_MAX_H) {
         return -1;
     }
-    // The area must hold only void and gas; the gas must have somewhere to go: a cell of its kind
-    // just outside the body.
-    float mass[ELEM_COUNT] = {0};
-    float heat[ELEM_COUNT] = {0};
+    // The area must hold only void and gas; the gas must have somewhere to go: a gas cell just
+    // outside the body.
+    GasMix gas;
+    gas_mix_clear(&gas);
+    float heat = 0.0f;
     for (int r = 0; r < ch; r++) {
         for (int k = 0; k < cw; k++) {
             if (!world_in_bounds(w, x + k, y + r)) {
@@ -800,35 +759,27 @@ int creature_spawn_sized(World *w, int x, int y, int cw, int ch) {
             }
             size_t i = world_index(w, x + k, y + r);
             ElementId e = w->cells[i].element;
-            uint8_t b = g_elem_behavior[e];
-            if (b != BEHAVIOR_NONE && b != BEHAVIOR_GAS) {
+            if (e != ELEM_VOID && e != ELEM_GAS) {
                 return -1;
             }
-            if (b == BEHAVIOR_GAS) {
-                mass[e] += w->mass[i];
-                heat[e] += w->mass[i] * w->temp[i];
-            }
+            gas_mix_add(&gas, &w->gas[i], 1.0f);
+            heat += gas_heat_cap(&w->gas[i]) * w->temp[i];
         }
     }
-    // A start cell of each gas just outside (top and bottom rows, side columns).
-    int sx[ELEM_COUNT], sy[ELEM_COUNT];
-    for (int e = 0; e < ELEM_COUNT; e++) {
-        sx[e] = -1;
-    }
-    for (int r = -1; r <= ch; r++) {
-        for (int k = -1; k <= cw; k++) {
+    // A start cell just outside (top and bottom rows, side columns).
+    int sx = -1, sy = -1;
+    for (int r = -1; r <= ch && sx < 0; r++) {
+        for (int k = -1; k <= cw && sx < 0; k++) {
             bool edge = r == -1 || r == ch || k == -1 || k == cw;
-            ElementId e = world_elem(w, x + k, y + r);
-            if (edge && g_elem_behavior[e] == BEHAVIOR_GAS && sx[e] < 0) {
-                sx[e] = x + k;
-                sy[e] = y + r;
+            if (edge && world_elem(w, x + k, y + r) == ELEM_GAS) {
+                sx = x + k;
+                sy = y + r;
             }
         }
     }
-    for (int e = 0; e < ELEM_COUNT; e++) {
-        if (mass[e] > 0.0f && sx[e] < 0) {
-            return -1;
-        }
+    bool has_gas = gas_total(&gas) > 0.0f;
+    if (has_gas && sx < 0) {
+        return -1;
     }
     // Stamp the body, then put the gas it displaced around it.
     uint32_t id = w->creature_next_id++;
@@ -838,15 +789,11 @@ int creature_spawn_sized(World *w, int x, int y, int cw, int ch) {
                            (uint32_t)(id * 7919u + (uint32_t)(r * 31 + k)));
         }
     }
-    for (int e = 0; e < ELEM_COUNT; e++) {
-        if (mass[e] <= 0.0f) {
-            continue;
-        }
+    if (has_gas) {
         int32_t found[GAS_REGION_CELLS + 1];
-        int n = world_gas_region(w, sx[e], sy[e], (ElementId)e, sx[e], sy[e], GAS_REGION_RADIUS,
-                                 GAS_REGION_CELLS, found);
-        found[n++] = (int32_t)world_index(w, sx[e], sy[e]);
-        world_gas_spread_add(w, found, n, mass[e], heat[e] / mass[e]);
+        int n = world_gas_region(w, sx, sy, sx, sy, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
+        found[n++] = (int32_t)world_index(w, sx, sy);
+        world_gas_spread_add(w, found, n, &gas, heat / gas_heat_cap(&gas));
     }
     world_wake_rect(w, x - GAS_REGION_RADIUS, y - GAS_REGION_RADIUS, x + cw + GAS_REGION_RADIUS,
                     y + ch + GAS_REGION_RADIUS);

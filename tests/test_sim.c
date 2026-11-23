@@ -115,9 +115,10 @@ static World *gas_layers(ElementId top, ElementId bottom, uint64_t seed) {
 }
 
 void test_co2_settles_below_oxygen(void) {
+    // Heavy on top of light turns over within seconds (then they slowly diffuse into each other).
     World *w = gas_layers(ELEM_CO2, ELEM_OXYGEN, 5);
     EXPECT(test_mean_y(w, ELEM_CO2) < test_mean_y(w, ELEM_OXYGEN));
-    sim_run_ticks(w, 3000);
+    sim_run_ticks(w, 600);
     EXPECT(test_mean_y(w, ELEM_CO2) > test_mean_y(w, ELEM_OXYGEN) + 10.0);
     world_destroy(w);
 }

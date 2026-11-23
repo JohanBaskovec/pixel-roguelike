@@ -38,9 +38,7 @@ static double energy(const World *w) {
     double e = 0.0;
     for (int i = 0; i < w->width * w->height; i++) {
         ElementId el = w->cells[i].element;
-        double cap = g_elem_behavior[el] == BEHAVIOR_GAS
-                         ? (double)w->mass[i] * (double)g_elem_cp[el]
-                         : (double)g_elem_cap[el];
+        double cap = el == ELEM_GAS ? (double)gas_heat_cap(&w->gas[i]) : (double)g_elem_cap[el];
         e += cap * (double)w->temp[i];
     }
     return e;
@@ -138,15 +136,12 @@ void test_phase_changes_need_latent_heat(void) {
     paint(w, 10, 62, 10, 62, ELEM_WATER);
     paint(w, 20, 62, 20, 62, ELEM_WATER);
     paint(w, 30, 62, 30, 62, ELEM_ICE);
-    // Steam holding a full water cell's mass (as boiling makes it): it condenses into one cell.
-    world_set_gas(w, 40, 62, ELEM_STEAM, g_elem_mass[ELEM_WATER], 0);
     // Water at an (enthalpy) temperature just short of freezing: it stays water, at 0 degC.
     set_temp(w, 10, 62, 10, 62, 273.15f - 70.0f);
-    // Water holding enough latent heat to boil, ice enough to melt, steam cooled enough to
-    // condense.
+    // Water holding enough latent heat to boil, ice enough to melt. (Water vapour condenses at
+    // its dew point: test_vapour_condenses_below_dew_point.)
     set_temp(w, 20, 62, 20, 62, 373.15f + 2257e3f / 4186.0f + 1.0f);
     set_temp(w, 30, 62, 30, 62, 273.15f + 334e3f / 2100.0f + 1.0f);
-    set_temp(w, 40, 62, 40, 62, 373.15f - 2257e3f / 2080.0f - 1.0f);
     sim_tick(w, NULL);
     EXPECT(test_cell_is(w, 10, 62, ELEM_WATER));
     EXPECT(fabsf(temp_at(w, 10, 62) - 273.15f) < 0.01f); // freezing: held at 0 degC
@@ -156,7 +151,7 @@ void test_phase_changes_need_latent_heat(void) {
     // The others changed phase. (They may move once changed: look around their start.)
     EXPECT(test_count(w, ELEM_ICE) == 0);
     EXPECT(test_count(w, ELEM_STEAM) >= 1);
-    EXPECT(test_count(w, ELEM_WATER) == 3); // 2 waters (one boiled) + melted ice + condensed steam
+    EXPECT(test_count(w, ELEM_WATER) == 2); // 2 waters (one boiled) + melted ice
     world_destroy(w);
 }
 
@@ -167,8 +162,8 @@ static double gas_heat_in(const World *w, int x0, int y0, int x1, int y1, float 
         for (int x = x0; x <= x1; x++) {
             size_t i = world_index(w, x, y);
             ElementId e = w->cells[i].element;
-            if (g_elem_behavior[e] == BEHAVIOR_GAS) {
-                q += (double)w->mass[i] * (double)g_elem_cp[e] *
+            if (e == ELEM_GAS) {
+                q += (double)gas_heat_cap(&w->gas[i]) *
                      (double)PR_MAX(elem_temp(e, w->temp[i]) - base, 0.0f);
             }
         }

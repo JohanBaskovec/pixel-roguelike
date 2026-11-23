@@ -268,10 +268,16 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
       the air (turbulent heat exchange, D-034)
 - [x] Spent bullets melt into molten lead (327 °C), casings into molten brass (935 °C); molten
       metal solidifies into lead and brass
+- [x] Gas mixtures (after play-testing: shooting into the air, or a big ball of CO2, dropped a
+      1000 × 1000 room to 10 fps): a gas cell holds a mass of each gas, so air is one uniform
+      mixture, gases diffuse and mix smoothly (Fick), mixtures never unmix, densities are real,
+      water vapour condenses at its dew point (humid air), hydrogen burns where it has mixed with
+      air (D-035). Those two cases run 1.2–2× faster; the game runs one tick per frame (slowing
+      down a little) rather than collapsing its frame rate when a tick takes longer than real time
 - Tests: digging and conservation, bullets stopping at iron and falling, air stirring, the same
   result on any thread count, small clumps, running and jumping, the Air brush, falling powder,
   air control, water around a body, breathing in and out and holding a breath, muzzle gas,
-  melting
+  melting, gas mixtures (diffusion, staying mixed, turning over, pooling, dew point)
 
 ## M6b – Roguelike, next
 
@@ -281,6 +287,18 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 - [ ] An HP bar with 100 HP (bullets, falls, suffocation)
 - [ ] Heat and cold hurt: the further the air and matter around the body are from comfortable,
       the more damage per second (burns above about 45 °C at the skin, hypothermia below)
+
+## M6c – Simulation, next
+
+- [ ] Liquid mixtures (asked for: ONI's separate "water" and "dirty water" felt strange): a liquid
+      cell carries what is dissolved or suspended in it (dirt, salt, pollution), the same way a gas
+      cell carries its species; dirty water dilutes, mixes and settles. Miscible liquids mix,
+      immiscible ones (oil and water) stay apart
+- [ ] Faster gases where most of a room is active: finer wake tracking than a chunk's bounding
+      rectangle (a bullet's diagonal trail wakes whole chunks), better load balance across threads
+      (few awake chunks per checkerboard phase), cheaper pressure equalisation under heat, and gas
+      expanding into a big vacuum (2.5× slower than before D-035)
+- [ ] Evaporation from water surfaces below 100 °C; water vapour in breath
 
 ## M6 – World
 
