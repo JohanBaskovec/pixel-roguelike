@@ -263,18 +263,21 @@ static void update_liquid(TickCtx *c, int x, int y) {
         ctx_wake(c, x, y, x, y, false, true);
     }
 
-    // 2. Water pressure: if the body of still water this cell belongs to has its top surface at
-    //    least one row above an open cell above or beside this cell, ask for one cell of water
-    //    to be moved from that top surface to the open cell (carried out after the phase, see
-    //    pressure.c). This levels pools over any distance, balances U-tubes and makes deep water
-    //    push out of openings.
+    // 2. Water pressure: if the body of still water this cell belongs to has its top at least
+    //    one cell above an open cell above or beside this cell, ask for one cell of water to be
+    //    moved from that top surface to the open cell (carried out after the phase, see
+    //    pressure.c). Heights count gas pressure (as a height of liquid): the body's top is
+    //    raised by the gas pressing on its surface, the open cell by the gas in it. This levels
+    //    pools over any distance, balances U-tubes, makes deep water push out of openings and
+    //    lets gas push on water.
     bool labelled = w->piece[world_index(w, x, y)] != 0;
-    int body_top = labelled ? pressure_body_top(w, x, y) : PRESSURE_NO_TOP;
+    int32_t body_top = labelled ? pressure_body_top(w, x, y) : PRESSURE_NO_TOP;
     if (body_top != PRESSURE_NO_TOP) {
         const int q[3][2] = {{x, y - 1}, {x + dir, y}, {x - dir, y}};
         for (int k = 0; k < 3; k++) {
             int qx = q[k][0], qy = q[k][1];
-            if (body_top <= qy - 1 && can_displace(w, qx, qy, d)) {
+            if (body_top <= qy - 1 && can_displace(w, qx, qy, d) &&
+                body_top <= qy - 1 - world_gas_head(w, qx, qy, cell->element)) {
                 if (c->nreq < TICK_MAX_REQUESTS) {
                     c->req[c->nreq++] = (PressureRequest){x, y, qx, qy};
                 } else {
@@ -401,6 +404,19 @@ static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, Element
 // times higher. Below 2 the push would leave the two cells it shares at a lower pressure than the
 // gas it pushed (now squeezed into its neighbour), and the next tick would push back.
 #define GAS_PUSH_RATIO 2.1f
+// Below that, a gas more than this fraction above the pressure of a different gas next to it takes
+// that cell over, spreading the change over both gases' regions (world_gas_region): its gas is
+// squeezed into the cells of its kind around, and the cell is refilled from the cells of the
+// higher-pressure gas around. Total pressure thus evens out across different gases.
+#define GAS_BALANCE_TOL 0.01f
+// A cell stays awake for that only above this ratio, so small regions where the move would
+// overshoot (and is refused) do not stay awake for ever.
+#define GAS_BALANCE_WAKE 1.03f
+// Regions for it are smaller than for liquid (it runs in the parallel pass, often in mixed gas),
+// and it is tried with this probability (x/65536) per tick when it applies.
+#define GAS_BALANCE_RADIUS 8
+#define GAS_BALANCE_CELLS  64
+#define GAS_BALANCE_P16    4096u
 
 static const int8_t k_dir4[4][2] = {{0, -1}, {-1, 0}, {1, 0}, {0, 1}};
 
@@ -422,10 +438,14 @@ static inline void gas_add(World *w, size_t r, float dm, float ts) {
 }
 
 // Wakes and re-renders the cells around two cells that exchanged gas (which may be up to
-// GAS_REACH apart: the cells between did not change).
+// GAS_REACH apart: the cells between did not change). Gas resting on liquid presses on it: if
+// liquid lies below either cell, its body's top is recomputed (water pressure).
 static inline void gas_wake(TickCtx *c, int x0, int y0, int x1, int y1) {
-    ctx_wake(c, x0 - 1, y0 - 1, x0 + 1, y0 + 1, true, false);
-    ctx_wake(c, x1 - 1, y1 - 1, x1 + 1, y1 + 1, true, false);
+    const World *w = c->w;
+    bool l0 = g_elem_behavior[world_elem(w, x0, y0 + 1)] == BEHAVIOR_LIQUID;
+    bool l1 = g_elem_behavior[world_elem(w, x1, y1 + 1)] == BEHAVIOR_LIQUID;
+    ctx_wake(c, x0 - 1, y0 - 1, x0 + 1, y0 + 1, true, l0);
+    ctx_wake(c, x1 - 1, y1 - 1, x1 + 1, y1 + 1, true, l1);
 }
 
 // Puts a new gas cell like `like`, holding m kg at stored temperature ts, at (x, y). It counts as
@@ -573,6 +593,59 @@ static bool gas_push(TickCtx *c, int x, int y, int dx, int dy) {
     return true;
 }
 
+// The gas at (x, y) is above the pressure of the different gas at (nx, ny) by more than
+// GAS_BALANCE_TOL: that cell changes over to this gas, the change spread over both regions. Only
+// if the regions' mean pressures agree, and if afterwards this gas is still at least the other's
+// pressure, so it never flips back. Returns true if done.
+static bool gas_balance(TickCtx *c, int x, int y, int nx, int ny) {
+    World *w = c->w;
+    size_t i = world_index(w, x, y), ni = world_index(w, nx, ny);
+    ElementId a = w->cells[i].element, b = w->cells[ni].element;
+    int32_t fb[GAS_BALANCE_CELLS], fa[GAS_BALANCE_CELLS];
+    int nb = world_gas_region(w, nx, ny, b, nx, ny, GAS_BALANCE_RADIUS, GAS_BALANCE_CELLS, fb);
+    if (nb == 0) {
+        return false;
+    }
+    int na = world_gas_region(w, nx, ny, a, nx, ny, GAS_BALANCE_RADIUS, GAS_BALANCE_CELLS, fa);
+    if (na == 0) {
+        return false;
+    }
+    // Judge by the regions' mean pressures: a single cell out of line (just squeezed or thinned)
+    // must not shift whole regions.
+    float pa = 0.0f, pb = 0.0f;
+    for (int k = 0; k < na; k++) {
+        pa += gas_pv(w, (size_t)fa[k], a);
+    }
+    for (int k = 0; k < nb; k++) {
+        pb += gas_pv(w, (size_t)fb[k], b);
+    }
+    pa /= (float)na;
+    pb /= (float)nb;
+    if (pa <= (1.0f + GAS_BALANCE_TOL) * pb ||
+        pa * (float)na / (float)(na + 1) < pb * (float)(nb + 1) / (float)nb) {
+        return false;
+    }
+    PR_ASSERT(in_reach(c, nx - GAS_BALANCE_RADIUS, ny - GAS_BALANCE_RADIUS) &&
+              in_reach(c, nx + GAS_BALANCE_RADIUS, ny + GAS_BALANCE_RADIUS));
+    world_gas_spread_add(w, fb, nb, w->mass[ni], w->temp[ni]);
+    for (int k = 0; k < nb; k++) {
+        ctx_arrive(c, fb[k] % w->width, fb[k] / w->width, w->cells[fb[k]], w->temp[fb[k]]);
+    }
+    float t;
+    float m = world_gas_spread_take(w, fa, na, &t);
+    Cell cell = w->cells[i];
+    cell.stamp = c->stamp;
+    cell.aux = 0;
+    w->cells[ni] = cell;
+    w->mass[ni] = m;
+    w->temp[ni] = t;
+    ctx_arrive(c, nx, ny, cell, t);
+    ctx_wake(c, nx - GAS_BALANCE_RADIUS, ny - GAS_BALANCE_RADIUS, nx + GAS_BALANCE_RADIUS,
+             ny + GAS_BALANCE_RADIUS, true, true);
+    c->stats.cells_moved++;
+    return true;
+}
+
 // Pressure equalisation: the cell trades mass with a cell of the same gas so that both end at the
 // same pressure. The partner is the last cell of the same gas met walking a random 1..GAS_REACH
 // cells from (x, y) in direction (dx, dy) through gas of any kind, if it has nearly the same
@@ -667,6 +740,9 @@ static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_
                 return true;
             }
         } else {
+            if (dense && pv > GAS_BALANCE_WAKE * pvn) {
+                return true;
+            }
             other |= (uint8_t)(1u << k);
         }
     }
@@ -749,14 +825,18 @@ static void update_gas(TickCtx *c, int x, int y) {
                 return;
             }
         } else {
-            // 2d. A different gas: mix (trade places) where that spreads the gases into each
-            //     other.
+            // 2d. A different gas at a lower pressure: take its cell over (spread out).
+            if (dense && gas_pv(w, i, e) > (1.0f + GAS_BALANCE_TOL) * gas_pv(w, ni, n) &&
+                rng_chance16(&c->rng, GAS_BALANCE_P16) && gas_balance(c, x, y, nx, ny)) {
+                return;
+            }
+            // 2e. Else mix (trade places) where that spreads the gases into each other.
             if (gas_mix_ok(w, x, y, r) && rng_chance16(&c->rng, P_GAS_MIX_16)) {
                 swap_cells(c, x, y, nx, ny);
                 return;
             }
         }
-        // 2e. Equalise pressure with the same gas in that direction (through other gases).
+        // 2f. Equalise pressure with the same gas in that direction (through other gases).
         if (gas_equalize(c, x, y, dx, dy)) {
             return;
         }
@@ -961,8 +1041,20 @@ int sim_pressure_depth(const World *w, int x, int y) {
     if (!world_in_bounds(w, x, y) || !w->piece[world_index(w, x, y)]) {
         return -1;
     }
-    int top = pressure_body_top(w, x, y);
-    return top == PRESSURE_NO_TOP ? -1 : PR_MAX(y - top, 0);
+    int32_t row = pressure_body_top_row(w, x, y);
+    return row == PRESSURE_NO_TOP ? -1 : (int)PR_MAX(y - row, 0);
+}
+
+float sim_liquid_pressure(const World *w, int x, int y) {
+    if (!world_in_bounds(w, x, y) || !w->piece[world_index(w, x, y)]) {
+        return -1.0f;
+    }
+    int32_t top = pressure_body_top(w, x, y);
+    if (top == PRESSURE_NO_TOP) {
+        return -1.0f;
+    }
+    ElementId e = w->cells[world_index(w, x, y)].element;
+    return (float)PR_MAX(y - top, 0) * g_elem_defs[e].density * GRAVITY * CELL_SIZE_M;
 }
 
 void sim_run_ticks(World *w, int n) {

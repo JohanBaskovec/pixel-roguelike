@@ -23,3 +23,8 @@ void sim_run_ticks(World *w, int n);
 // the cell belongs to; -1 if it is not still liquid (or the body has no free surface). As
 // labelled at the start of the last tick. For overlays and inspection.
 int sim_pressure_depth(const World *w, int x, int y);
+
+// Absolute pressure (Pa) in the still liquid at (x, y): the gas pressure on its body's surface
+// plus the weight of the liquid above. -1 if it is not still liquid or its body has no free
+// surface. Resolution: one cell of liquid (490 Pa for water).
+float sim_liquid_pressure(const World *w, int x, int y);

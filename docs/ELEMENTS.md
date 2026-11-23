@@ -90,6 +90,12 @@ All are clamped to `MAX_MOVE` = 32.
 | `GAS_JUMP_MAX_DT` | 2 K | `sim/sim.c` | Long equalisation jumps only between cells this close in temperature |
 | `GAS_EQ_TOL` | 0.1% | `sim/sim.c` | Pressures closer than this count as equal (no transfer; may sleep) |
 | `GAS_PUSH_RATIO` | 2.1 | `sim/sim.c` | Pressure ratio above which a gas pushes a neighbouring gas cell aside |
+| `GAS_BALANCE_TOL` | 1% | `sim/sim.c` | A gas this far above a different neighbouring gas takes its cell over (spread over both regions) |
+| `GAS_BALANCE_P16` | 1/16 | `sim/sim.c` | Chance per tick of trying that (regions of 64 cells within 8) |
+| `GAS_REGION_CELLS` | 256 | `sim/world.h` | Cells of gas a compression or expansion by a liquid is spread over (within `GAS_REGION_RADIUS` = 16) |
+| `GAS_SAME_REGION` | 5% | `sim/pressure.c` | Gas at an opening this close to the gas above the source just trades places with the liquid |
+| `GAS_LIQUID_INTERVAL` | 2 ticks | `sim/pressure.c` | A body may compress or expand gas at most once per this many ticks |
+| `GRAVITY` | 9.81 m/s² | `sim/elements.h` | Gas pressure as a liquid height: P / (ρ·g·Δx); 1 atm = 207 cells of water |
 | `GRAVITY_INC_P16` | 0.87 | `sim/sim.c` | Chance per tick a falling liquid gains 1/16 px/tick of speed (≈ 9.8 m/s² at 5 cm/px) |
 | `FALL_SPEED_MAX` | 127/16 px/tick | `sim/sim.c` | Terminal fall speed, about 8 px/tick (24 m/s) |
 | `LIQUID_LOOKAHEAD` | 32 | `sim/sim.c` | How far a surface liquid cell looks sideways for a drop (= `MAX_MOVE`) |
@@ -110,8 +116,8 @@ Keep this list complete.
 1. Gases are tinted so they are visible.
 2. Heat conduction is sped up: 1000× in solids and liquids, 10× where a gas is involved
    (`HEAT_TIME_SCALE`, `HEAT_TIME_SCALE_GAS`). Relative conductivities stay real.
-3. One gas per cell (D-005): different gases never share a cell, so total pressure only evens
-   out between two gases when one pushes the other (above 2.1× its pressure). Pressure spreads by
+3. One gas per cell (D-005): different gases never share a cell, so total pressure evens out
+   between two gases cell by cell, to within about 3%. Pressure spreads by
    diffusion (a few seconds across a room), not at the speed of sound. Condensing steam becomes a
    full water cell with probability m / m_water (mass conserved on average), at 100 °C whatever
    its partial pressure.
@@ -119,7 +125,8 @@ Keep this list complete.
    opening it is pushed toward, and the flow rate through an opening is not proportional to the
    square root of the depth (see SIMULATION.md → Liquid pressure).
 5. No heat radiation: vacuum is a perfect insulator (D-017).
-6. Gas pressure does not act on liquids yet (see ROADMAP M4).
+6. Gas pressure pushes on liquids, but gas-driven flow is rate limited (`GAS_LIQUID_INTERVAL`),
+   so a barometer fills in about 20 s rather than at once.
 7. For buoyancy, oxygen and nitrogen have the same density (air, `AIR_DENSITY_0C`), so painted
    air does not unmix. Real O₂ is 14% denser than N₂, but air stays mixed because it is mixed
    molecule by molecule, which one-gas-per-cell cannot represent.

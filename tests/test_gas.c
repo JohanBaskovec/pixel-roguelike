@@ -14,6 +14,9 @@ void test_boiling_keeps_mass(void);
 void test_condensing_keeps_mass_on_average(void);
 void test_air_stays_mixed(void);
 void test_gases_mix_and_settle(void);
+void test_pressurised_tank_drives_water_up_a_pipe(void);
+void test_air_holds_water_up_a_vacuum_tube(void);
+void test_trapped_air_is_compressed(void);
 
 static void paint(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -193,5 +196,130 @@ void test_gases_mix_and_settle(void) {
         sim_tick(w, &st);
     }
     EXPECT(st.cells_visited < 2000);
+    world_destroy(w);
+}
+
+// ---- Gas pressure on liquids ----
+
+static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            world_set_cell(w, x, y, e, (uint32_t)(x * 7919 + y * 104729));
+        }
+    }
+    world_wake_rect(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    world_wake_heat(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+}
+
+// Fills the rect with air (each cell oxygen or nitrogen) at `atm` atmospheres.
+static void fill_air(World *w, int x0, int y0, int x1, int y1, float atm) {
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            uint32_t h = (uint32_t)(x * 7919 + y * 104729) * 2654435761u;
+            ElementId e = (h >> 16) % 100 < 21 ? ELEM_OXYGEN : ELEM_NITROGEN;
+            world_set_cell(w, x, y, e, h);
+            w->mass[world_index(w, x, y)] *= atm;
+        }
+    }
+    world_wake_rect(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    world_wake_heat(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+}
+
+// Highest row (smallest y) holding water in column x between rows y0 and y1, or -1.
+static int water_top(const World *w, int x, int y0, int y1) {
+    for (int y = y0; y <= y1; y++) {
+        if (test_cell_is(w, x, y, ELEM_WATER)) {
+            return y;
+        }
+    }
+    return -1;
+}
+
+// Mean gas pressure (Pa) in the rect.
+static double mean_pressure(const World *w, int x0, int y0, int x1, int y1) {
+    double lo, hi, mean;
+    pressure_range(w, x0, y0, x1, y1, &lo, &hi, &mean);
+    return mean;
+}
+
+static double water_head_cells(double pa) {
+    return pa / ((double)g_elem_defs[ELEM_WATER].density * (double)GRAVITY * (double)CELL_SIZE_M);
+}
+
+void test_pressurised_tank_drives_water_up_a_pipe(void) {
+    // A sealed tank: water below, nitrogen at 0.3 atm above. A pipe leaves its bottom and rises
+    // into vacuum. The gas pushes water up the pipe until the column's weight matches the gas
+    // pressure (which drops a little as the gas expands into the room the water left).
+    World *w = test_world_box(128, 256, 48);
+    fill(w, 1, 1, 126, 254, ELEM_DIRT);
+    fill(w, 10, 200, 60, 250, ELEM_VOID);  // tank
+    fill(w, 61, 246, 72, 250, ELEM_VOID);  // channel from its bottom
+    fill(w, 70, 20, 72, 245, ELEM_VOID);   // pipe up
+    fill(w, 40, 5, 120, 19, ELEM_VOID);    // room at the top (vacuum)
+    fill(w, 10, 225, 60, 250, ELEM_WATER); // 26 rows of water
+    for (int y = 200; y <= 224; y++) {
+        for (int x = 10; x <= 60; x++) {
+            world_set_gas(w, x, y, ELEM_NITROGEN, 0.3f * gas_mass_at(ELEM_NITROGEN, P_ATM, T_ROOM),
+                          (uint32_t)(x + y));
+        }
+    }
+    world_wake_rect(w, 0, 0, 127, 255);
+    double n2 = test_mass(w, ELEM_NITROGEN);
+    sim_run_ticks(w, 2400);
+    int tank = water_top(w, 35, 200, 250), pipe = water_top(w, 71, 20, 250);
+    double head = water_head_cells(mean_pressure(w, 10, 200, 60, 250));
+    EXPECT(tank > 0 && pipe > 0);
+    EXPECT(tank - pipe > 30);                 // water stands well above the tank's level
+    EXPECT(fabs((tank - pipe) - head) < 3.0); // ... by the gas pressure, as a water height
+    EXPECT(fabs(test_mass(w, ELEM_NITROGEN) - n2) < 1e-4 * n2);
+    world_destroy(w);
+}
+
+void test_air_holds_water_up_a_vacuum_tube(void) {
+    // A barometer: a tube sealed at the top, empty, its open bottom under the surface of a pool in
+    // a room of air at 1 atm. Air pushes water up the tube until the column weighs as much as the
+    // air's pressure: about 207 cells (10.3 m) above the pool at 1 atm (the air expands a little
+    // into the room the pool's water left).
+    World *w = test_world_box(128, 320, 49);
+    fill(w, 1, 1, 126, 318, ELEM_DIRT);
+    fill(w, 1, 150, 126, 318, ELEM_VOID);  // room
+    fill(w, 1, 290, 126, 318, ELEM_WATER); // pool
+    fill(w, 60, 20, 64, 305, ELEM_DIRT);   // tube walls, down into the pool
+    fill(w, 61, 21, 63, 305, ELEM_VOID);   // tube interior: vacuum (water at the bottom below)
+    fill(w, 61, 290, 63, 305, ELEM_WATER);
+    fill_air(w, 1, 150, 59, 289, 1.0f);
+    fill_air(w, 65, 150, 126, 289, 1.0f);
+    sim_run_ticks(w, 2400);
+    int pool = water_top(w, 20, 150, 318), tube = water_top(w, 62, 21, 318);
+    double head = water_head_cells(mean_pressure(w, 1, 150, 59, 289));
+    EXPECT(pool > 0 && tube > 0);
+    EXPECT(head > 190.0 && head < 210.0); // 1 atm, a little less as the air expands
+    EXPECT(fabs((pool - tube) - head) < 4.0);
+    world_destroy(w);
+}
+
+void test_trapped_air_is_compressed(void) {
+    // A sealed room of thin air (0.1 atm) fed from below by a tall column of water open to vacuum.
+    // Water enters and squeezes the air (its mass stays, its pressure rises) until the air's
+    // pressure balances the column.
+    World *w = test_world_box(128, 192, 50);
+    fill(w, 1, 1, 126, 190, ELEM_DIRT);
+    fill(w, 20, 140, 80, 180, ELEM_VOID); // room
+    fill(w, 81, 176, 92, 180, ELEM_VOID); // channel from its bottom
+    fill(w, 90, 20, 92, 175, ELEM_VOID);  // column
+    fill(w, 90, 40, 92, 175, ELEM_WATER);
+    fill(w, 81, 176, 92, 180, ELEM_WATER);
+    fill(w, 20, 168, 80, 180, ELEM_WATER); // over the channel, so no air gets into it
+    fill_air(w, 20, 140, 80, 167, 0.1f);
+    double air0 = test_mass(w, ELEM_OXYGEN) + test_mass(w, ELEM_NITROGEN);
+    double p0 = mean_pressure(w, 20, 140, 80, 167);
+    sim_run_ticks(w, 3000);
+    int room = water_top(w, 50, 140, 180), column = water_top(w, 91, 20, 180);
+    double p1 = mean_pressure(w, 20, 140, 80, 180);
+    double air1 = test_mass(w, ELEM_OXYGEN) + test_mass(w, ELEM_NITROGEN);
+    EXPECT(room > 0 && room < 168); // water came in
+    EXPECT(p1 > 1.1 * p0);          // the air was compressed
+    EXPECT(fabs(air1 - air0) < 1e-4 * air0);
+    EXPECT(fabs((room - column) - water_head_cells(p1)) < 3.0);
     world_destroy(w);
 }

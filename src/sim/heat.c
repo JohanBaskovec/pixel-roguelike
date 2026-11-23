@@ -303,6 +303,7 @@ void heat_update(World *w, HeatStats *stats) {
         }
         if (job->max_change > HEAT_WAKE_MOVEMENT_K && job->fluid) {
             dirty_rect_add(&c->cur, 0, 0, CHUNK_SIZE - 1, CHUNK_SIZE - 1); // convection
+            c->head_dirty_next = 1; // gas pressure on liquid surfaces may have changed
         }
         if (job->max_temp >= GLOW_START_K && job->max_change > 0.05f) {
             c->render_dirty = 1;

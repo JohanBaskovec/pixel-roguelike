@@ -2,6 +2,7 @@
 
 #include "core/jobs.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -11,13 +12,14 @@
 #define SOURCE_ROWS 8   // rows below the body's top also searched once the top row is used up
 
 typedef struct Piece {
-    int16_t top_y; // highest free-surface row of this piece, PRESSURE_NO_TOP if none
+    int32_t top;     // smallest head among this piece's free-surface cells, PRESSURE_NO_TOP if none
+    int16_t top_row; // row of the surface cell with that head
     uint8_t element;
 } Piece;
 
 typedef struct ChunkPieces {
     uint16_t count;
-    int16_t last_top;            // best body top among this chunk's pieces at the previous rebuild
+    int32_t last_top;            // best body top among this chunk's pieces at the previous rebuild
     Piece piece[MAX_PIECES + 1]; // ids 1..count
 } ChunkPieces;
 
@@ -35,8 +37,10 @@ struct PressureState {
     int32_t *root;     // root after the rebuild
     int32_t *src_next; // next node of the same body whose top is the body's top (list)
     // Per root node:
-    int16_t *top;      // the body's highest free-surface row
-    int32_t *src_head; // first node of the list above
+    int32_t *top;       // the body's top: smallest head of its free-surface cells
+    int16_t *used;      // rows below the top already taken by transfers this tick
+    uint64_t *gas_tick; // last tick the body compressed or expanded gas (GAS_LIQUID_INTERVAL)
+    int32_t *src_head;  // first node of the list above
 };
 
 PressureState *pressure_create(const World *w) {
@@ -51,10 +55,12 @@ PressureState *pressure_create(const World *w) {
     ps->parent = pr_aligned_alloc_zero(64, sizeof(int32_t) * nodes);
     ps->root = pr_aligned_alloc_zero(64, sizeof(int32_t) * nodes);
     ps->src_next = pr_aligned_alloc_zero(64, sizeof(int32_t) * nodes);
-    ps->top = pr_aligned_alloc_zero(64, sizeof(int16_t) * nodes);
+    ps->top = pr_aligned_alloc_zero(64, sizeof(int32_t) * nodes);
+    ps->used = pr_aligned_alloc_zero(64, sizeof(int16_t) * nodes);
+    ps->gas_tick = pr_aligned_alloc_zero(64, sizeof(uint64_t) * nodes);
     ps->src_head = pr_aligned_alloc_zero(64, sizeof(int32_t) * nodes);
     if (!ps->cp || !ps->jobs || !ps->parent || !ps->root || !ps->src_next || !ps->top ||
-        !ps->src_head) {
+        !ps->used || !ps->gas_tick || !ps->src_head) {
         pressure_destroy(ps);
         return NULL;
     }
@@ -74,6 +80,8 @@ void pressure_destroy(PressureState *ps) {
     pr_aligned_free(ps->root);
     pr_aligned_free(ps->src_next);
     pr_aligned_free(ps->top);
+    pr_aligned_free(ps->used);
+    pr_aligned_free(ps->gas_tick);
     pr_aligned_free(ps->src_head);
     free(ps);
 }
@@ -107,7 +115,8 @@ static void label_chunk(void *user, int index) {
             }
             uint8_t e = c.element;
             int id = count < MAX_PIECES ? ++count : 0;
-            int16_t top = PRESSURE_NO_TOP;
+            int32_t top = PRESSURE_NO_TOP;
+            int16_t top_row = PRESSURE_NO_TOP & INT16_MAX;
             int sp = 0;
             stack[sp++] = (uint16_t)(ly << CHUNK_SHIFT | lx);
             visited[ly][lx] = 1;
@@ -116,8 +125,13 @@ static void label_chunk(void *user, int index) {
                 int vx = v & CHUNK_MASK, vy = v >> CHUNK_SHIFT;
                 int x = bx + vx, y = by + vy;
                 w->piece[world_index(w, x, y)] = (uint8_t)id;
-                if (y < top && liquid_surface_free(w, x, y, e)) {
-                    top = (int16_t)y;
+                if (liquid_surface_free(w, x, y, e)) {
+                    // Head: the row, raised by the pressure of the gas above (if any).
+                    int32_t head = y - world_gas_head(w, x, y - 1, e);
+                    if (head < top || (head == top && y < top_row)) {
+                        top = head;
+                        top_row = (int16_t)y;
+                    }
                 }
                 static const int8_t d4[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
                 for (int k = 0; k < 4; k++) {
@@ -134,7 +148,7 @@ static void label_chunk(void *user, int index) {
                 }
             }
             if (id) {
-                cp->piece[id] = (Piece){top, e};
+                cp->piece[id] = (Piece){top, top_row, e};
             }
         }
     }
@@ -207,13 +221,14 @@ static void rebuild_bodies(World *w) {
             int32_t r = uf_find(ps->parent, node);
             ps->root[node] = r;
             ps->top[r] = PRESSURE_NO_TOP;
+            ps->used[r] = 0;
             ps->src_head[r] = -1;
         }
     }
     for (int ch = 0; ch < ps->chunks; ch++) {
         for (int id = 1; id <= ps->cp[ch].count; id++) {
             int32_t r = ps->root[ch << NODE_SHIFT | id];
-            int16_t t = ps->cp[ch].piece[id].top_y;
+            int32_t t = ps->cp[ch].piece[id].top;
             if (t < ps->top[r]) {
                 ps->top[r] = t;
             }
@@ -223,7 +238,7 @@ static void rebuild_bodies(World *w) {
         for (int id = ps->cp[ch].count; id >= 1; id--) {
             int32_t node = ch << NODE_SHIFT | id;
             int32_t r = ps->root[node];
-            if (ps->cp[ch].piece[id].top_y == ps->top[r] && ps->top[r] != PRESSURE_NO_TOP) {
+            if (ps->cp[ch].piece[id].top == ps->top[r] && ps->top[r] != PRESSURE_NO_TOP) {
                 ps->src_next[node] = ps->src_head[r];
                 ps->src_head[r] = node;
             }
@@ -251,9 +266,9 @@ void pressure_update(World *w) {
     // Chunks whose body top rose: their cells may now be pushed toward openings they are next
     // to. Simulate the whole chunk this tick.
     for (int ch = 0; ch < ps->chunks; ch++) {
-        int16_t best = PRESSURE_NO_TOP;
+        int32_t best = PRESSURE_NO_TOP;
         for (int id = 1; id <= ps->cp[ch].count; id++) {
-            int16_t t = ps->top[ps->root[ch << NODE_SHIFT | id]];
+            int32_t t = ps->top[ps->root[ch << NODE_SHIFT | id]];
             if (t < best) {
                 best = t;
             }
@@ -266,14 +281,35 @@ void pressure_update(World *w) {
     }
 }
 
-int pressure_body_top(const World *w, int x, int y) {
+// The root node of the still cell at (x, y), or -1.
+static int32_t body_root(const World *w, int x, int y) {
     uint8_t id = w->piece[world_index(w, x, y)];
     if (!id) {
-        return PRESSURE_NO_TOP;
+        return -1;
     }
     int ch = (y >> CHUNK_SHIFT) * w->chunks_x + (x >> CHUNK_SHIFT);
+    return w->pressure->root[ch << NODE_SHIFT | id];
+}
+
+int32_t pressure_body_top(const World *w, int x, int y) {
+    int32_t r = body_root(w, x, y);
+    if (r < 0 || w->pressure->top[r] == PRESSURE_NO_TOP) {
+        return PRESSURE_NO_TOP;
+    }
+    return w->pressure->top[r] + w->pressure->used[r];
+}
+
+int32_t pressure_body_top_row(const World *w, int x, int y) {
+    int32_t r = body_root(w, x, y);
+    if (r < 0 || w->pressure->top[r] == PRESSURE_NO_TOP) {
+        return PRESSURE_NO_TOP;
+    }
     const PressureState *ps = w->pressure;
-    return ps->top[ps->root[ch << NODE_SHIFT | id]];
+    int32_t node = ps->src_head[r];
+    if (node < 0) {
+        return PRESSURE_NO_TOP;
+    }
+    return ps->cp[node >> NODE_SHIFT].piece[node & ((1 << NODE_SHIFT) - 1)].top_row + ps->used[r];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -306,6 +342,68 @@ static bool find_source(const World *w, int32_t node, int top, ElementId e, int 
     return false;
 }
 
+// Liquid entering gas compresses it, liquid leaving lets it expand. The change is spread over the
+// gas around (world_gas_region), so no single cell jumps in pressure: one cell of gas volume moved
+// at one spot would change the pressure there by tens of percent, enough to push liquid around
+// (1 atm is 207 cells of water) and start a cascade.
+// Gas at the opening and above the source within this relative pressure: one region; the gas
+// simply trades places with the moving liquid (no compression).
+#define GAS_SAME_REGION 0.05f
+// A body may compress or expand gas (transfers between different gas regions, or between gas and
+// vacuum) only once every this many ticks. Gas pressure evens out by diffusion, far slower than
+// in reality; faster transfers would thin out or squeeze the gas next to the liquid faster than
+// the rest of the room catches up, and the liquid would then chase those local differences.
+#define GAS_LIQUID_INTERVAL 2
+
+// Liquid arrives at (qx, qy), which holds gas: squeeze that gas into the gas of its kind around
+// it (not (sx, sy)). Returns false if there is none (then it trades places).
+static bool squeeze_gas(World *w, int qx, int qy, int sx, int sy) {
+    size_t iq = world_index(w, qx, qy);
+    int32_t found[GAS_REGION_CELLS];
+    int n = world_gas_region(w, qx, qy, w->cells[iq].element, sx, sy, GAS_REGION_RADIUS,
+                             GAS_REGION_CELLS, found);
+    if (n == 0) {
+        return false;
+    }
+    world_gas_spread_add(w, found, n, w->mass[iq], w->temp[iq]);
+    for (int k = 0; k < n; k++) {
+        world_note_moved(w, found[k] % w->width, found[k] / w->width);
+    }
+    world_wake_rect(w, qx - GAS_REGION_RADIUS, qy - GAS_REGION_RADIUS, qx + GAS_REGION_RADIUS,
+                    qy + GAS_REGION_RADIUS);
+    return true;
+}
+
+// Liquid left (sx, sy), now void. If gas lies above it, gas flows in from the gas of that kind
+// around it, leaving no vacuum hole at the surface to pull liquid back in.
+static void refill_with_gas(World *w, int sx, int sy) {
+    if (sy <= 0) {
+        return;
+    }
+    size_t ia = world_index(w, sx, sy - 1);
+    ElementId g = w->cells[ia].element;
+    if (g_elem_behavior[g] != BEHAVIOR_GAS) {
+        return;
+    }
+    int32_t found[GAS_REGION_CELLS];
+    int n = world_gas_region(w, sx, sy, g, sx, sy, GAS_REGION_RADIUS, GAS_REGION_CELLS, found);
+    if (n == 0) {
+        return;
+    }
+    float t;
+    float m = world_gas_spread_take(w, found, n, &t);
+    size_t is = world_index(w, sx, sy);
+    Cell c = w->cells[ia];
+    c.stamp = (uint8_t)w->tick;
+    c.aux = 0;
+    w->cells[is] = c;
+    w->mass[is] = m;
+    w->temp[is] = t;
+    world_note_moved(w, sx, sy);
+    world_wake_rect(w, sx - GAS_REGION_RADIUS, sy - GAS_REGION_RADIUS, sx + GAS_REGION_RADIUS,
+                    sy + GAS_REGION_RADIUS);
+}
+
 int pressure_apply(World *w, const PressureRequest *req, int count) {
     PressureState *ps = w->pressure;
     int moved = 0;
@@ -320,17 +418,22 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         }
         int ch = (py >> CHUNK_SHIFT) * w->chunks_x + (px >> CHUNK_SHIFT);
         int32_t root = ps->root[ch << NODE_SHIFT | pid];
-        int top = ps->top[root];
-        if (top == PRESSURE_NO_TOP || top > qy - 1) {
+        int32_t top = ps->top[root];
+        int32_t q_head = qy - world_gas_head(w, qx, qy, pc.element);
+        if (top == PRESSURE_NO_TOP || top + ps->used[root] > q_head - 1) {
             continue;
         }
-        // Take a free-surface cell from the body's top row; once that row is used up, from the
-        // rows just below it, as long as they are still at least one row above Q.
-        int sx = -1, sy = top;
-        for (; sy <= PR_MIN(qy - 1, top + SOURCE_ROWS) && sx < 0; sy++) {
+        // Take a free-surface cell from the body's top; once those are used up, from the rows
+        // just below it, as long as their head stays at least one cell above Q's.
+        int sx = -1, sy = 0;
+        int k_max = (int)PR_MIN((int64_t)SOURCE_ROWS, (int64_t)q_head - 1 - top);
+        int k = ps->used[root];
+        for (; k <= k_max && sx < 0; k++) {
             int tries = 0;
             for (int32_t node = ps->src_head[root]; node >= 0 && tries < MAX_SOURCES;
                  node = ps->src_next[node], tries++) {
+                const Piece *pp = &ps->cp[node >> NODE_SHIFT].piece[node & ((1 << NODE_SHIFT) - 1)];
+                sy = pp->top_row + k;
                 if (find_source(w, node, sy, pc.element, &sx)) {
                     break;
                 }
@@ -340,26 +443,48 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
             }
         }
         if (sx < 0) {
-            if (sy > top + SOURCE_ROWS) {
+            if (k > SOURCE_ROWS) {
                 ps->top[root] = PRESSURE_NO_TOP; // used up for this tick: stop until relabelled
             }
             world_wake_rect(w, px, py, px, py);
             continue;
         }
-        ps->top[root] = (int16_t)sy; // rows above are used up: later requests start here
         size_t is = world_index(w, sx, sy), iq = world_index(w, qx, qy);
+        // Gas at Q: if it is at about the pressure of the gas above the source, it is the same
+        // region, and it simply takes the source's place. Otherwise it is compressed into the
+        // gas around Q, and the gas above the source expands into it. Such transfers are rate
+        // limited per body (GAS_LIQUID_INTERVAL).
+        bool q_gas = g_elem_behavior[w->cells[iq].element] == BEHAVIOR_GAS;
+        float pq = world_gas_pressure(w, qx, qy), ps_above = world_gas_pressure(w, sx, sy - 1);
+        bool same_region = q_gas && ps_above > 0.0f &&
+                           fabsf(pq - ps_above) <= GAS_SAME_REGION * PR_MAX(pq, ps_above);
+        if ((q_gas || ps_above > 0.0f) && !same_region) {
+            if (w->tick < ps->gas_tick[root] + GAS_LIQUID_INTERVAL) {
+                world_wake_rect(w, px, py, px, py); // retry later
+                continue;
+            }
+            ps->gas_tick[root] = w->tick;
+        }
+        ps->used[root] = (int16_t)k; // rows above are used up: later requests start here
         Cell moving = w->cells[is];
         Cell replaced = w->cells[iq];
         moving.aux &= 0x80; // arrives at rest
         moving.stamp = replaced.stamp = (uint8_t)w->tick;
-        w->cells[iq] = moving;
-        w->cells[is] = replaced;
         float t = w->temp[is];
+        if (q_gas && !same_region && squeeze_gas(w, qx, qy, sx, sy)) {
+            replaced = (Cell){ELEM_VOID, replaced.stamp, replaced.shade, 0};
+            w->temp[iq] = 0.0f;
+            w->mass[iq] = 0.0f;
+        }
+        w->cells[is] = replaced;
         w->temp[is] = w->temp[iq];
-        w->temp[iq] = t;
-        float m = w->mass[is];
         w->mass[is] = w->mass[iq];
-        w->mass[iq] = m;
+        w->cells[iq] = moving;
+        w->temp[iq] = t;
+        w->mass[iq] = 0.0f;
+        if (w->cells[is].element == ELEM_VOID) {
+            refill_with_gas(w, sx, sy);
+        }
         w->piece[is] = 0; // no longer a source this tick
         w->piece[iq] = 0;
         world_wake_rect(w, sx - 1, sy - 1, sx + 1, sy + 1);

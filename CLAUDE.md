@@ -27,11 +27,12 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 ## Current status
 
 **M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure**, **M3 –
-Temperature** and most of **M4 – Gas mass and pressure** are implemented: a 4096 × 2048 dirt box
+Temperature** and **M4 – Gas mass and pressure** are implemented: a 4096 × 2048 dirt box
 filled with void, a toolbar to paint water, steam, oxygen, CO2, hydrogen, nitrogen, air, dirt,
 rock, iron and ice (or erase, heat, cool), a multithreaded chunked simulation, water pressure,
-heat conduction, convection and phase changes, gases with mass and pressure, a camera
-(pan/zoom), tests and a benchmark. What remains of M4 is gas pressure acting on liquids. See `docs/ROADMAP.md`, including the acceptance notes on what
+heat conduction, convection and phase changes, gases with mass and pressure (pushing on
+liquids), a camera (pan/zoom), tests and a benchmark. The next milestone is **M4b – Flowing
+water**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack

@@ -299,3 +299,25 @@ to watch).
   room, not the speed of sound). Moving gas between cells at different temperatures mixes their
   heat, so suddenly heated gas rises less sharply. The benchmark's random gas soup got ~2.6×
   slower (more gas cells after filling the vacuum, and heavier rules; `PERFORMANCE.md`).
+
+## D-025 — Gas pressure on liquids as height; compression spread over regions
+
+- **Status:** Accepted (M4)
+- **Context:** Water pressure (D-018) compares heights. Gas pressure must push on liquids
+  (pressurised tanks, barometers, trapped air), and liquid entering gas must compress it, without
+  a new solver.
+- **Decision:** Express gas pressure as a height of the liquid (1 atm = 207 cells of water). A
+  surface cell's head is its row minus the gas above it; an opening's head is its row minus the
+  gas in it; the body's top is the smallest surface head, and the M2b rule is unchanged. Liquid
+  entering gas trades places with it when both gases are at about one pressure (one region);
+  otherwise it compresses the gas, and the gas above the source expands, each spread over up to
+  256 cells of that gas (breadth-first through gas). Such transfers are limited to one per body
+  every 2 ticks. Different gases balance total pressure the same way: a cell changes from the
+  lower-pressure gas to the higher, both changes spread over the gases' regions.
+- **Consequences:** Pressurised tanks, barometers and compressed trapped air work (tested), and a
+  world at one pressure behaves exactly as before. Single-cell compression was tried first: one
+  cell's volume at one spot is tens of percent of its pressure (×207 cells of head), and the
+  water churned without end. Spreading needs a breadth-first walk per compressing transfer and
+  per balance (cost: +12% on the gas-soup benchmark, almost all from balancing). Gas-driven flow
+  is slower than real (rate limit), and pressures are resolved to one cell of liquid.
+

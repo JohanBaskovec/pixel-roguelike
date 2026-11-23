@@ -63,6 +63,7 @@ typedef struct ElementDef {
 #define P_ATM       101325.0f // Pa
 #define T_ROOM      293.15f   // K
 #define AIR_O2_FRAC 0.21f     // the Air tool: 21% oxygen, the rest nitrogen (argon counted as N2)
+#define GRAVITY     9.81f     // m/s^2
 
 // A phase change: when a cell passes `temp` (K), it becomes `to`, absorbing or releasing
 // `latent` J/kg. temp == 0: none.
@@ -154,6 +155,13 @@ float elem_fluid_density(ElementId e, float t);
 // Pressure (Pa) of a gas cell holding mass m (kg) at physical temperature t (K).
 static inline float gas_pressure(ElementId e, float m, float t) {
     return m * g_gas_inv_molar[e] * GAS_R * t * (1.0f / CELL_VOLUME_M3);
+}
+
+// Height in cells of a column of liquid `e` that weighs as much as pressure p (Pa), rounded:
+// gas pressure acting on a liquid, in the units water pressure works in. 1 atm on water is 207.
+static inline int32_t liquid_head(ElementId e, float p) {
+    float h = p / (g_elem_defs[e].density * GRAVITY * CELL_SIZE_M);
+    return (int32_t)PR_MIN(h + 0.5f, 1e6f);
 }
 
 // Mass (kg) of a gas cell at pressure p (Pa) and temperature t (K).

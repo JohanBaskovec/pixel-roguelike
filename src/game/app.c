@@ -458,9 +458,9 @@ static void draw_panel(App *app) {
             }
             int depth = sim_pressure_depth(app->world, wx, wy);
             if (depth >= 0) {
-                // 1000 kg/m^3 * 9.81 m/s^2 * depth * 5 cm, in kPa above the surface's pressure.
-                ui_text(ui, x, y, 0xE8E8E8, "Depth %d (%.1f kPa)", depth,
-                        (double)depth * 0.05 * 9.81 * (double)g_elem_defs[e].density / 1000.0);
+                // Absolute: gas pressure on the body's surface plus the liquid's weight.
+                ui_text(ui, x, y, 0xE8E8E8, "Depth %d  %.1f kPa", depth,
+                        (double)sim_liquid_pressure(app->world, wx, wy) / 1000.0);
                 y += 12.0f;
             }
             if (g_elem_behavior[e] == BEHAVIOR_GAS) {

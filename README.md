@@ -77,7 +77,7 @@ ctest --test-dir build/release --output-on-failure
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells
 were updated, water moved by pressure, gas pressure equalisations, chunks conducting heat, active
 chunks, zoom, and the element, temperature (with melting/boiling progress), (for water) depth and
-pressure, (for gas) pressure and mass under the cursor, plus the partial pressure of each gas in a
+absolute pressure (gas on the surface plus depth), (for gas) pressure and mass under the cursor, plus the partial pressure of each gas in a
 15 × 15 window around it.
 
 ## Documentation

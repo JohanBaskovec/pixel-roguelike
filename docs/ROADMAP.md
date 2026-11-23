@@ -158,13 +158,12 @@ mixing rather than as a tight plume (see SIMULATION.md).
 - [x] Gases flow from high to low pressure; different gases still do not share a cell
 - [x] **Nitrogen** (inert gas) so that air can be realistic: 78% N₂, 21% O₂ by volume. Until
       then "air" is pure oxygen, which makes breathing and suffocation unrealistic
-- [ ] **Gas pressure acts on liquids:** a liquid body's surface pressure is the gas pressure above
+- [x] **Gas pressure acts on liquids:** a liquid body's surface pressure is the gas pressure above
       it, not zero. Water compares (gas pressure + depth) at its surface with (gas pressure) at an
       opening. Gives pressurised tanks pushing water up pipes, and trapped air resisting water
       coming into a container. Test: sealed tank, pressurised gas on top, water rises in a pipe
-      **Not done yet.** Needs the gas above each water body's surface (its pressure becomes the
-      body's surface pressure, 1 atm ≈ 206 cells of water) and water entering a gas cell to
-      compress that gas into its neighbours instead of swapping it to the body's top.
+      Done (D-025): tested with a pressurised tank, a barometer and trapped air. Total pressure
+      also evens out across different gases (to ~3%).
 - [x] **Pressure from heating sealed gas** (ideal gas law with M3 temperatures). Test: heated
       sealed container's gas pressure rises as P ∝ T
 - [x] Gas pressure in the pressure overlay; cursor inspector shows partial pressures

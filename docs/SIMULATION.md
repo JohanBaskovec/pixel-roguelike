@@ -119,7 +119,7 @@ Why each part exists:
   (Plateau–Rayleigh break-up), and the stream is coherent near its source. Deterministic gravity
   was tried and rejected: cells released together then fell as rigid horizontal lines.
 
-### Liquid pressure (M2b; D-018)
+### Liquid pressure (M2b, gas pressure M4; D-018, D-025)
 
 Code: `src/sim/pressure.c`.
 
@@ -128,8 +128,15 @@ knows its **top**: the highest row holding one of its free-surface cells (a stil
 a lighter fluid or falling water above it). A body with no free surface (a sealed container) has
 no top and no pressure.
 
+**Gas pressure as height.** Heights count gas pressure as a height of the liquid,
+`liquid_head(P) = P / (ρ·g·Δx)` (1 atm on water: 207 cells, 10.3 m). A free-surface cell's
+**head** is its row minus the head of the gas directly above it, and the body's **top** is the
+smallest head among its free-surface cells. An open cell's head is its row minus the head of the
+gas in it (void: its row). In a world at one pressure (all vacuum, or all air at 1 atm) every
+head shifts by the same amount and this is the plain row rule.
+
 **The rule.** A still cell P next to an open cell Q (void or lighter fluid; above P or beside it)
-asks for a transfer if its body's top is at least one row above Q. After the phase, transfers
+asks for a transfer if its body's top is at least one cell above Q's head. After the phase, transfers
 are carried out serially: a free-surface cell is taken from the body's top row (or, once that
 row is used up this tick, from the next rows down, as long as they are still above Q) and moved
 to Q. So:
@@ -139,13 +146,31 @@ to Q. So:
 - pools level to within one cell over **any distance** (a one-cell step never qualifies, so a
   surface with a partial top row is stable, and settled pools sleep completely);
 - U-tubes and communicating vessels balance; a reservoir drains through an opening in its wall
-  until both sides are level; a heap or a column of water spreads out.
+  until both sides are level; a heap or a column of water spreads out;
+- gas pushes on liquids: a sealed tank with pressurised gas drives water up a pipe until the
+  column weighs as much as the gas pressure; air at 1 atm holds water about 207 cells up a tube
+  sealed at the top (a barometer); water flowing into a sealed room of air compresses the air
+  until its pressure balances the water (all tested).
+
+**Moving gas out of the way.** When water moves into a gas cell Q, and the gas there is at about
+the pressure of the gas above the source (within `GAS_SAME_REGION`, 5%: one region, e.g. one room
+of air), the gas simply takes the source's place. Otherwise the gas at Q is **compressed** into
+the cells of its kind around Q, and the gas above the source **expands** into the cell the water
+left. Both are spread over up to `GAS_REGION_CELLS` (256) cells of that gas within
+`GAS_REGION_RADIUS` (16), found by a breadth-first walk through gas (`world_gas_region`): one
+cell of volume moved at a single spot would change its pressure by tens of percent, which is
+207 × that many cells of water head, and the water would chase those spots in a cascade. Gas
+equalises by diffusion, much slower than in reality, so such compressing transfers are limited to
+one per body every `GAS_LIQUID_INTERVAL` (2) ticks: the rest of the gas keeps up, and a barometer
+fills in about 20 s. Gas next to a liquid surface that changes (a transfer, heating) triggers a
+relabel, so heating a sealed tank pushes its water too.
 
 **How bodies are found, every tick, exactly:**
 1. Chunks where still liquid changed (a still cell moved or started to fall, a falling cell
    landed, an edit, a transfer) are relabelled: a flood fill gives each connected piece within the
    chunk an id (up to 255 per chunk; further pieces get no pressure until relabelled) and records
-   its highest free-surface row. In parallel, one job per chunk.
+   its smallest surface head (and that cell's row). Chunks are also relabelled where gas resting
+   on liquid changed, or where heat changed fluid temperatures. In parallel, one job per chunk.
 2. A union-find over all pieces joins pieces that touch across chunk borders (a cheap pass over
    chunk borders; a few thousand nodes). Each root records the body's top and the list of pieces
    that reach it. This is serial and deterministic.
@@ -166,10 +191,11 @@ problem altogether, and is also cheaper (no gradient traces).
   transfers per tick (up to 128 per chunk), not proportional to the square root of the depth.
   Planned in M4b (free particles, Torricelli outflow, jets).
 - Different liquids do not push each other (only one liquid exists so far). Planned in M5.
-- A body's surface pressure is taken as zero: trapped or pressurised gas does not push on water.
-  Gas has pressure since M4 (heating a sealed room raises it), but it does not act on liquids yet;
-  see the M4 roadmap entry. Note that a body completely full of liquid in rigid walls has nothing to push against
-  in reality either; pipes connected to an open tank already work (they are one body).
+- Gas pressure is resolved to one cell of liquid (490 Pa for water). Under mixed air, the oxygen
+  and nitrogen cells' pressures can stay up to ~3% apart (see Gases), and a pool there may keep
+  trading a few cells per tick between surface spots under one and the other.
+- A gas bubble inside a liquid is just a lighter fluid that rises; its pressure does not follow
+  its depth.
 - Transfers move a cell from the top of the body to the opening in one step. Visually this reads
   as the surface lowering and the water flowing out, but water does not travel through the body.
 
@@ -202,7 +228,14 @@ A gas cell does the following each tick, in order:
      would push back next tick. Boiling water (one steam cell at ~1700 atm) clears the air this
      way, and suddenly heated gas pushes cold gas aside instead of mixing its heat into it.
    - **The same gas,** both thin (sum under 2% of 1 atm): the two **merge**.
-   - **A different gas:** the two **mix** (trade places, probability `P_GAS_MIX`) only if that
+   - **A different gas more than `GAS_BALANCE_TOL` (1%) below this pressure:** with probability
+     1/16, **balance**. Its cell changes over to this gas: its gas is squeezed into the cells of
+     its kind around, and the cell is refilled from the cells of this gas around (each region up to
+     64 cells within 8, `world_gas_region`), so each region's pressure moves by a percent or two.
+     Judged by the two regions' mean pressures, and only if this gas is still at least the other's
+     afterwards (no flipping back). This is how total pressure evens out across different gases
+     below the push ratio. Cells stay awake for it above a 3% difference.
+   - **Else, a different gas:** the two **mix** (trade places, probability `P_GAS_MIX`) only if that
      lowers the number of same-gas contacts around the two cells, and never if it moves the denser
      gas up. Gases spread into each other at their interface and then stop: the number of
      same-gas contacts only ever drops, so a mixed region goes to sleep instead of shuffling
@@ -216,7 +249,7 @@ A gas cell does the following each tick, in order:
      and its heat mixes into the receiver (energy-conserving). Pressures within `GAS_EQ_TOL`
      (0.1%) count as equal; above the push ratio the push handles it.
 3. **Did not move:** stay awake only if something is still possible: void beside it, a pressure
-   difference or a merge with the same gas, a push, a mixing move, or buoyancy. A room of gas at one
+   difference or a merge with the same gas, a push, a balance, a mixing move, or buoyancy. A room of gas at one
    pressure (including mixed air) sleeps.
 
 Pressure spreads by diffusion, sped up by the long jumps: a 2:1 pressure step across a 128-cell
@@ -231,15 +264,11 @@ pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not
 
 **Known limitations.**
 
-- Different gases never share a cell, so total pressure does not even out across two gases unless
-  one is at more than 2.1× the other's pressure (then it pushes). A room of N2 at 1.5 atm next to
-  one of O2 at 1 atm stays that way, apart from the mixed layer. Each gas does even out with
-  itself, including through other gases (partial pressure).
+- Different gases never share a cell. Total pressure evens out across them only cell by cell
+  (2b's push, or the balance step), so two gases side by side can stay up to ~3% apart.
 - A gas cell suddenly heated far above its neighbours expands partly by trading mass with them,
   which mixes some of its heat into them. Gradual heating (a hot plate) is barely affected, since
   the mass moved is proportional to the temperature step.
-- Gas pressure does not act on liquids yet: a liquid body's surface pressure is taken as zero, and
-  water flowing into a gas cell swaps it to the body's top instead of compressing it.
 
 All constants live at the top of the gas section of `src/sim/sim.c` and in `src/sim/elements.h`.
 Their current values are in `ELEMENTS.md`.

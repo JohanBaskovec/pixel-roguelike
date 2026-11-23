@@ -5,6 +5,7 @@
 #include "sim/pressure.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 World *world_create(int32_t width, int32_t height, uint64_t seed) {
     elements_init();
@@ -156,4 +157,67 @@ float world_gas_pressure(const World *w, int x, int y) {
         return 0.0f;
     }
     return gas_pressure(e, w->mass[i], elem_temp(e, w->temp[i]));
+}
+
+#define REGION_SIDE (2 * GAS_REGION_RADIUS + 1)
+
+int world_gas_region(const World *w, int x, int y, ElementId g, int ex, int ey, int radius, int max,
+                     int32_t *found) {
+    PR_ASSERT(radius <= GAS_REGION_RADIUS && max <= GAS_REGION_CELLS);
+    uint8_t seen[REGION_SIDE][REGION_SIDE];
+    int8_t queue[REGION_SIDE * REGION_SIDE][2];
+    memset(seen, 0, sizeof(seen));
+    int head = 0, tail = 0, n = 0;
+    queue[tail][0] = 0;
+    queue[tail][1] = 0;
+    tail++;
+    seen[GAS_REGION_RADIUS][GAS_REGION_RADIUS] = 1;
+    static const int8_t d4[4][2] = {{0, -1}, {-1, 0}, {1, 0}, {0, 1}};
+    while (head < tail && n < max) {
+        int ox = queue[head][0], oy = queue[head][1];
+        head++;
+        for (int k = 0; k < 4 && n < max; k++) {
+            int dx = ox + d4[k][0], dy = oy + d4[k][1];
+            if (dx < -radius || dx > radius || dy < -radius || dy > radius ||
+                seen[dy + GAS_REGION_RADIUS][dx + GAS_REGION_RADIUS]) {
+                continue;
+            }
+            seen[dy + GAS_REGION_RADIUS][dx + GAS_REGION_RADIUS] = 1;
+            int cx = x + dx, cy = y + dy;
+            ElementId e = world_elem(w, cx, cy);
+            if (g_elem_behavior[e] != BEHAVIOR_GAS || (cx == ex && cy == ey)) {
+                continue;
+            }
+            queue[tail][0] = (int8_t)dx;
+            queue[tail][1] = (int8_t)dy;
+            tail++;
+            if (e == g) {
+                found[n++] = (int32_t)world_index(w, cx, cy);
+            }
+        }
+    }
+    return n;
+}
+
+void world_gas_spread_add(World *w, const int32_t *found, int n, float m, float t) {
+    float share = m / (float)n;
+    for (int k = 0; k < n; k++) {
+        size_t i = (size_t)found[k];
+        float mi = w->mass[i];
+        w->temp[i] = (mi * w->temp[i] + share * t) / (mi + share);
+        w->mass[i] = mi + share;
+    }
+}
+
+float world_gas_spread_take(World *w, const int32_t *found, int n, float *t) {
+    float m = 0.0f, e = 0.0f;
+    for (int k = 0; k < n; k++) {
+        size_t i = (size_t)found[k];
+        float dm = w->mass[i] / (float)(n + 1);
+        w->mass[i] -= dm;
+        m += dm;
+        e += dm * w->temp[i];
+    }
+    *t = m > 0.0f ? e / m : 0.0f;
+    return m;
 }

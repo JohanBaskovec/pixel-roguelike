@@ -158,3 +158,27 @@ void world_set_gas(World *w, int x, int y, ElementId e, float m, uint32_t random
 
 // Pressure (Pa) of the gas at (x, y); 0 if it is not a gas.
 float world_gas_pressure(const World *w, int x, int y);
+
+// Gas regions: compressing or expanding gas at one spot (liquid moving into or out of it, one gas
+// taking a cell from another) is spread over the gas of that kind around it, so no single cell
+// jumps in pressure. world_gas_region() lists up to `max` (at most GAS_REGION_CELLS) cells of gas
+// `g`, found by a breadth-first walk from (x, y) through gas of any kind (so it reaches the oxygen
+// cells of mixed air) within `radius` (at most GAS_REGION_RADIUS) on each axis, skipping (x, y)
+// and (ex, ey). Results are world indices, in a deterministic order.
+#define GAS_REGION_RADIUS 16
+#define GAS_REGION_CELLS  256
+int world_gas_region(const World *w, int x, int y, ElementId g, int ex, int ey, int radius, int max,
+                     int32_t *found);
+
+// Adds mass m (kg, at stored temperature t) to the listed cells, an equal share each; their
+// temperatures mix by mass.
+void world_gas_spread_add(World *w, const int32_t *found, int n, float m, float t);
+
+// Takes 1/(n+1) of each listed cell's mass (so all end like a new cell holding the sum); returns
+// the mass taken, and its mean stored temperature in *t.
+float world_gas_spread_take(World *w, const int32_t *found, int n, float *t);
+
+// Gas pressure at (x, y) as a height of liquid `liquid` (liquid_head); 0 if not a gas.
+static inline int32_t world_gas_head(const World *w, int x, int y, ElementId liquid) {
+    return liquid_head(liquid, world_gas_pressure(w, x, y));
+}
