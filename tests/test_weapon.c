@@ -20,6 +20,7 @@ void test_player_runs_and_jumps(void);
 void test_air_brush_spreads_oxygen(void);
 void test_walk_forward_while_shooting(void);
 void test_walking_kicks_small_piles(void);
+void test_walker_crosses_heaps(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -62,7 +63,7 @@ void test_rifle_digs_dirt(void) {
     int64_t dirt = test_count(w, ELEM_DIRT);
     shoot(w, pl, 100.0f, 0.0f, 10, 300);
     int64_t soil = test_count(w, ELEM_SOIL);
-    EXPECT(soil >= 12); // later bullets partly hit the soil and bullets left in the hole
+    EXPECT(soil >= 6); // a full 30 cm; later bullets mostly hit the soil and bullets in the hole
     EXPECT_EQ(test_count(w, ELEM_DIRT) + soil, dirt);
     EXPECT_EQ(test_count(w, ELEM_BULLET), 10);
     EXPECT_EQ(test_count(w, ELEM_CASING), 10);
@@ -285,4 +286,28 @@ void test_walking_kicks_small_piles(void) {
     EXPECT_EQ(test_count(w, ELEM_RUBBLE), n[3]);
     EXPECT_EQ(w->particle_count, 0);
     world_destroy(w);
+}
+
+void test_walker_crosses_heaps(void) {
+    // Heaps of loose soil 1 and 2 m high (slumped to 45 degrees) are climbed, not dug into: the
+    // walker kicks only small piles, so it never plows into a heap until the face is too high,
+    // and what it kicks does not land on a slope ahead and slide back against it. It crosses each
+    // heap, and back again.
+    static const int k_heights[] = {20, 40};
+    for (int i = 0; i < 2; i++) {
+        World *w = test_world_box(256, 128, 112 + (uint64_t)i);
+        fill(w, 1, 1, 254, 126, EDIT_AIR);
+        fill(w, 118, 126 - k_heights[i], 138, 126, ELEM_SOIL);
+        sim_run_ticks(w, 240); // slumps into a heap
+        int pl = scene_spawn_player(w, 220);
+        EXPECT(pl >= 0);
+        Creature *c = &w->creatures[pl];
+        c->walk = -1;
+        sim_run_ticks(w, 300);
+        EXPECT(c->x < 50);
+        c->walk = 1;
+        sim_run_ticks(w, 300);
+        EXPECT(c->x > 190);
+        world_destroy(w);
+    }
 }

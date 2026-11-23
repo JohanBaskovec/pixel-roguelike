@@ -133,11 +133,12 @@ All are clamped to `MAX_MOVE` = 32.
 | `RIFLE_BULLET_SPEED` | 900 m/s (300 cells/tick) | `sim/weapon.h` | Muzzle velocity |
 | `RIFLE_INTERVAL` | 5 ticks | `sim/weapon.h` | Between shots: 720 rounds per minute |
 | `RIFLE_SPREAD` | ±0.005 rad | `sim/weapon.h` | Random spread of a shot (about ±0.3°) |
-| `BULLET_FAST` | 2 cells/tick (6 m/s) | `sim/particle.c` | Below this a bullet just falls (an ordinary particle) |
+| `BULLET_FAST` | 10 cells/tick (30 m/s) | `sim/particle.c` | Below this a bullet just falls (an ordinary particle): spent bullets kicked or knocked out never dig |
 | `BULLET_WIND` | 16 | `sim/particle.c` | Current a bullet leaves in the gas along its path |
 | bullet resistance | dirt and powders 50, liquids 15 × ρ/1000 cells/tick per cell; rock: chips one cell and stops | `sim/particle.c` | Speed a bullet loses per cell (it flies at 300): about 30 cm of earth or sand, 1 m of water |
 | `CLUMP_MAX_CELLS` | 20 | `sim/edit.c` | Solid clumps this small, held by nothing, break loose |
 | `KICK_ROWS` | 8 cells (40 cm) | `sim/creature.c` | Powder piles at most this high in a walker's path are kicked ahead |
+| `KICK_AHEAD` | 12 cells | `sim/creature.c` | Not kicked if powder rises higher within this many columns (a heap: climbed) |
 | `AIR_O2_PAINT_P` | 0.335 | `sim/edit.c` | Air brush: oxygen where no neighbour is oxygen or solid (gives 21%) |
 | `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from falling matter (plus fall speed / 4) |
 | Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |

@@ -563,11 +563,15 @@ list order, at the start of each tick (before heat and movement).
 - **Kicking small piles** (M6a, after play-testing: the player got stuck on its casings). When a
   walker's leading column holds powder (casings, spent bullets, loose soil, rubble, sand) only in
   its lowest `KICK_ROWS` rows (40 cm), and nothing else in the way, each of those cells is kicked
-  ahead: a particle from the first free cell above it (in front, or in that column), at a little
-  more than the walker's speed and up to 2.4 m/s upward. It lands again ahead (nothing is
-  destroyed). Bigger heaps are climbed (`STEP_UP`) or stop it. Tested: walking through small
-  piles of each, the player stays within 3 cells of the floor (it climbed 5 before), and every
-  cell is still there.
+  ahead: a particle from the first free cell above it (in front, or in that column), at twice
+  the walker's speed and 1.5–3.3 m/s upward, well clear of it. It lands again ahead (nothing is
+  destroyed). It is not kicked if powder rises above the kick rows within `KICK_AHEAD` (12)
+  columns: that is the foot of a bigger heap, and the walker climbs its 45° slope (`STEP_UP`)
+  instead. (Kicking a heap's foot dug the walker into it until the face was too high to kick or
+  climb, and pixels kicked onto a rising slope slid back against the walker: both left it stuck,
+  found in play-testing.) Tested: walking through small piles of each, the player stays within 3
+  cells of the floor (it climbed 5 before), and every cell is still there; heaps of loose soil 1
+  and 2 m high are crossed both ways.
 
 ### Rifle and bullets (M6a; D-031)
 
@@ -582,7 +586,7 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
   to start at the edge of the body, then stop in the body and drop in front of the player). The
   spent casing (`ELEM_CASING`, 370 K) is thrown up and back (1.5–4.5 m/s up) from the ejection
   port, 7 cells along the rifle, or from above the head if the port is inside a wall.
-- **Flight.** A bullet faster than `BULLET_FAST` (6 m/s) covers its whole path for the tick in
+- **Flight.** A bullet faster than `BULLET_FAST` (30 m/s) covers its whole path for the tick in
   half-cell steps, at the end of the tick with the other particles (serial, deterministic, not
   bound by the 32-cell reach). Through void, gas and falling liquid it flies on, and gives each
   gas cell it crosses a current along its path (`BULLET_WIND`, 16): it stirs the air.
@@ -600,8 +604,10 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
   matter), then lie there like sand. So a casing never lands on the shooter or against its body,
   where it would block it. (A fast bullet still stops at a body.)
 - Nothing is destroyed: dug cells become debris and land again (if the particle list is full,
-  the cell is only loosened in place). Tested: ten shots into dirt dig at least 12 cells (later
-  bullets partly hit the soil and bullets left in the hole), dirt + soil is unchanged, 10 bullets
+  the cell is only loosened in place). A spent bullet kicked or knocked out of a pile flies far
+  slower than `BULLET_FAST`, so it falls as debris and does not dig. Tested: ten shots into dirt
+  dig at least one full 30 cm (later bullets mostly hit the soil and spent bullets that fill the
+  hole), dirt + soil is unchanged, 10 bullets
   and 10 casings lie on the ground (the casings near the shooter), nothing is left in flight;
   bullets stop at iron and drop in front of it; the air along a bullet's path has a current; the
   result is the same on 1 and 4 threads; running while firing ahead, then back over its own

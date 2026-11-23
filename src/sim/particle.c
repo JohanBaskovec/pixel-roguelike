@@ -141,9 +141,11 @@ bool particle_step(World *w, Particle *p, float fraction) {
 
 // ---- Bullets (M6a). docs/SIMULATION.md -> Rifle and bullets ----
 
-// A bullet flies as a projectile while faster than BULLET_FAST (cells per tick, 6 m/s); slower,
-// it is an ordinary particle that falls and lands as a pixel.
-#define BULLET_FAST 2.0f
+// A bullet flies as a projectile while faster than BULLET_FAST (cells per tick, 30 m/s; it is
+// fired at 300); slower, it is an ordinary particle that falls and lands as a pixel. (A spent
+// bullet kicked by a walker, or knocked out of a pile by an impact, flies far slower: it must
+// not dig like a fired one.)
+#define BULLET_FAST 10.0f
 // Current a bullet leaves in the gas it passes through (a speed, as in GAS_WIND_MAX units).
 #define BULLET_WIND 16
 

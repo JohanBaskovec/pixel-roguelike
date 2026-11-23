@@ -109,9 +109,11 @@ static void push_wind(World *w, int x, int y, int dir, int speed) {
 
 // Small piles at a walker's feet (docs/SIMULATION.md -> Creatures): powder (casings, spent
 // bullets, loose soil, rubble, sand) in the lowest KICK_ROWS rows (40 cm) of the column it walks
-// into is kicked ahead instead of stopping it, if nothing else is in the way. Each cell flies as
-// a particle from just ahead, a little faster than the walker and upward, and lands again.
-#define KICK_ROWS 8
+// into is kicked ahead instead of stopping it, if nothing else is in the way and it is not the foot
+// of a bigger heap (then the walker climbs). Each cell flies as a particle from just ahead, at
+// twice the walker's speed and upward (well clear of it), and lands again.
+#define KICK_ROWS  8
+#define KICK_AHEAD 12
 
 static float kick_rand(uint64_t *h) {
     *h = pr_splitmix64(*h);
@@ -153,6 +155,15 @@ static bool kick(World *w, Creature *c, int dx) {
     if (n == 0 || w->particle_count + n > PARTICLE_MAX) {
         return false;
     }
+    // Not the foot of a heap: if the powder ahead reaches above the kick rows within KICK_AHEAD
+    // columns, the walker climbs the slope instead (kicking its foot away would dig it into the
+    // heap until the face is too high to kick or climb).
+    int above = c->y + c->h - 1 - KICK_ROWS;
+    for (int k = 0; k <= KICK_AHEAD; k++) {
+        if (g_elem_behavior[world_elem(w, lx + dx * k, above)] == BEHAVIOR_POWDER) {
+            return false;
+        }
+    }
     uint64_t h = pr_splitmix64(w->seed ^ pr_splitmix64(w->tick) ^ ((uint64_t)c->id << 48));
     for (int r = c->h - KICK_ROWS; r < c->h; r++) {
         int y = c->y + r, fx = lx + dx, fy = y;
@@ -165,8 +176,8 @@ static bool kick(World *w, Creature *c, int dx) {
         cell.aux = 0;
         Particle p = {(float)fx + 0.5f,
                       (float)fy + 0.5f,
-                      (float)dx * (c->speed * 1.2f + 0.4f * kick_rand(&h)),
-                      -(0.3f + 0.5f * kick_rand(&h)),
+                      (float)dx * (c->speed * 2.0f + 0.5f * kick_rand(&h)),
+                      -(0.5f + 0.6f * kick_rand(&h)),
                       cell,
                       w->temp[i]};
         particle_add(w, &p);
