@@ -256,14 +256,25 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 - [x] No large clump of gas stays unmixed (after play-testing): diffusion down concentration
       gradients at several scales, at gentle indoor-turbulence rates, coming to rest once evenly
       mixed (D-032)
+- [x] Powder in mid-air (falling soil, sand, rubble, casings, bullets, or lying on a body) never
+      blocks the player; it falls through and lands beside it (after play-testing)
+- [x] Air control: the player moves sideways during a jump
+- [x] Water and lava flow around the body: landing in a pool raises the surface beside the body
+      instead of putting the liquid over the head; jumping out leaves no air under the water
+- [x] Every creature breathes in and out the air as it is mixed around its mouth (nitrogen,
+      oxygen, CO2, anything else) through its lungs, and holds its breath under water (D-033)
+- [x] Muzzle flash as matter: 1.6 g of propellant gas (CO2 and nitrogen at 1500 K) leaves the
+      muzzle with each shot; it glows for a moment, and its current mixes it and its heat into
+      the air (turbulent heat exchange, D-034)
+- [x] Spent bullets melt into molten lead (327 °C), casings into molten brass (935 °C); molten
+      metal solidifies into lead and brass
 - Tests: digging and conservation, bullets stopping at iron and falling, air stirring, the same
-  result on any thread count, small clumps, running and jumping, the Air brush
+  result on any thread count, small clumps, running and jumping, the Air brush, falling powder,
+  air control, water around a body, breathing in and out and holding a breath, muzzle gas,
+  melting
 
 ## M6b – Roguelike, next
 
-- [ ] Muzzle flash as matter: superheated propellant gas (CO2, steam and nitrogen at about
-      2000–3000 K) leaves the muzzle with each shot. No separate animation: hot gas already glows
-      reddish, then cools and mixes into the air
 - [ ] Simulate only what is near the player (the visible part of the level plus a margin), so the
       world can be as big as we want (with world streaming, M6)
 - [ ] Smooth zooming

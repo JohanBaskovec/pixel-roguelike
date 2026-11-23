@@ -28,8 +28,12 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 15 | Lava (molten rock) | LIQUID | 2600 | 1100 | 1.5 | freezes 1500 K → rock; painted at 1600 K | `#C8461E`, glows | 5 |
 | 16 | Molten iron | LIQUID | 6980 | 820 | 35 | freezes 1811 K → iron; painted at 1900 K | `#D07830`, glows | 5 |
 | 17 | Oil (crude) | LIQUID | 870 | 2000 | 0.15 | none yet (flammable later) | `#3C2A12` α 0.92 | 5 |
-| 18 | Bullet (lead) | POWDER | 11340 | 129 | 35 | none yet (lead melts at 600 K, later) | `#50545C` | 6a |
-| 19 | Casing (brass) | POWDER | 8500 | 380 | 110 | none yet (brass melts ≈ 1200 K, later) | `#C9A23A` | 6a |
+| 18 | Bullet (lead) | POWDER | 11340 | 129 | 35 | melts 600.6 K → molten lead, L = 23 kJ/kg | `#50545C` | 6a |
+| 19 | Casing (brass) | POWDER | 8500 | 380 | 110 | melts 1208 K → molten brass, L = 168 kJ/kg | `#C9A23A` | 6a |
+| 20 | Lead | STATIC | 11340 | 129 | 35 | melts 600.6 K → molten lead | `#5A5E66` | 6a |
+| 21 | Molten lead | LIQUID | 10660 | 142 | 16 | freezes 600.6 K → lead; painted at 700 K | `#A8AEB8` | 6a |
+| 22 | Brass | STATIC | 8500 | 380 | 110 | melts 1208 K → molten brass | `#B8923A` | 6a |
+| 23 | Molten brass | LIQUID | 7600 (approx.) | 470 (approx.) | 70 (approx.) | freezes 1208 K → brass; painted at 1300 K | `#D8A848`, glows | 6a |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -55,7 +59,12 @@ Notes
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
-  steam above 100 °C (L = 2257 kJ/kg); steam → water below 100 °C. Tables `g_elem_above` /
+  steam above 100 °C (L = 2257 kJ/kg); steam → water below 100 °C. **Lead and brass** (M6a): spent
+  bullets and solid lead melt at 327.5 °C; casings and solid brass at 935 °C (cartridge brass,
+  70% copper and 30% zinc, melts between about 915 and 955 °C; one point is used). Molten metal
+  solidifies into solid lead or brass, not back into bullets or casings. Molten brass's density,
+  heat capacity and conductivity are estimates from copper's and zinc's; brass fuming off its zinc
+  when molten is not modelled. Tables `g_elem_above` /
   `g_elem_below` in `src/sim/elements.c`. Water's density follows its real curve (densest at
   4 °C); gases follow the ideal gas law.
 
@@ -130,6 +139,12 @@ All are clamped to `MAX_MOVE` = 32.
 | `BODY_PUSH_WIND`, `BODY_WAKE_WIND`, `BREATH_WIND` | 12, 18, 14 | `sim/creature.c` | Currents from a walking body (front, wake) and a breath out |
 | `PLAYER_W`, `PLAYER_H`, `PLAYER_SPEED` | 9, 37 cells, 4 m/s | `sim/creature.h` | The player: 45 cm × 1.85 m; running speed |
 | `CREATURE_JUMP_SPEED` | 3.13 m/s | `sim/creature.h` | Take-off speed of a jump (about 50 cm high) |
+| `AIR_CONTROL` | 10% of walking speed per tick | `sim/creature.c` | Steering in the air (deviation 15): full speed in 0.17 s |
+| `LIFT_SIDE` | 0.6 cells/tick | `sim/creature.c` | Powder in mid-air a body moves into slides off it this fast as it falls |
+| `FLOW_SIDE` | 8 columns | `sim/creature.c` | How far beside a body moving up or down its displaced liquid goes to the surface |
+| `PROPELLANT_KG`, `MUZZLE_K` | 1.6 g, 1500 K | `sim/weapon.c` | Muzzle gas per shot (75% CO₂, 25% N₂ by mass) and its temperature |
+| `MUZZLE_CELL_ATM`, `MUZZLE_REACH` | 6 atm, 6 cells | `sim/weapon.c` | Muzzle gas: pressure of the cells it goes into, and how far along the line of fire |
+| `TURB_PER_WIND` | 23 | `sim/heat.c` | Turbulent heat exchange between gas cells: coefficient × (1 + this × current speed) |
 | `RIFLE_BULLET_SPEED` | 900 m/s (300 cells/tick) | `sim/weapon.h` | Muzzle velocity |
 | `RIFLE_INTERVAL` | 5 ticks | `sim/weapon.h` | Between shots: 720 rounds per minute |
 | `RIFLE_SPREAD` | ±0.005 rad | `sim/weapon.h` | Random spread of a shot (about ±0.3°) |
@@ -147,7 +162,11 @@ All are clamped to `MAX_MOVE` = 32.
 | `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
 | `WALK_SPEED` | 1.4 m/s | `sim/creature.c` | Walking speed (half when impaired or in liquid) |
 | `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
-| `BREATH_TICKS` | 257 | `sim/creature.c` | One breath every 4.3 s (14 a minute) |
+| `BREATH_TICKS`, `INHALE_TICKS` | 257, 103 | `sim/creature.c` | One breath every 4.3 s (14 a minute); breathing in takes 1.7 s, then out |
+| `TIDAL_CELLS` | 4 cells (0.5 L) | `sim/creature.c` | Air breathed in and out per breath at rest (×3 walking) |
+| `DRAW_MIN`, `DRAW_MAX_FRAC` | 32 cells, 1/2 | `sim/creature.c` | A breath draws from at least the 32 gas cells nearest the mouth, at most half of each |
+| `O2_EXTRACT_MAX` | 1/2 | `sim/creature.c` | Most of the oxygen in the lungs the body takes per breath |
+| `EXHALE_K` | 307 K (34 °C) | `sim/creature.c` | Temperature of the breath out |
 | `O2_KG_PER_S`, `CO2_KG_PER_S` | 250 / 200 mL/min | `sim/creature.c` | O₂ used and CO₂ made at rest (0.333 / 0.368 g/min); ×3 walking |
 | `PO2_IMPAIRED`, `PO2_DANGER`, `PCO2_DANGER` | 16 / 10 / 5 kPa | `sim/creature.c` | Partial pressures around the head (16% / 10% O₂, 5% CO₂ of an atmosphere) |
 | `DANGER_SECONDS`, `RECOVER_SECONDS` | 120 s, 600 s | `sim/creature.c` | Time to die in danger; time to recover fully |
@@ -197,7 +216,7 @@ Keep this list complete.
 10. Gas currents are a coarse stand-in for air flow: a direction and a speed per gas cell, not a
     solved velocity field (no vortices from pressure, no inertia beyond the current fading over
     about 2 s). They are made by bodies and falling matter, not by pressure differences.
-11. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
+11. Creatures (M4c): each breath in also stirs the air around a person, swapping 2 L worth of gas cells
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
    currents, which one-gas-per-cell diffusion cannot do. Body heat is held at 37 °C with up to
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a
@@ -212,9 +231,18 @@ Keep this list complete.
 13. Weapons (M6a): a bullet is one cell (5 cm), far bigger than a real 5.56 mm bullet; its
     penetration (about 30 cm of earth, one chip of rock) is a rough figure, not a ballistic model,
     and it does not ricochet. Spent bullets and casings are full cells of lead and brass at their
-    solid densities (a real casing is hollow), and do not melt yet. The rifle never runs out of
-    ammunition. Muzzle velocity is real (900 m/s): a bullet crosses the screen in a few ticks, so
-    the game draws a faint streak behind it (rendering only).
+    solid densities (a real casing is hollow). The rifle never runs out of ammunition. Muzzle
+    velocity is real (900 m/s): a bullet crosses the screen in a few ticks, so the game draws a
+    faint streak behind it (rendering only). The muzzle gas has no carbon monoxide, hydrogen or
+    water vapour (counted as CO₂ and nitrogen), so it does not burn in a secondary flash; a gas
+    cell with a current exchanges heat with its gas neighbours by turbulence (`TURB_PER_WIND`, an
+    eddy diffusivity of one cell times the current's speed), which is what cools it in about
+    5 ticks.
+14. Breathing (M6a): a breath draws the same fraction of every gas cell near the mouth, standing
+    in for the mixed air the mouth draws in; the lungs hold only the tidal volume (real lungs keep
+    about 2.5 L more), so a held breath lasts a few breaths, not a minute or two. The breath out
+    is dry.
+15. Air control (M6a): the player steers in the air (`AIR_CONTROL`), which a real jumper cannot.
 
 ## Adding an element (checklist)
 

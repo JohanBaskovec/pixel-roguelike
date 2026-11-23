@@ -78,6 +78,13 @@ void test_air_brush_spreads_oxygen(void);
 void test_walk_forward_while_shooting(void);
 void test_walking_kicks_small_piles(void);
 void test_walker_crosses_heaps(void);
+void test_falling_powder_does_not_block_walker(void);
+void test_player_steers_in_the_air(void);
+void test_muzzle_gas(void);
+void test_bullets_and_casings_melt(void);
+void test_water_flows_around_a_body(void);
+void test_breath_in_and_out(void);
+void test_breath_held_under_water(void);
 
 void test_heater_makes_plume(void);
 void test_pool_heated_from_below_convects(void);
@@ -184,6 +191,13 @@ int main(int argc, char **argv) {
     RUN(test_walk_forward_while_shooting);
     RUN(test_walking_kicks_small_piles);
     RUN(test_walker_crosses_heaps);
+    RUN(test_falling_powder_does_not_block_walker);
+    RUN(test_player_steers_in_the_air);
+    RUN(test_muzzle_gas);
+    RUN(test_bullets_and_casings_melt);
+    RUN(test_water_flows_around_a_body);
+    RUN(test_breath_in_and_out);
+    RUN(test_breath_held_under_water);
 
     RUN(test_pool_heated_from_below_convects);
     RUN(test_moved_water_carries_heat);

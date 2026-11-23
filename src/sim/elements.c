@@ -24,6 +24,10 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_OIL]      = {"Oil",            BEHAVIOR_LIQUID, 870.0f,   2000.0f,  0.15f,   293.15f, 0x3C2A12, 235, 10,  3},
     [ELEM_BULLET]   = {"Bullet",         BEHAVIOR_POWDER, 11340.0f, 129.0f,   35.0f,   293.15f, 0x50545C, 255, 10,  0},
     [ELEM_CASING]   = {"Casing",         BEHAVIOR_POWDER, 8500.0f,  380.0f,   110.0f,  293.15f, 0xC9A23A, 255, 18,  0},
+    [ELEM_LEAD]     = {"Lead",           BEHAVIOR_STATIC, 11340.0f, 129.0f,   35.0f,   293.15f, 0x5A5E66, 255,  6,  0},
+    [ELEM_MOLTEN_LEAD] = {"Molten lead", BEHAVIOR_LIQUID, 10660.0f, 142.0f,   16.0f,   700.0f,  0xA8AEB8, 255,  6,  4},
+    [ELEM_BRASS]    = {"Brass",          BEHAVIOR_STATIC, 8500.0f,  380.0f,   110.0f,  293.15f, 0xB8923A, 255,  8,  0},
+    [ELEM_MOLTEN_BRASS] = {"Molten brass", BEHAVIOR_LIQUID, 7600.0f, 470.0f,  70.0f,   1300.0f, 0xD8A848, 255,  8,  3},
 };
 // clang-format on
 
@@ -33,12 +37,18 @@ const PhaseChange g_elem_below[ELEM_COUNT] = {
     [ELEM_STEAM]       = {373.15f, ELEM_WATER, 2257e3f}, // condensing
     [ELEM_LAVA]        = {1500.0f, ELEM_ROCK,  400e3f},  // solidifying
     [ELEM_MOLTEN_IRON] = {1811.0f, ELEM_IRON,  247e3f},  // solidifying
+    [ELEM_MOLTEN_LEAD] = {600.6f,  ELEM_LEAD,  23.0e3f}, // solidifying
+    [ELEM_MOLTEN_BRASS] = {1208.0f, ELEM_BRASS, 168e3f}, // solidifying
 };
 const PhaseChange g_elem_above[ELEM_COUNT] = {
     [ELEM_ICE]   = {273.15f, ELEM_WATER,       334e3f},  // melting
     [ELEM_WATER] = {373.15f, ELEM_STEAM,       2257e3f}, // boiling
     [ELEM_ROCK]  = {1500.0f, ELEM_LAVA,        400e3f},  // melting
     [ELEM_IRON]  = {1811.0f, ELEM_MOLTEN_IRON, 247e3f},  // melting
+    [ELEM_BULLET] = {600.6f, ELEM_MOLTEN_LEAD, 23.0e3f}, // melting
+    [ELEM_LEAD]  = {600.6f,  ELEM_MOLTEN_LEAD, 23.0e3f}, // melting
+    [ELEM_CASING] = {1208.0f, ELEM_MOLTEN_BRASS, 168e3f}, // melting
+    [ELEM_BRASS] = {1208.0f, ELEM_MOLTEN_BRASS, 168e3f}, // melting
 };
 // clang-format on
 

@@ -453,3 +453,37 @@ to watch).
   and still air sleep. The gas-soup benchmark is unchanged; the idle level costs a few ms more
   where the player's breath keeps gradients alive. A gradient shallower than about 1% per cell
   is left alone.
+
+## D-033 — Creatures breathe the air in and out through lungs
+
+- **Status:** Accepted (M6a)
+- **Context:** A breath took only oxygen out of the oxygen cells near the mouth and put CO2 back:
+  nitrogen, and any other gas, never went in or out. The user asked that every creature breathe
+  in and out realistically, a mix of gases.
+- **Decision:** Each creature has lungs (a mass per gas). Breathing in takes a tidal volume of the
+  air as it is near the mouth (the same fraction of each of the nearest gas cells, whatever their
+  gas). The body takes its oxygen from the lungs (at most half of what they hold) and adds CO2.
+  Breathing out, 1.7 s later, returns every gas to the nearest cells of its kind at 34 °C, or as
+  new cells. With the mouth in liquid it holds its breath and lives on the lungs' oxygen.
+- **Alternatives:** keep the oxygen-only exchange (no nitrogen or other gases move, no warm
+  breath); a composition per cell (against D-005).
+- **Consequences:** Gas mass is conserved counting the lungs (tested). Breathing hydrogen or CO2
+  returns it. The breath out warms the air in front of the face. The lungs hold only the tidal
+  volume, so a held breath runs out after a few breaths.
+
+## D-034 — Gas currents mix heat (turbulence)
+
+- **Status:** Accepted (M6a)
+- **Context:** The muzzle gas (1500 K) glowed for more than 2 s: gas cells only exchange heat by
+  conduction (10× sped up), and the currents that mix gas only swap cells, which moves heat
+  along without sharing it. Real turbulent air mixes heat in milliseconds over centimetres.
+- **Decision:** In the heat pass, between two gas cells, the coefficient is multiplied by
+  `1 + TURB_PER_WIND · speed` of the stronger current (an eddy diffusivity of one cell times the
+  current's speed), still bounded by the stability limit. Only gas–gas contacts: a surface keeps
+  its boundary layer.
+- **Alternatives:** emit the muzzle gas already mixed and cooler (no flash, and every other
+  current would still carry heat without sharing it); a one-off cooling rule for muzzle gas.
+- **Consequences:** The muzzle gas glows for about 5 ticks. Air stirred by walking, breathing,
+  bullets or falling matter evens out its temperature quickly; still air (and convection, which
+  makes no currents) is unchanged. Energy is still conserved exactly. The heat pass reads one
+  more byte per cell (the cell's current); the benchmark is unchanged.

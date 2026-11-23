@@ -26,6 +26,10 @@ enum {
     ELEM_OIL = 17,
     ELEM_BULLET = 18, // a spent bullet (lead): falls and piles like a powder
     ELEM_CASING = 19, // a spent cartridge case (brass)
+    ELEM_LEAD = 20,   // solid lead (molten lead, or bullets melted together, solidified)
+    ELEM_MOLTEN_LEAD = 21,
+    ELEM_BRASS = 22, // solid brass (molten casings, solidified)
+    ELEM_MOLTEN_BRASS = 23,
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.

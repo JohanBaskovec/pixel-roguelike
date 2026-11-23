@@ -397,7 +397,10 @@ each gas at its density at 0 °C (`g_gas_buoy_density`; other cells not counted)
 - **Bubbles.** A light cell alone in heavy gas rises (lifted again). Alone means the 3 cells
   above it are denser gases, and so are all but at most 2 of the 21 cells above it. Such a cell
   is left inside a parcel taller than `PARCEL_MAX`. In a mixture it always has its own kind
-  near.
+  near. **Known limitation** (found with the muzzle gas, M6a): a single cell of a lighter gas in
+  air (a cell of steam or hydrogen) counts as a bubble too, the air above it as its parcel, so
+  it is lifted up to 31 rows a tick (about 90 m/s); a real 5 cm bubble of light gas rises at
+  well under 1 m/s.
 - **Spreading, a gravity current.** A light cell resting on something (not void, nor a gas
   lighter than the heavy one) trades places sideways with a denser gas next to it, where the gas
   in the 6 × 10 cells from the heavy cell on (at and above this row) is denser than on this
@@ -531,14 +534,45 @@ list order, at the start of each tick (before heat and movement).
   moves into (void, gas or liquid) with the body cells it leaves at the other end, so gas and
   water flow around the body and **nothing is created or lost** (tested). Walking through a gas
   boundary carries the gas it walks into to behind it.
-- **Breathing,** every `BREATH_TICKS` (4.3 s, 14 a minute). It takes the oxygen it uses
-  (250 mL/min at rest, ×3 walking) from the oxygen within 16 cells of its mouth (at most half of
-  each cell), and breathes out CO2 for what it used (200 mL/min): into CO2 near the mouth, or as
-  a new CO2 cell at the mouth (the gas there squeezed into its kind around). Each breath also
-  **stirs** the air: `STIR_CELLS` (16 cells, 2 L) times the speed-up and work, swapping gas
+- **Liquid flows around a body moving up or down** (`flow_around`). Where the fluid it moves into
+  is not the kind of fluid beyond its trailing end (landing in a pool: water under the feet, air
+  over the head; jumping out of one: air over the head, water under the feet, or the floor, then
+  the water beside the feet), the cell does not pass through the body: it goes to the pool's
+  surface beside the body (within `FLOW_SIDE`, 8 columns, wherever the surface is lowest when the
+  body sinks in, highest when it rises out), and the surface cell fills the space the body leaves.
+  Displaced water raises the surface around the body, and water fills the gap under the feet.
+  (Before, landing in water or lava put it over the head, and a jump put air under the water.)
+  Tested: falling into a pool, no water ever lands over the head; jumping in 85 cm of water, no
+  air ever gets below the surface.
+- **Powder in mid-air never blocks a body** (after play-testing: falling loose soil stopped the
+  player). Powder falling through void or gas (its fall speed is set), and powder lying on a
+  body, is "in the air": a body moving into it lifts it out of the grid as a particle, falling at
+  its speed and sliding off sideways at 0.6 cells/tick (`LIFT_SIDE`), which passes through the
+  body (powders in flight do) and lands on the ground beside it, then lies there like sand.
+  Tested: walking into a falling column of soil does not stop the player, a jump with soil on the
+  head goes its full height, and every cell lands again.
+- **Breathing in and out,** every `BREATH_TICKS` (4.3 s, 14 a minute), the air as it is mixed
+  around the mouth. **Breathing in** draws a tidal volume of 0.5 L (`TIDAL_CELLS`, 4 cells; ×3
+  walking) into the lungs: the same fraction of every gas cell among the `DRAW_MIN` (32) gas cells
+  nearest the mouth (more for a bigger breath: each gives at most half its gas), whatever the
+  gas: nitrogen, oxygen, CO2, hydrogen. The lungs hold each gas's mass (`Creature.lungs`). The
+  body then takes the oxygen it uses (250 mL/min at rest, ×3 walking) from the lungs, at most
+  `O2_EXTRACT_MAX` (half) of what they hold, and adds the CO2 it makes for it (200 mL/min). At
+  rest a breath goes in at about 21% oxygen and out at 17%, with 3% CO2 (real: 16% and 4%).
+  **Breathing out**, after `INHALE_TICKS` (1.7 s), puts every gas back near the mouth at 34 °C
+  (`EXHALE_K`): into the cells of its kind among the nearest gas cells, or into the nearest cell
+  that takes it (CO2 in fresh air: a new cell, the gas there squeezed into its kind around), with
+  a puff away from the face (breathing in draws a gentler current toward it). So the breath out
+  is warm and stale, and other gases breathed in (hydrogen, CO2) come back out. **With its mouth
+  in liquid it holds its breath:** it does not breathe out, and the body keeps taking oxygen from
+  the lungs (at most half of what is left each breath) until they run out. A dying creature
+  breathes out its last breath. Water vapour is not breathed out (humidity is not modelled).
+  Tested: oxygen used and CO2 made match the real rates; O2, CO2 and nitrogen are conserved
+  (counting the lungs); the first breath out leaves CO2 in front of the face; under water it
+  holds its breath and puts no gas into the water. Each breath in also **stirs** the air: `STIR_CELLS` (16 cells, 2 L) times the speed-up and work, swapping gas
   within 16 cells of the mouth with gas up to 64 cells away. Without it, the air next to the face
   goes stale while the room stays fresh (gases mix only at interfaces; D-005), and a person
-  suffocates long before the room's oxygen runs low. Underwater it gets no oxygen.
+  suffocates long before the room's oxygen runs low. Underwater it gets no new air.
 - **Health** from the partial pressures around the head (window of 16 cells around the mouth,
   smoothed over breaths): O2 below 16 kPa → impaired (slower); O2 below 10 kPa, CO2 above 5 kPa,
   or a breath that found less than half its oxygen → in danger, losing health (dead after 120 s);
@@ -558,8 +592,10 @@ list order, at the start of each tick (before heat and movement).
 - **The player** (M6a, `scene_spawn_player`) is a creature with a 9 × 37 body (1.85 m), running
   at 4 m/s (`speed`). It jumps when asked (`jump`) while standing: take-off at 3.13 m/s, about
   50 cm high (tested: 10 cells, and back on the floor). It faces the mouse (`aimed`), not its
-  walking direction. In the air it keeps its momentum (no air control). Input is applied between
-  ticks on the main thread.
+  walking direction. **Air control** (a game deviation): in the air, the walking direction pulls
+  its velocity toward walking speed by `AIR_CONTROL` (10% of it) per tick, so it reaches full
+  speed in 0.17 s of a 0.64 s jump, and can jump straight up and then move (tested: 12+ cells in
+  the air after a standing jump). Input is applied between ticks on the main thread.
 - **Kicking small piles** (M6a, after play-testing: the player got stuck on its casings). When a
   walker's leading column holds powder (casings, spent bullets, loose soil, rubble, sand) only in
   its lowest `KICK_ROWS` rows (40 cm), and nothing else in the way, each of those cells is kicked
@@ -596,6 +632,20 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
   it chips one cell (rubble, thrown out) and stops. Liquid costs 15 × ρ/1000 per cell (about 1 m
   of water), and the first liquid cell it enters splashes out. Iron, ice, bodies and the world's
   edge stop it in front of them. After each dug cell, small clumps around it break loose.
+- **Muzzle gas** (`muzzle_gas()`): the propellant, 1.6 g (about a 5.56 mm cartridge's), leaves the
+  muzzle behind the bullet as gas at 1500 K (`MUZZLE_K`, after expanding): 75% CO2, 25% nitrogen
+  by mass. (Single-base powder gives about 55% CO2 and CO, 25% water vapour, 18% nitrogen and
+  1–2% hydrogen. Carbon monoxide has no element and is counted as CO2; with the hydrogen it would
+  burn in the air in a "secondary flash", which flash hiders suppress. Water vapour is left out,
+  its mass split between the two: the model condenses steam below 100 °C, and the hot steam
+  shot to the ceiling, see the bubble lift in Gas mixtures and bulk buoyancy.) Each gas goes into
+  a few cells (about 6 atm each) along and beside the line of fire in the first 6 cells: added
+  to cells of its kind, else the cell becomes it and the gas there is squeezed into its kind
+  around. The cells get a full current along the line of fire. The gas glows (the hot-matter
+  glow) for about 5 ticks while its current mixes it, and its heat, into the air (turbulent heat
+  exchange, Heat pass), then expands and drifts as warm CO2 and nitrogen; sustained fire in a
+  closed room fills it with CO2. Tested: one shot puts 1.2 g of CO2 in front of the muzzle, above
+  1000 K; 20 ticks later no gas glows, and the air in front is still warm.
 - **Falling.** Stopped, the bullet drops from the last cell it reached (bouncing back at 0.3
   cells/tick) as an ordinary particle and lands as a powder pixel. Repeated shooting leaves piles
   of bullets and casings.
@@ -650,6 +700,14 @@ T_i'   = T_i + Σ_j a_ij · (T_j − T_i) / C_i       // physical temperatures o
 - The limit makes every step monotone: one tick never pushes two cells past their common
   temperature, even with all four neighbours pushing the same way. There is no overshoot with
   extreme contrasts, e.g. 3000 K hydrogen on 100 K iron (tested).
+- **Turbulence between gas cells.** Where either of two gas cells has a current (gas wind), their
+  coefficient is multiplied by `1 + TURB_PER_WIND · speed` (23 per unit, up to 31): an eddy
+  diffusivity of u·l (the current's speed, 2.9 m/s at full speed, times one cell) is about 700
+  times air's thermal diffusivity as sped up. Most currents then exchange at the stability limit:
+  stirred gas mixes its heat as fast as the grid allows, as turbulent air does (swapping cells
+  moves gas, not heat between neighbours). Not between a gas and a solid or liquid (a surface
+  keeps its boundary layer). Currents come from moving bodies, breath, bullets, falling matter and
+  the muzzle; convection makes none. Symmetric, so energy is still conserved.
 - **Void has no heat capacity and exchanges nothing.** Vacuum insulates perfectly (D-017).
 - **Jacobi:** all new temperatures are computed from the old ones into `temp_next`, then written
   back. Both passes run in parallel, one job per chunk.
@@ -697,7 +755,12 @@ it, so a hot pocket rises while mixing rather than as a tight plume.
 ### Phase changes
 
 Ice ↔ water at 0 °C (L = 334 kJ/kg), water ↔ steam at 100 °C (L = 2257 kJ/kg), rock ↔ lava at
-1500 K (L = 400 kJ/kg) and iron ↔ molten iron at 1811 K (L = 247 kJ/kg; M5), all at 1 atm
+1500 K (L = 400 kJ/kg) and iron ↔ molten iron at 1811 K (L = 247 kJ/kg; M5); lead (spent bullets,
+solid lead) ↔ molten lead at 600.6 K (327 °C, L = 23 kJ/kg) and brass (casings, solid brass) ↔
+molten brass at 1208 K (935 °C, between cartridge brass's solidus and liquidus; L ≈ 168 kJ/kg;
+M6a). Molten metal solidifies into a solid block (lead, brass), not back into bullets or casings.
+Molten lead (10 660 kg/m³) sinks through everything else. Tested: bullets and casings dropped into
+lava melt and sink to the bottom; cooled, they become lead and brass, every cell kept. All at 1 atm
 (the boiling point does not depend on pressure yet). After each conduction step, a cell
 whose stored temperature is far enough past its transition point that the heat beyond it pays for
 the latent heat, `c · (T − T_thr) ≥ L`, changes phase. It keeps the remainder:

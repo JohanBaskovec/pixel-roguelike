@@ -18,6 +18,9 @@ void test_creature_body_heat(void);
 void test_creatures_same_for_any_thread_count(void);
 void test_walking_stirs_air(void);
 void test_falling_sand_stirs_air(void);
+void test_water_flows_around_a_body(void);
+void test_breath_in_and_out(void);
+void test_breath_held_under_water(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -116,14 +119,28 @@ void test_creature_breathes_at_real_rates(void) {
     int id = creature_spawn(w, 60, 27);
     w->creatures[id].metabolism_scale = 10.0f;
     double o2_0 = test_mass(w, ELEM_OXYGEN), co2_0 = test_mass(w, ELEM_CO2);
+    double n2_0 = test_mass(w, ELEM_NITROGEN);
     int ticks = 257 * 5; // 5 breaths
     sim_run_ticks(w, ticks);
     Creature *c = &w->creatures[id];
     double minutes = ticks / 3600.0 * 10.0;
     EXPECT(fabs(c->o2_used - 0.333e-3 * minutes) < 0.02 * 0.333e-3 * minutes);
     EXPECT(fabs(c->co2_made - 0.368e-3 * minutes) < 0.02 * 0.368e-3 * minutes);
-    EXPECT(fabs((o2_0 - test_mass(w, ELEM_OXYGEN)) - c->o2_used) < 1e-3 * o2_0);
-    EXPECT(fabs((test_mass(w, ELEM_CO2) - co2_0) - c->co2_made) < 1e-3 * c->co2_made + 1e-9);
+    // It breathes the air in (all its gases) and out again: what is not in the room is in the
+    // lungs (the last breath in), and only O2 and CO2 change.
+    EXPECT(c->holding);
+    double lung_o2 = (double)c->lungs[g_gas_slot[ELEM_OXYGEN]];
+    double lung_co2 = (double)c->lungs[g_gas_slot[ELEM_CO2]];
+    double lung_n2 = (double)c->lungs[g_gas_slot[ELEM_NITROGEN]];
+    EXPECT(lung_n2 > 3.0 * lung_o2 && lung_o2 > 0.0); // a breath of air
+    EXPECT(fabs((o2_0 - test_mass(w, ELEM_OXYGEN) - lung_o2) - c->o2_used) < 1e-4 * o2_0);
+    EXPECT(fabs((test_mass(w, ELEM_CO2) + lung_co2 - co2_0) - c->co2_made) <
+           1e-3 * c->co2_made + 1e-9);
+    EXPECT(fabs(test_mass(w, ELEM_NITROGEN) + lung_n2 - n2_0) < 1e-4 * n2_0);
+    // Breathed out, the lungs are empty.
+    sim_run_ticks(w, 110);
+    EXPECT(!c->holding);
+    EXPECT(fabs(test_mass(w, ELEM_NITROGEN) - n2_0) < 1e-4 * n2_0);
     // Not short of air (though at 10x the oxygen next to the mouth runs low: "impaired").
     EXPECT(c->state != CREATURE_DANGER);
     world_destroy(w);
@@ -302,4 +319,114 @@ void test_falling_sand_stirs_air(void) {
     EXPECT(fabs(test_mass(w, ELEM_OXYGEN) - o2) < 1e-4 * o2);
     world_destroy(w);
     world_destroy(still);
+}
+
+// Water cells in the body's columns above row y_max (+y is down).
+static int water_above(const World *w, const Creature *c, int y_max) {
+    int n = 0;
+    for (int y = 1; y < y_max; y++) {
+        for (int k = 0; k < c->w; k++) {
+            n += test_cell_is(w, c->x + k, y, ELEM_WATER);
+        }
+    }
+    return n;
+}
+
+void test_water_flows_around_a_body(void) {
+    // Falling into a pool, the body pushes the water aside (it rises beside the body), not up over
+    // its head; jumping out of shallow water, the water beside it fills the space under its feet:
+    // no air under the water.
+    World *w = test_world_box(128, 128, 119);
+    fill(w, 1, 90, 126, 126, ELEM_WATER);
+    int64_t water = test_count(w, ELEM_WATER);
+    int id = creature_spawn(w, 60, 20);
+    Creature *c = &w->creatures[id];
+    int worst = 0;
+    for (int t = 0; t < 180; t++) {
+        sim_tick(w, NULL);
+        worst = PR_MAX(worst, water_above(w, c, 84)); // the surface rises to about 87
+    }
+    EXPECT_EQ(worst, 0);
+    EXPECT_EQ(test_count(w, ELEM_WATER), water);
+    world_destroy(w);
+
+    // Standing in water 17 cells deep (85 cm), it jumps.
+    w = test_world_box(128, 128, 120);
+    fill(w, 1, 110, 126, 126, ELEM_WATER);
+    id = creature_spawn(w, 60, 70);
+    c = &w->creatures[id];
+    c->metabolism_scale = 0.0f;
+    sim_run_ticks(w, 240);
+    EXPECT(c->y + c->h - 1 == 126);
+    int bubbles = 0;
+    for (int jump = 0; jump < 2; jump++) {
+        c->jump = 1;
+        for (int t = 0; t < 60; t++) {
+            sim_tick(w, NULL);
+            for (int y = 117; y < 127; y++) {
+                for (int x = 1; x < 127; x++) {
+                    bubbles += g_elem_behavior[world_elem(w, x, y)] <= BEHAVIOR_NONE ||
+                               g_elem_behavior[world_elem(w, x, y)] == BEHAVIOR_GAS;
+                }
+            }
+        }
+    }
+    EXPECT_EQ(bubbles, 0);
+    world_destroy(w);
+}
+
+void test_breath_in_and_out(void) {
+    // A breath in draws the air around the mouth (nitrogen and oxygen) into the lungs; the body
+    // takes oxygen from it and adds CO2; the breath out returns it, stale (with CO2) and warm,
+    // in front of the face.
+    World *w = air_room(128, 64, 121);
+    int id = creature_spawn(w, 60, 27);
+    Creature *c = &w->creatures[id];
+    sim_run_ticks(w, 257);
+    EXPECT(c->holding);
+    EXPECT_EQ(test_count(w, ELEM_CO2), 0);
+    EXPECT(c->lungs[g_gas_slot[ELEM_CO2]] > 0.0f);
+    EXPECT(c->lungs[g_gas_slot[ELEM_NITROGEN]] >
+           1.5f * c->lungs[g_gas_slot[ELEM_OXYGEN]]); // air (79% N2)
+    sim_run_ticks(w, 104);
+    EXPECT(!c->holding);
+    EXPECT(fabs(test_mass(w, ELEM_CO2) - c->co2_made) < 1e-3 * c->co2_made);
+    // The CO2 is near the mouth (in front of the face, at row 30).
+    int near = 0;
+    for (int y = 30 - 6; y <= 30 + 6; y++) {
+        for (int x = c->x + c->w; x <= c->x + c->w + 8; x++) {
+            near += test_cell_is(w, x, y, ELEM_CO2);
+        }
+    }
+    EXPECT(near >= 1);
+    world_destroy(w);
+}
+
+void test_breath_held_under_water(void) {
+    // With its head under water it cannot breathe out: it holds its breath, the body still
+    // taking oxygen from the lungs, and no gas is put into the water.
+    World *w = air_room(128, 64, 122);
+    int id = creature_spawn(w, 60, 27);
+    Creature *c = &w->creatures[id];
+    c->metabolism_scale = 4.0f;
+    sim_run_ticks(w, 258); // breathed in
+    EXPECT(c->holding);
+    fill(w, 1, 1, 126, 62, ELEM_WATER); // flooded: water fills what is not gas or body
+    for (int i = 0; i < w->width * w->height; i++) {
+        if (g_elem_behavior[w->cells[i].element] == BEHAVIOR_GAS) {
+            int x = i % w->width, y = i / w->width;
+            world_set_cell(w, x, y, ELEM_WATER, (uint32_t)i);
+        }
+    }
+    double used = c->o2_used;
+    sim_run_ticks(w, 300); // one more breath in (from the lungs), none out
+    EXPECT(c->holding);
+    EXPECT(c->o2_used > used);
+    EXPECT(c->o2_short < 0.5f);
+    int64_t gas = 0;
+    for (int i = 0; i < w->width * w->height; i++) {
+        gas += g_elem_behavior[w->cells[i].element] == BEHAVIOR_GAS;
+    }
+    EXPECT_EQ(gas, 0);
+    world_destroy(w);
 }

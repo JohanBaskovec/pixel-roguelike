@@ -33,29 +33,30 @@ typedef enum CreatureState {
 } CreatureState;
 
 typedef struct Creature {
-    int32_t x, y;     // top-left cell of the body
-    int16_t w, h;     // body size in cells
-    float vx, vy;     // velocity, cells per tick (+y is down)
-    float fx, fy;     // movement accumulated but not yet done (less than one cell)
-    int8_t facing;    // +1 right, -1 left (where the mouth is)
-    int8_t walk;      // wanted walking direction: -1, 0, +1
-    uint8_t wander;   // pick `walk` by itself (the test creature)
-    uint8_t grounded; // standing on something solid
-    uint8_t state;    // CreatureState
-    uint8_t jump;     // wants to jump (done when it stands on something; then cleared)
-    uint8_t aimed;    // `facing` is set from outside (the player aims), not from `walk`
-    uint8_t pad;
+    int32_t x, y;           // top-left cell of the body
+    int16_t w, h;           // body size in cells
+    float vx, vy;           // velocity, cells per tick (+y is down)
+    float fx, fy;           // movement accumulated but not yet done (less than one cell)
+    int8_t facing;          // +1 right, -1 left (where the mouth is)
+    int8_t walk;            // wanted walking direction: -1, 0, +1
+    uint8_t wander;         // pick `walk` by itself (the test creature)
+    uint8_t grounded;       // standing on something solid
+    uint8_t state;          // CreatureState
+    uint8_t jump;           // wants to jump (done when it stands on something; then cleared)
+    uint8_t aimed;          // `facing` is set from outside (the player aims), not from `walk`
+    uint8_t holding;        // holds a breath in (it could not breathe out: the mouth is in liquid)
     float speed;            // walking speed, cells per tick
     uint32_t id;            // spawn order; seeds its randomness
     float health;           // 0..1; 0 is dead
     float metabolism_scale; // breathing and health run this much faster than real time (1)
-    int32_t breath_timer;   // ticks to the next breath
+    int32_t breath_timer;   // ticks to the next breath in
+    float lungs[GAS_SLOTS]; // gas breathed in and not yet out, kg, by gas slot (g_gas_slot)
     float po2, pco2;        // partial pressures of O2 and CO2 around the head, Pa
     float o2_short;         // fraction of the last breath's oxygen it could not get
     float submerged;        // fraction of its sides in liquid
     float heat_w;           // body heat given off in the last tick, W (game time)
-    double o2_used;         // kg of O2 taken from the air, in total
-    double co2_made;        // kg of CO2 breathed out, in total
+    double o2_used;         // kg of O2 the body has used, in total
+    double co2_made;        // kg of CO2 the body has made, in total (in the lungs or breathed out)
 } Creature;
 
 // Puts a creature with its top-left cell at (x, y). The area must hold no solid or liquid; gas in

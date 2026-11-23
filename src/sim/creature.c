@@ -4,6 +4,8 @@
 #include "sim/particle.h"
 
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
 
 // Steps up ledges up to STEP_UP cells (20 cm) without stopping.
 #define STEP_UP  4
@@ -13,16 +15,33 @@
 #define WATER_DRAG   0.15f
 #define SWIM_ACCEL   0.03f
 #define BODY_DENSITY 985.0f // kg/m^3 (floats, barely, in fresh water)
+// Air control: fraction of walking speed gained per tick toward the wanted direction in the air
+// (full speed in 10 ticks, 0.17 s; a jump lasts 0.64 s).
+#define AIR_CONTROL 0.1f
 
-// Breathing at rest (docs/SIMULATION.md -> Creatures): 14 breaths a minute; 250 mL/min of O2
-// consumed and 200 mL/min of CO2 produced (at 20 degC, 1 atm: 0.333 g and 0.368 g per minute).
-// Walking multiplies both (and body heat) by WORK_WALKING.
+// Breathing at rest (docs/SIMULATION.md -> Creatures): 14 breaths a minute of 0.5 L each (the
+// tidal volume, TIDAL_CELLS cells of 0.125 L); 250 mL/min of O2 consumed and 200 mL/min of CO2
+// produced (at 20 degC, 1 atm: 0.333 g and 0.368 g per minute). Walking multiplies breathing (its
+// volume and gas exchange) and body heat by WORK_WALKING.
 #define BREATH_TICKS  257 // 60 s / 14 breaths, in ticks
+#define INHALE_TICKS  103 // breathing in takes 40% of a breath; it breathes out after it
+#define TIDAL_CELLS   4.0f
 #define O2_KG_PER_S   5.55e-6f
 #define CO2_KG_PER_S  6.14e-6f
 #define WORK_WALKING  3.0f
 #define BREATH_RADIUS 16 // the gas a breath draws from, around the mouth
-#define BREATH_CELLS  256
+#define BREATH_CELLS  1024
+// A breath in draws the same fraction of the gas of each of the DRAW_MIN gas cells nearest the
+// mouth (more if the breath is bigger: each gives at most DRAW_MAX_FRAC of its gas), whatever
+// the gas: it breathes in the air as it is mixed there (one gas per cell).
+#define DRAW_MIN      32
+#define DRAW_MAX_FRAC 0.5f
+// The lungs take at most this fraction of the oxygen breathed in (at rest they take about a
+// fifth: air goes in at 21% oxygen and out at about 16%).
+#define O2_EXTRACT_MAX 0.5f
+// Breathed out at 34 degC: the air in the lungs is warmed by the body (water vapour is left out:
+// humidity is not modelled).
+#define EXHALE_K 307.15f
 // Partial pressures are measured in this window around the mouth, and smoothed over breaths
 // (exponential average, weight AIR_SMOOTHING for the newest): air is one gas per cell, so a small
 // window holds few oxygen cells and its reading jumps.
@@ -56,6 +75,53 @@ static inline bool body_can_enter(const World *w, int x, int y) {
     return b == BEHAVIOR_NONE || b >= BEHAVIOR_LIQUID;
 }
 
+// Powder in mid-air at (x, y): falling, or lying on a body. It is not on the ground, so it never
+// blocks a body: a body moving into it lifts it out of the grid as a particle, which falls
+// through the body (particle.c) and lands on the ground beside it.
+static inline bool powder_in_air(const World *w, int x, int y) {
+    if (!world_in_bounds(w, x, y)) {
+        return false;
+    }
+    Cell c = w->cells[world_index(w, x, y)];
+    if (g_elem_behavior[c.element] != BEHAVIOR_POWDER) {
+        return false;
+    }
+    // Falling (the rest of a falling column with it), not into liquid (lifted there, it would
+    // have nowhere to land); or lying on a body.
+    ElementId below = world_elem(w, x, y + 1);
+    return below == ELEM_BODY || ((c.aux & 0x7F) != 0 && g_elem_behavior[below] != BEHAVIOR_LIQUID);
+}
+
+// What a body can move into: what it pushes aside, and powder in mid-air.
+static inline bool body_can_pass(const World *w, int x, int y) {
+    return body_can_enter(w, x, y) || powder_in_air(w, x, y);
+}
+
+// Lifts the powder in mid-air at (x, y) out of the grid as a particle falling at its speed (the
+// cell's aux holds it in 1/16 cells per tick) and sliding off the body at LIFT_SIDE cells per
+// tick, toward the nearer side of creature c (so it lands beside the body, not under its feet).
+// The cell becomes void. False if the particle list is full.
+#define LIFT_SIDE 0.6f
+
+static bool lift_powder(World *w, const Creature *c, int x, int y) {
+    size_t i = world_index(w, x, y);
+    Cell cell = w->cells[i];
+    float side = 2 * (x - c->x) < c->w - 1 ? -LIFT_SIDE : LIFT_SIDE;
+    Particle p = {(float)x + 0.5f, (float)y + 0.5f, side, (float)(cell.aux & 0x7F) / 16.0f, cell,
+                  w->temp[i]};
+    p.cell.aux = 0;
+    if (!particle_add(w, &p)) {
+        return false;
+    }
+    w->cells[i] = (Cell){ELEM_VOID, (uint8_t)(w->tick - 1), cell.shade, 0};
+    w->temp[i] = 0.0f;
+    w->mass[i] = 0.0f;
+    world_note_moved(w, x, y);
+    world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
+    world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
+    return true;
+}
+
 // Swaps two cells (matter and the body cell it trades places with), with temperatures and masses.
 static void swap_world_cells(World *w, int x0, int y0, int x1, int y1) {
     size_t a = world_index(w, x0, y0), b = world_index(w, x1, y1);
@@ -74,23 +140,107 @@ static void swap_world_cells(World *w, int x0, int y0, int x1, int y1) {
 }
 
 // Can the body move one cell by (dx, dy)? Every cell its leading edge moves into must be free of
-// solids (void, gas or liquid, which it pushes).
+// solids (void, gas or liquid, which it pushes, or powder in mid-air, which it lifts).
 static bool can_move(const World *w, const Creature *c, int dx, int dy) {
-    if (dx != 0) {
-        int lx = dx > 0 ? c->x + c->w : c->x - 1;
-        for (int r = 0; r < c->h; r++) {
-            if (!body_can_enter(w, lx, c->y + r)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    int ly = dy > 0 ? c->y + c->h : c->y - 1;
-    for (int k = 0; k < c->w; k++) {
-        if (!body_can_enter(w, c->x + k, ly)) {
+    int n = dx != 0 ? c->h : c->w;
+    for (int k = 0; k < n; k++) {
+        int x = dx != 0 ? (dx > 0 ? c->x + c->w : c->x - 1) : c->x + k;
+        int y = dx != 0 ? c->y + k : (dy > 0 ? c->y + c->h : c->y - 1);
+        if (!body_can_pass(w, x, y)) {
             return false;
         }
     }
+    return true;
+}
+
+// Matter classes for flowing around a body: 0 void or gas, 1 liquid, 2 anything else.
+static inline int fluid_class(ElementId e) {
+    uint8_t b = g_elem_behavior[e];
+    return b == BEHAVIOR_NONE || b == BEHAVIOR_GAS ? 0 : (b == BEHAVIOR_LIQUID ? 1 : 2);
+}
+
+// Moving one cell up or down (dy), the body's column x trades its leading cell L (at ly) with its
+// trailing cell T (at ty). If what lies beyond the trailing end (B) is not the same kind of fluid
+// as L (landing in a pool: water under the feet, air above the head; or jumping out of one; B
+// is the fluid beside T if T is against a wall), L does not go through the body to T: the fluid
+// flows around it. In a column beside the body
+// (within FLOW_SIDE columns), from the trailing end on, the first cell of L's kind (I) and the one
+// before it (J, of B's kind) are the interface (the pool's surface): L takes J's place and J fills
+// T, so the surface there rises (or falls) by one cell. Of those columns, the one whose surface is
+// furthest toward the leading end is used (the lowest surface when the body sinks in, the highest
+// when it rises out), nearest first: the surface stays level. Returns false (plain trade) if there
+// is no such interface within the body's length.
+#define FLOW_SIDE 8
+
+// The interface row J in column sx (see flow_around), scanning from row `start` to the leading
+// row ly, or INT32_MIN if none.
+static int flow_interface(const World *w, int sx, ElementId l, ElementId b, int ly, int start,
+                          int dy) {
+    int cl = fluid_class(l), cb = fluid_class(b);
+    for (int y = start; y != ly + dy; y += dy) {
+        ElementId e = world_elem(w, sx, y);
+        int ce = fluid_class(e);
+        if (ce == 2) {
+            return INT32_MIN; // a wall in the way
+        }
+        if (ce != cl) {
+            continue;
+        }
+        // The first cell of L's kind: J is the one before it, of B's kind (and the same liquid
+        // as L or B, where it is a liquid).
+        int jy = y - dy;
+        ElementId j = world_elem(w, sx, jy);
+        if (y == start || fluid_class(j) != cb || (cl == 1 && e != l) || (cb == 1 && j != b)) {
+            return INT32_MIN;
+        }
+        return jy;
+    }
+    return INT32_MIN;
+}
+
+static bool flow_around(World *w, const Creature *c, int x, int ly, int ty, int dy) {
+    bool left_first = x - c->x < c->w / 2;
+    ElementId l = world_elem(w, x, ly), b = world_elem(w, x, ty - dy);
+    int start = ty - dy;
+    if (fluid_class(b) == 2) {
+        // The trailing end is against a wall (feet on the floor): T is filled by the fluid beside
+        // it, as in the gap a foot leaves on the bottom of a pool.
+        ElementId near = world_elem(w, left_first ? c->x - 1 : c->x + c->w, ty);
+        ElementId far = world_elem(w, left_first ? c->x + c->w : c->x - 1, ty);
+        b = fluid_class(near) != 2 ? near : far;
+        start = ty;
+    }
+    int cl = fluid_class(l), cb = fluid_class(b);
+    if (cl == 2 || cb == 2 || cl == cb) {
+        return false;
+    }
+    int best_x = 0, best_y = INT32_MIN;
+    bool open[2] = {true, true}; // no wall between the body and the column, on that side
+    for (int d = 0; d <= FLOW_SIDE; d++) {
+        for (int s = 0; s < 2; s++) {
+            int side = (s == 0) == left_first ? 0 : 1;
+            int sx = side == 0 ? c->x - 1 - d : c->x + c->w + d;
+            if (!open[side]) {
+                continue;
+            }
+            int jy = flow_interface(w, sx, l, b, ly, start, dy);
+            if (jy == INT32_MIN) {
+                // Keep looking further out only past fluid (a wall here closes this side).
+                open[side] = fluid_class(world_elem(w, sx, ly)) != 2 ||
+                             fluid_class(world_elem(w, sx, start)) != 2;
+                continue;
+            }
+            if (best_y == INT32_MIN || jy * dy > best_y * dy) {
+                best_x = sx;
+                best_y = jy;
+            }
+        }
+    }
+    if (best_y == INT32_MIN) {
+        return false;
+    }
+    swap_world_cells(w, x, ly, x, ty);          // the body into L; L to T
+    swap_world_cells(w, x, ty, best_x, best_y); // L to J; J to T
     return true;
 }
 
@@ -143,7 +293,7 @@ static bool kick(World *w, Creature *c, int dx) {
     int n = 0;
     for (int r = 0; r < c->h; r++) {
         int y = c->y + r, fx, fy;
-        if (body_can_enter(w, lx, y)) {
+        if (body_can_pass(w, lx, y)) {
             continue;
         }
         if (r < c->h - KICK_ROWS || g_elem_behavior[world_elem(w, lx, y)] != BEHAVIOR_POWDER ||
@@ -160,14 +310,15 @@ static bool kick(World *w, Creature *c, int dx) {
     // heap until the face is too high to kick or climb).
     int above = c->y + c->h - 1 - KICK_ROWS;
     for (int k = 0; k <= KICK_AHEAD; k++) {
-        if (g_elem_behavior[world_elem(w, lx + dx * k, above)] == BEHAVIOR_POWDER) {
+        if (g_elem_behavior[world_elem(w, lx + dx * k, above)] == BEHAVIOR_POWDER &&
+            !powder_in_air(w, lx + dx * k, above)) {
             return false;
         }
     }
     uint64_t h = pr_splitmix64(w->seed ^ pr_splitmix64(w->tick) ^ ((uint64_t)c->id << 48));
     for (int r = c->h - KICK_ROWS; r < c->h; r++) {
         int y = c->y + r, fx = lx + dx, fy = y;
-        if (body_can_enter(w, lx, y)) {
+        if (body_can_pass(w, lx, y)) {
             continue;
         }
         kick_from(w, lx, y, dx, &fx, &fy);
@@ -199,6 +350,14 @@ static bool move(World *w, Creature *c, int dx, int dy) {
     if (!can_move(w, c, dx, dy) && !(dx != 0 && kick(w, c, dx) && can_move(w, c, dx, dy))) {
         return false;
     }
+    // Powder in mid-air in the way is lifted out (it falls through the body).
+    for (int k = 0, n = dx != 0 ? c->h : c->w; k < n; k++) {
+        int x = dx != 0 ? (dx > 0 ? c->x + c->w : c->x - 1) : c->x + k;
+        int y = dx != 0 ? c->y + k : (dy > 0 ? c->y + c->h : c->y - 1);
+        if (!body_can_enter(w, x, y) && !lift_powder(w, c, x, y)) {
+            return false; // the particle list is full
+        }
+    }
     int dir = gas_wind_dir_of(dx, dy);
     if (dx != 0) {
         int lx = dx > 0 ? c->x + c->w : c->x - 1;
@@ -213,7 +372,9 @@ static bool move(World *w, Creature *c, int dx, int dy) {
         int ly = dy > 0 ? c->y + c->h : c->y - 1;
         int ty = dy > 0 ? c->y : c->y + c->h - 1;
         for (int k = 0; k < c->w; k++) {
-            swap_world_cells(w, c->x + k, ly, c->x + k, ty);
+            if (!flow_around(w, c, c->x + k, ly, ty, dy)) {
+                swap_world_cells(w, c->x + k, ly, c->x + k, ty);
+            }
             push_wind(w, c->x + k, ty, dir, BODY_WAKE_WIND);
             push_wind(w, c->x + k, ly + dy, dir, BODY_PUSH_WIND);
         }
@@ -280,10 +441,15 @@ static void physics(World *w, Creature *c) {
     }
     c->jump = 0;
     c->vy = PR_CLAMP(c->vy, -FALL_MAX, FALL_MAX);
+    float speed = c->speed * (c->state == CREATURE_IMPAIRED ? 0.5f : 1.0f);
     if (alive && (c->grounded || f > 0.0f)) {
-        float speed = c->speed * (c->state == CREATURE_IMPAIRED ? 0.5f : 1.0f);
         c->vx = (float)c->walk * speed * (f > 0.0f ? 0.5f : 1.0f);
-    } else if (!alive && c->grounded) {
+    } else if (alive) {
+        // Air control (a game deviation: a real jumper cannot steer): in the air the walking
+        // direction pulls the velocity toward walking speed, AIR_CONTROL of it per tick.
+        float dv = (float)c->walk * speed - c->vx, max = AIR_CONTROL * speed;
+        c->vx += PR_CLAMP(dv, -max, max);
+    } else if (c->grounded) {
         c->vx = 0.0f;
     }
 
@@ -313,6 +479,7 @@ static void physics(World *w, Creature *c) {
     c->grounded = !can_move(w, c, 0, 1);
     if (c->grounded && c->vy > 0.0f) {
         c->vy = 0.0f;
+        c->fy = PR_MIN(c->fy, 0.0f); // resting: no fall left over (a jump takes off at once)
     }
 }
 
@@ -373,79 +540,174 @@ static void stir(World *w, const Creature *c, int mx, int my, float work) {
     world_wake_rect(w, mx - STIR_FAR - 1, my - STIR_FAR - 1, mx + STIR_FAR + 1, my + STIR_FAR + 1);
 }
 
-// One breath: take the oxygen it uses from the oxygen around the mouth (at most half of each
-// cell), breathe out CO2 for what it used, and stir the air.
-static void breathe(World *w, Creature *c, float work) {
+// The gas cells (any gas) reachable from the mouth through gas and void, within BREATH_RADIUS,
+// nearest first (breadth-first from the mouth cell, which comes first if it holds gas). Returns
+// the count (at most BREATH_CELLS); none if the mouth is not in gas or void.
+#define BREATH_SIDE (2 * BREATH_RADIUS + 1)
+
+static int breath_region(const World *w, int mx, int my, int32_t *found) {
+    if (!particle_passes(w, mx, my)) {
+        return 0;
+    }
+    uint8_t seen[BREATH_SIDE][BREATH_SIDE];
+    int8_t queue[BREATH_SIDE * BREATH_SIDE][2];
+    memset(seen, 0, sizeof(seen));
+    int head = 0, tail = 1, n = 0;
+    queue[0][0] = queue[0][1] = 0;
+    seen[BREATH_RADIUS][BREATH_RADIUS] = 1;
+    if (world_elem(w, mx, my) != ELEM_VOID) {
+        found[n++] = (int32_t)world_index(w, mx, my);
+    }
+    static const int8_t d4[4][2] = {{0, -1}, {-1, 0}, {1, 0}, {0, 1}};
+    while (head < tail && n < BREATH_CELLS) {
+        int ox = queue[head][0], oy = queue[head][1];
+        head++;
+        for (int k = 0; k < 4 && n < BREATH_CELLS; k++) {
+            int dx = ox + d4[k][0], dy = oy + d4[k][1];
+            if (dx < -BREATH_RADIUS || dx > BREATH_RADIUS || dy < -BREATH_RADIUS ||
+                dy > BREATH_RADIUS || seen[dy + BREATH_RADIUS][dx + BREATH_RADIUS]) {
+                continue;
+            }
+            seen[dy + BREATH_RADIUS][dx + BREATH_RADIUS] = 1;
+            if (!particle_passes(w, mx + dx, my + dy)) {
+                continue;
+            }
+            queue[tail][0] = (int8_t)dx;
+            queue[tail][1] = (int8_t)dy;
+            tail++;
+            if (world_elem(w, mx + dx, my + dy) != ELEM_VOID) {
+                found[n++] = (int32_t)world_index(w, mx + dx, my + dy);
+            }
+        }
+    }
+    return n;
+}
+
+// The volume of one breath in cells, and how many of the nearest gas cells it draws from.
+static float breath_volume(const Creature *c, float work) {
+    return TIDAL_CELLS * c->metabolism_scale * work;
+}
+
+static int breath_draw_cells(float volume, int available) {
+    int n = PR_MAX(DRAW_MIN, (int)ceilf(volume / DRAW_MAX_FRAC));
+    return PR_MIN(n, available);
+}
+
+static ElementId gas_of_slot(int slot) {
+    for (int e = 0; e < ELEM_COUNT; e++) {
+        if (g_gas_slot[e] == slot) {
+            return (ElementId)e;
+        }
+    }
+    return ELEM_VOID;
+}
+
+// Breathing in: the lungs fill with a breath of the gas around the mouth (if it is in gas; they
+// are not already full). Then, full or held, the body takes the oxygen it needs from the lungs (at
+// most O2_EXTRACT_MAX of what they hold) and puts the CO2 it makes for it into them.
+static void inhale(World *w, Creature *c, float work) {
     int mx, my;
     mouth_cell(w, c, &mx, &my);
-    stir(w, c, mx, my, work);
+    int32_t found[BREATH_CELLS];
+    int n_all = c->holding ? 0 : breath_region(w, mx, my, found);
+    if (n_all > 0) {
+        stir(w, c, mx, my, work);
+        measure_air(w, c, mx, my);
+        n_all = breath_region(w, mx, my, found); // the stirring moved cells
+        float volume = breath_volume(c, work);
+        int n = breath_draw_cells(volume, n_all);
+        float f = PR_MIN(volume / (float)n, DRAW_MAX_FRAC);
+        for (int k = 0; k < n; k++) {
+            size_t i = (size_t)found[k];
+            float dm = w->mass[i] * f;
+            w->mass[i] -= dm;
+            c->lungs[g_gas_slot[w->cells[i].element]] += dm;
+        }
+        // The air flows in toward the mouth.
+        int out = mx >= c->x + c->w ? 1 : -1;
+        for (int k = -1; k <= 1; k++) {
+            push_wind(w, mx + out, my + k, gas_wind_dir_of(-out, 0), BREATH_WIND / 2);
+        }
+        world_wake_rect(w, mx - BREATH_RADIUS, my - BREATH_RADIUS, mx + BREATH_RADIUS,
+                        my + BREATH_RADIUS);
+    }
+    c->holding = 1; // until breathed out
+    float seconds = (float)BREATH_TICKS * TICK_SECONDS * c->metabolism_scale * work;
+    float need = O2_KG_PER_S * seconds;
+    int so2 = g_gas_slot[ELEM_OXYGEN], sco2 = g_gas_slot[ELEM_CO2];
+    float take = PR_MIN(need, O2_EXTRACT_MAX * c->lungs[so2]);
+    c->lungs[so2] -= take;
+    float made = take * (CO2_KG_PER_S / O2_KG_PER_S);
+    c->lungs[sco2] += made;
+    c->o2_short = need > 0.0f ? 1.0f - take / need : 0.0f;
+    c->o2_used += (double)take;
+    c->co2_made += (double)made;
+}
+
+// Breathing out (if the mouth is in gas or void): each gas in the lungs goes into the cells of its
+// kind among the nearest gas cells to the mouth, at EXHALE_K, or else (CO2 in fresh air) into the
+// nearest cell that takes it (world_gas_emit), with a puff away from the face.
+static void exhale(World *w, Creature *c, float work) {
+    int mx, my;
+    mouth_cell(w, c, &mx, &my);
+    int32_t found[BREATH_CELLS];
+    int n_all = breath_region(w, mx, my, found);
+    if (n_all == 0 && !particle_passes(w, mx, my)) {
+        return; // the mouth is in liquid: hold it
+    }
+    int n = breath_draw_cells(breath_volume(c, work), n_all);
+    int32_t kind[BREATH_CELLS];
+    for (int s = 1; s < GAS_SLOTS; s++) {
+        float m = c->lungs[s];
+        if (m <= 0.0f) {
+            continue;
+        }
+        ElementId g = gas_of_slot(s);
+        int nk = 0;
+        for (int k = 0; k < n; k++) {
+            if (w->cells[found[k]].element == g) {
+                kind[nk++] = found[k];
+            }
+        }
+        bool done = false;
+        if (nk > 0) {
+            world_gas_spread_add(w, kind, nk, m, EXHALE_K);
+            for (int k = 0; k < nk; k++) {
+                world_note_moved(w, kind[k] % w->width, kind[k] / w->width);
+            }
+            done = true;
+        }
+        uint32_t bits = c->id * 2654435761u + (uint32_t)s;
+        for (int k = 0; k < n_all && !done; k++) {
+            done =
+                world_gas_emit(w, found[k] % w->width, found[k] / w->width, g, m, EXHALE_K, bits);
+        }
+        if (!done && n_all == 0) {
+            done = world_gas_emit(w, mx, my, g, m, EXHALE_K, bits); // the mouth is in void
+            if (done) {
+                found[n_all++] = (int32_t)world_index(w, mx, my);
+            }
+        }
+        if (done) {
+            c->lungs[s] = 0.0f;
+        }
+    }
+    c->holding = 0;
+    for (int s = 1; s < GAS_SLOTS; s++) {
+        if (c->lungs[s] > 0.0f) {
+            c->holding = 1; // nowhere to put it all: the rest goes out next time
+        }
+    }
     // The breath out: a puff away from the face, rising a little (it is warm).
     int out = mx >= c->x + c->w ? 1 : -1;
     for (int k = -1; k <= 1; k++) {
         push_wind(w, mx, my + k, gas_wind_dir_of(out, 0), BREATH_WIND);
         push_wind(w, mx + out, my + k, gas_wind_dir_of(out, -1), BREATH_WIND - 4);
     }
-    measure_air(w, c, mx, my);
-    float seconds = (float)BREATH_TICKS * TICK_SECONDS * c->metabolism_scale * work;
-    float need = O2_KG_PER_S * seconds;
-
-    int32_t found[BREATH_CELLS + 1];
-    int n = world_gas_region(w, mx, my, ELEM_OXYGEN, mx, my, BREATH_RADIUS, BREATH_CELLS, found);
-    if (world_elem(w, mx, my) == ELEM_OXYGEN) {
-        found[n++] = (int32_t)world_index(w, mx, my);
-    }
-    double total = 0.0;
-    for (int k = 0; k < n; k++) {
-        total += (double)w->mass[found[k]];
-    }
-    float take = (float)PR_MIN((double)need, 0.5 * total);
-    if (take > 0.0f) {
-        float fraction = (float)((double)take / total);
-        for (int k = 0; k < n; k++) {
-            w->mass[found[k]] -= w->mass[found[k]] * fraction;
-        }
-    }
-    c->o2_short = need > 0.0f ? 1.0f - take / need : 0.0f;
-    c->o2_used += (double)take;
-
-    // CO2 out, in proportion to the oxygen used: into CO2 near the mouth, or a new CO2 cell.
-    float made = take * (CO2_KG_PER_S / O2_KG_PER_S);
-    if (made > 0.0f && body_can_enter(w, mx, my) &&
-        g_elem_behavior[world_elem(w, mx, my)] != BEHAVIOR_LIQUID) {
-        int32_t co2[17];
-        int nc = world_gas_region(w, mx, my, ELEM_CO2, mx, my, 4, 16, co2);
-        size_t im = world_index(w, mx, my);
-        if (w->cells[im].element == ELEM_CO2) {
-            co2[nc++] = (int32_t)im;
-        }
-        bool done = false;
-        if (nc > 0) {
-            world_gas_spread_add(w, co2, nc, made, CREATURE_BODY_K);
-            done = true;
-        } else {
-            // The mouth cell becomes CO2; the gas there (if any) is squeezed into its kind.
-            ElementId g = w->cells[im].element;
-            int32_t region[GAS_REGION_CELLS];
-            int nr = 0;
-            if (g != ELEM_VOID) {
-                nr = world_gas_region(w, mx, my, g, mx, my, BREATH_RADIUS, BREATH_CELLS, region);
-            }
-            if (g == ELEM_VOID || nr > 0) {
-                if (nr > 0) {
-                    world_gas_spread_add(w, region, nr, w->mass[im], w->temp[im]);
-                }
-                world_set_gas(w, mx, my, ELEM_CO2, made, c->id * 2654435761u);
-                w->temp[im] = CREATURE_BODY_K;
-                done = true;
-            }
-        }
-        if (done) {
-            c->co2_made += (double)made;
-        }
-    }
     world_wake_rect(w, mx - BREATH_RADIUS, my - BREATH_RADIUS, mx + BREATH_RADIUS,
                     my + BREATH_RADIUS);
-    world_wake_heat(w, mx, my, mx, my);
+    world_wake_heat(w, mx - BREATH_RADIUS, my - BREATH_RADIUS, mx + BREATH_RADIUS,
+                    my + BREATH_RADIUS);
 }
 
 // Holds the body at 37 degC with at most the body's power.
@@ -491,7 +753,10 @@ static void update_one(World *w, Creature *c) {
     float work = c->walk != 0 && c->grounded ? WORK_WALKING : 1.0f;
     if (--c->breath_timer <= 0) {
         c->breath_timer = BREATH_TICKS;
-        breathe(w, c, work);
+        inhale(w, c, work);
+    }
+    if (c->holding && c->breath_timer <= BREATH_TICKS - INHALE_TICKS) {
+        exhale(w, c, work);
     }
     body_heat(w, c, work);
 
@@ -509,6 +774,7 @@ static void update_one(World *w, Creature *c) {
         c->health = 0.0f;
         c->state = CREATURE_DEAD;
         c->walk = 0;
+        exhale(w, c, work); // the last breath out
     }
 }
 

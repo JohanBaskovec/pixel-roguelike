@@ -217,6 +217,12 @@ void world_gas_spread_add(World *w, const int32_t *found, int n, float m, float 
 // the mass taken, and its mean stored temperature in *t.
 float world_gas_spread_take(World *w, const int32_t *found, int n, float *t);
 
+// Puts mass m (kg) of gas g, at stored temperature t, into the cell (x, y): added to it if it
+// holds g; else the cell becomes g, and the gas it held (if any) is squeezed into the gas of its
+// kind around (world_gas_region). Wakes the area. Returns false if the cell holds no gas or void,
+// or its gas has nowhere to go. Serial use only (between ticks, or in creature or particle code).
+bool world_gas_emit(World *w, int x, int y, ElementId g, float m, float t, uint32_t random_bits);
+
 // Gas pressure at (x, y) as a height of liquid `liquid` (liquid_head); 0 if not a gas.
 static inline int32_t world_gas_head(const World *w, int x, int y, ElementId liquid) {
     return liquid_head(liquid, world_gas_pressure(w, x, y));

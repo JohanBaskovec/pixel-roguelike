@@ -31,16 +31,17 @@ Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4
 **M5 – Matter variety and reactions** and **M6a – Action roguelike: the player and the rifle** are
 implemented. The game is an action roguelike: a level of dirt and rock under air in a 4096 × 2048
 world, a player (1.85 m) who runs, jumps and fires an automatic rifle whose bullets are real
-pixels (they fly, dig, stir the air and pile up with their casings), a toolbar to paint water,
+pixels (they fly, dig, stir the air and pile up with their casings, and melt; each shot blows
+hot muzzle gas), a toolbar to paint water,
 steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,
 cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
 liquids; mixtures stay mixed, heavy gas sinks in bulk; currents), free particles (jets that
 follow Torricelli, splashes), creatures that walk, swim,
-breathe at real rates and give off body heat, powders and digging, lava, molten iron and oil
+breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom 1), tests
-and a benchmark. Next: **M6b – Roguelike, next** (muzzle gas, simulating only near the player,
-HP, heat damage) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
+and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the player, HP, heat
+damage) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack

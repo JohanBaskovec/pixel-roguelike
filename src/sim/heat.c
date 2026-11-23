@@ -35,8 +35,22 @@ typedef struct HeatScratch {
 // either may be a gas: a gas cell's thermal mass follows its mass, so the stability limit is
 // computed here, not taken from g_heat_coef. 0.125 * min(ca, cb) is at most the table's limit
 // (0.25 * ca * cb / (ca + cb)) and keeps a cell's four exchanges from overshooting. Symmetric.
-static inline float gas_flux(ElementId a, float ca, float ta, ElementId b, float cb, float tb) {
-    float k = PR_MIN(g_heat_coef_raw[a][b], 0.125f * PR_MIN(ca, cb));
+//
+// Between two gas cells, a current (gas wind, in either cell) mixes heat by turbulence: the
+// coefficient is multiplied by 1 + TURB_PER_WIND * speed (docs/SIMULATION.md -> Heat pass). An
+// eddy diffusivity of u * l, with u the current's speed (2.9 m/s at GAS_WIND_MAX) and l one cell,
+// is about 700 times air's thermal diffusivity (as sped up by HEAT_TIME_SCALE_GAS) at full speed:
+// 23 per unit of speed. Most currents then exchange at the stability limit.
+#define TURB_PER_WIND 23.0f
+
+static inline float gas_flux(ElementId a, float ca, float ta, uint8_t wa, ElementId b, float cb,
+                             float tb, uint8_t wb) {
+    float k = g_heat_coef_raw[a][b];
+    if ((wa | wb) != 0 && g_elem_behavior[b] == BEHAVIOR_GAS &&
+        g_elem_behavior[a] == BEHAVIOR_GAS) {
+        k *= 1.0f + TURB_PER_WIND * (float)PR_MAX(wa, wb);
+    }
+    k = PR_MIN(k, 0.125f * PR_MIN(ca, cb));
     return k * (tb - ta);
 }
 
@@ -52,23 +66,29 @@ static void compute_chunk(void *user, int index) {
     // only pairs computed on both sides exchange heat, so energy cannot leak).
     ElementId el[HALO][HALO];
     float tp[HALO][HALO];
-    float cap[HALO][HALO]; // thermal mass, J/K (gases: their actual mass times cp)
+    float cap[HALO][HALO];    // thermal mass, J/K (gases: their actual mass times cp)
+    uint8_t wind[HALO][HALO]; // gases: the current's speed (0..GAS_WIND_MAX)
     for (int ly = -1; ly <= CHUNK_SIZE; ly++) {
         for (int lx = -1; lx <= CHUNK_SIZE; lx++) {
             int x = bx + lx, y = by + ly;
             ElementId e = ELEM_VOID;
             float t = 0.0f, k = 0.0f;
+            uint8_t wd = 0;
             bool inside = lx >= 0 && ly >= 0 && lx < CHUNK_SIZE && ly < CHUNK_SIZE;
             if (world_in_bounds(w, x, y) &&
                 (inside || marked[(y >> CHUNK_SHIFT) * w->chunks_x + (x >> CHUNK_SHIFT)])) {
                 size_t i = world_index(w, x, y);
-                e = w->cells[i].element;
+                Cell cell = w->cells[i];
+                e = cell.element;
                 t = elem_temp(e, w->temp[i]);
-                k = g_elem_behavior[e] == BEHAVIOR_GAS ? w->mass[i] * g_elem_cp[e] : g_elem_cap[e];
+                bool gas = g_elem_behavior[e] == BEHAVIOR_GAS;
+                k = gas ? w->mass[i] * g_elem_cp[e] : g_elem_cap[e];
+                wd = gas ? (uint8_t)gas_wind_speed(cell.aux) : 0;
             }
             el[ly + 1][lx + 1] = e;
             tp[ly + 1][lx + 1] = t;
             cap[ly + 1][lx + 1] = k;
+            wind[ly + 1][lx + 1] = wd;
         }
     }
 
@@ -103,10 +123,15 @@ static void compute_chunk(void *user, int index) {
                       coef[el[hy - 1][hx]] * (tp[hy - 1][hx] - ti) +
                       coef[el[hy + 1][hx]] * (tp[hy + 1][hx] - ti);
             } else {
-                sum = gas_flux(e, ci, ti, el[hy][hx - 1], cap[hy][hx - 1], tp[hy][hx - 1]) +
-                      gas_flux(e, ci, ti, el[hy][hx + 1], cap[hy][hx + 1], tp[hy][hx + 1]) +
-                      gas_flux(e, ci, ti, el[hy - 1][hx], cap[hy - 1][hx], tp[hy - 1][hx]) +
-                      gas_flux(e, ci, ti, el[hy + 1][hx], cap[hy + 1][hx], tp[hy + 1][hx]);
+                uint8_t wi = wind[hy][hx];
+                sum = gas_flux(e, ci, ti, wi, el[hy][hx - 1], cap[hy][hx - 1], tp[hy][hx - 1],
+                               wind[hy][hx - 1]) +
+                      gas_flux(e, ci, ti, wi, el[hy][hx + 1], cap[hy][hx + 1], tp[hy][hx + 1],
+                               wind[hy][hx + 1]) +
+                      gas_flux(e, ci, ti, wi, el[hy - 1][hx], cap[hy - 1][hx], tp[hy - 1][hx],
+                               wind[hy - 1][hx]) +
+                      gas_flux(e, ci, ti, wi, el[hy + 1][hx], cap[hy + 1][hx], tp[hy + 1][hx],
+                               wind[hy + 1][hx]);
             }
             float change = sum / ci;
             w->temp_next[i] = w->temp[i] + change;

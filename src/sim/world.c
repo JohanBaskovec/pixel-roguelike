@@ -232,3 +232,40 @@ float world_gas_spread_take(World *w, const int32_t *found, int n, float *t) {
     *t = m > 0.0f ? e / m : 0.0f;
     return m;
 }
+
+bool world_gas_emit(World *w, int x, int y, ElementId g, float m, float t, uint32_t random_bits) {
+    PR_ASSERT(g_elem_behavior[g] == BEHAVIOR_GAS);
+    if (!world_in_bounds(w, x, y) || m <= 0.0f) {
+        return false;
+    }
+    size_t i = world_index(w, x, y);
+    ElementId here = w->cells[i].element;
+    int r = 1;
+    if (here == g) {
+        int32_t self = (int32_t)i;
+        world_gas_spread_add(w, &self, 1, m, t);
+    } else {
+        if (here != ELEM_VOID) {
+            if (g_elem_behavior[here] != BEHAVIOR_GAS) {
+                return false;
+            }
+            int32_t region[GAS_REGION_CELLS];
+            int n =
+                world_gas_region(w, x, y, here, x, y, GAS_REGION_RADIUS, GAS_REGION_CELLS, region);
+            if (n == 0) {
+                return false;
+            }
+            world_gas_spread_add(w, region, n, w->mass[i], w->temp[i]);
+            for (int k = 0; k < n; k++) {
+                world_note_moved(w, region[k] % w->width, region[k] / w->width);
+            }
+            r = GAS_REGION_RADIUS;
+        }
+        world_set_gas(w, x, y, g, m, random_bits);
+        w->temp[i] = t;
+    }
+    world_note_moved(w, x, y);
+    world_wake_rect(w, x - r, y - r, x + r, y + r);
+    world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
+    return true;
+}

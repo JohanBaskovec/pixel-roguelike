@@ -21,6 +21,10 @@ void test_air_brush_spreads_oxygen(void);
 void test_walk_forward_while_shooting(void);
 void test_walking_kicks_small_piles(void);
 void test_walker_crosses_heaps(void);
+void test_falling_powder_does_not_block_walker(void);
+void test_player_steers_in_the_air(void);
+void test_muzzle_gas(void);
+void test_bullets_and_casings_melt(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -310,4 +314,132 @@ void test_walker_crosses_heaps(void) {
         EXPECT(c->x > 190);
         world_destroy(w);
     }
+}
+
+void test_falling_powder_does_not_block_walker(void) {
+    // Powder in mid-air (falling, or lying on a body) never blocks a body: walking into a falling
+    // column of loose soil, or jumping with soil on the head, the body lifts it out of its way; it
+    // falls through the body and lands on the ground. Nothing is lost.
+    World *w = test_world_box(192, 128, 115);
+    fill(w, 1, 1, 190, 126, EDIT_AIR);
+    int pl = scene_spawn_player(w, 60);
+    Creature *c = &w->creatures[pl];
+    sim_run_ticks(w, 20);
+    EXPECT(c->grounded);
+    int x0 = c->x;
+    // A column of soil falling just in front of the body, from its head down to 10 cells above
+    // the floor.
+    int fx = c->x + c->w;
+    for (int y = c->y; y < c->y + c->h - 10; y++) {
+        world_set_cell(w, fx, y, ELEM_SOIL, (uint32_t)y);
+        w->cells[world_index(w, fx, y)].aux = 16; // falling, one cell per tick
+    }
+    int64_t soil = test_count(w, ELEM_SOIL);
+    c->walk = 1;
+    sim_tick(w, NULL);
+    EXPECT(c->x > x0); // not stopped by it
+    sim_run_ticks(w, 5);
+    c->walk = 0;
+    sim_run_ticks(w, 120);
+    EXPECT_EQ(test_count(w, ELEM_SOIL), soil);
+    EXPECT_EQ(w->particle_count, 0); // all of it landed
+    // Soil lying on its head: it still jumps its full height.
+    int y1 = c->y;
+    for (int k = 0; k < c->w; k++) {
+        world_set_cell(w, c->x + k, c->y - 1, ELEM_SOIL, (uint32_t)k);
+    }
+    c->jump = 1;
+    int top = c->y;
+    for (int t = 0; t < 60; t++) {
+        sim_tick(w, NULL);
+        top = PR_MIN(top, c->y);
+    }
+    EXPECT(y1 - top >= 8);
+    EXPECT(abs(c->y - y1) <= 3); // landed again (perhaps on a little of the soil)
+    sim_run_ticks(w, 60);
+    EXPECT_EQ(test_count(w, ELEM_SOIL), soil + c->w);
+    world_destroy(w);
+}
+
+void test_player_steers_in_the_air(void) {
+    // Jumping from standing still, the player can still move sideways in the air (air control).
+    World *w = test_world_box(192, 128, 116);
+    fill(w, 1, 1, 190, 126, EDIT_AIR);
+    int pl = scene_spawn_player(w, 60);
+    Creature *c = &w->creatures[pl];
+    sim_run_ticks(w, 20);
+    int x0 = c->x;
+    c->jump = 1;
+    sim_tick(w, NULL);
+    EXPECT(!c->grounded);
+    c->walk = 1;
+    sim_run_ticks(w, 20);
+    EXPECT(!c->grounded); // still in the air
+    EXPECT(c->x - x0 >= 12);
+    world_destroy(w);
+}
+
+void test_muzzle_gas(void) {
+    // Each shot blows the propellant out of the muzzle as hot gas (1.6 g: CO2 and nitrogen, at
+    // 1500 K). It glows for a moment, and its current mixes it (and its heat) into
+    // the air within a fraction of a second.
+    int pl;
+    World *w = range(117, ELEM_ROCK, &pl);
+    double co2_0 = test_mass(w, ELEM_CO2);
+    Rifle r = {0};
+    float sx, sy;
+    rifle_shoulder(&w->creatures[pl], &sx, &sy);
+    EXPECT(rifle_update(w, &r, pl, sx + 100.0f, sy, true));
+    int muzzle_x = (int)sx + RIFLE_LENGTH;
+    int hot = 0;
+    for (int y = (int)sy - 4; y <= (int)sy + 4; y++) {
+        for (int x = muzzle_x - 2; x <= muzzle_x + 8; x++) {
+            ElementId e = world_elem(w, x, y);
+            hot += g_elem_behavior[e] == BEHAVIOR_GAS &&
+                   elem_temp(e, w->temp[world_index(w, x, y)]) > 1000.0f;
+        }
+    }
+    EXPECT(hot >= 4); // the CO2 cells (the nitrogen mixes into the air's at once)
+    EXPECT(fabs(test_mass(w, ELEM_CO2) - co2_0 - 1.2e-3) < 0.01e-3);
+    sim_run_ticks(w, 20);
+    float hottest = 0.0f;
+    for (int i = 0; i < w->width * w->height; i++) {
+        ElementId e = w->cells[i].element;
+        if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+            hottest = PR_MAX(hottest, elem_temp(e, w->temp[i]));
+        }
+    }
+    EXPECT(hottest < 750.0f); // no longer glowing
+    EXPECT(hottest > 320.0f); // but the air in front is still warm
+    world_destroy(w);
+}
+
+void test_bullets_and_casings_melt(void) {
+    // Spent bullets (lead, melting at 327 degC) and casings (brass, about 935 degC) dropped into
+    // lava melt; the molten metals are denser than lava and sink to the bottom. Cooled, they
+    // solidify into lead and brass. Every cell is kept.
+    World *w = test_world_box(64, 64, 118);
+    fill(w, 1, 30, 62, 62, ELEM_LAVA);
+    fill(w, 20, 26, 29, 27, ELEM_BULLET);
+    fill(w, 34, 26, 43, 27, ELEM_CASING);
+    int64_t nb = test_count(w, ELEM_BULLET), nc = test_count(w, ELEM_CASING);
+    EXPECT_EQ(nb, 20);
+    sim_run_ticks(w, 600);
+    EXPECT_EQ(test_count(w, ELEM_BULLET), 0);
+    EXPECT_EQ(test_count(w, ELEM_CASING), 0);
+    EXPECT_EQ(test_count(w, ELEM_MOLTEN_LEAD) + test_count(w, ELEM_LEAD), nb);
+    EXPECT_EQ(test_count(w, ELEM_MOLTEN_BRASS) + test_count(w, ELEM_BRASS), nc);
+    EXPECT(test_mean_y(w, ELEM_MOLTEN_LEAD) > 55.0); // at the bottom
+    // Cooled: everything at 20 degC.
+    for (int i = 0; i < w->width * w->height; i++) {
+        ElementId e = w->cells[i].element;
+        if (e == ELEM_MOLTEN_LEAD || e == ELEM_MOLTEN_BRASS || e == ELEM_LAVA) {
+            w->temp[i] = 293.15f;
+        }
+    }
+    world_wake_heat(w, 0, 0, 63, 63);
+    sim_run_ticks(w, 10);
+    EXPECT_EQ(test_count(w, ELEM_LEAD), nb);
+    EXPECT_EQ(test_count(w, ELEM_BRASS), nc);
+    world_destroy(w);
 }
