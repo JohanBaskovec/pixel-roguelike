@@ -1,6 +1,7 @@
 #include "game/app.h"
 
 #include "core/log.h"
+#include "sim/creature.h"
 #include "sim/scene.h"
 
 #include <SDL3/SDL.h>
@@ -238,6 +239,14 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 app->wr.temperature_view = !app->wr.temperature_view;
                 app->wr.pressure_view = false;
                 render_invalidate(app->world);
+            } else if (k == SDLK_K && mouse_over_world(app)) {
+                // A test creature that wanders, centred on the cursor (M4c).
+                int wx, wy;
+                screen_to_world(app, app->mouse_x, app->mouse_y, &wx, &wy);
+                int id = creature_spawn(app->world, wx - CREATURE_W / 2, wy - CREATURE_H / 2);
+                if (id >= 0) {
+                    app->world->creatures[id].wander = 1;
+                }
             } else if (k == SDLK_ESCAPE) {
                 app->running = false;
             }
@@ -475,6 +484,24 @@ static void draw_panel(App *app) {
         y = draw_partial_pressures(app, ui, x, y, wx, wy);
     }
 
+    // Creatures (M4c): the first few, with the air around their heads.
+    if (app->world->creature_count > 0) {
+        y += 10.0f;
+        ui_text(ui, x, y, 0x9AA0AA, "CREATURES %d", app->world->creature_count);
+        y += 14.0f;
+        static const char *const k_state[] = {"ok", "impaired", "DANGER", "dead"};
+        static const uint32_t k_color[] = {0xE8E8E8, 0xFFC060, 0xFF6040, 0x808080};
+        for (int i = 0; i < app->world->creature_count && i < 3; i++) {
+            const Creature *c = &app->world->creatures[i];
+            ui_text(ui, x, y, k_color[c->state], "#%d %s %3d%%", i + 1, k_state[c->state],
+                    (int)(c->health * 100.0f + 0.5f));
+            y += 12.0f;
+            ui_text(ui, x, y, 0x9FC8E8, " O2 %.1f CO2 %.1f kPa", (double)c->po2 / 1000.0,
+                    (double)c->pco2 / 1000.0);
+            y += 12.0f;
+        }
+    }
+
     const char *help[] = {
         "LMB  paint",
         "RMB  erase",
@@ -485,6 +512,7 @@ static void draw_panel(App *app) {
         "Ctrl+wheel  zoom",
         "Home  whole world",
         "P  pressure  T  temperature",
+        "K  creature at the cursor",
         "Space  pause  . step",
         "R  reset   Esc  quit",
     };

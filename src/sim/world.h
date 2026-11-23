@@ -59,6 +59,9 @@ typedef struct World {
     struct Particle *particles;     // owned; free particles in flight (particle.h)
     int32_t particle_count;
     uint32_t launched_by_pressure; // jets launched this tick (for SimStats)
+    struct Creature *creatures;    // owned; creatures (creature.h)
+    int32_t creature_count;
+    uint32_t creature_next_id;
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.

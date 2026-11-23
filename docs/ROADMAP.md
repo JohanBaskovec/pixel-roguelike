@@ -192,25 +192,30 @@ Characters are entities, not cells: own position, body shape and physics. Depend
 question in VISION.md (colonists given orders, or a directly controlled character); this
 milestone builds what both need.
 
-- [ ] Body: a pixel mask (a person is about 35 × 9 px at 5 cm per pixel), walking, stepping up
+- [x] Body: a pixel mask (a person is about 35 × 9 px at 5 cm per pixel), walking, stepping up
       small ledges, falling, collision with solids; updated on the main thread between ticks
       (deterministic, like edits)
-- [ ] **Bodies displace matter:** each tick the body is stamped into the grid; gas and liquid in
+- [x] **Bodies displace matter:** each tick the body is stamped into the grid; gas and liquid in
       the cells it moves into are pushed into the cells it leaves or to the sides, so moving
       creatures stir gas, push water aside and splash. Matter is conserved. Test: walking through
       a gas boundary mixes it; total cells per element unchanged
-- [ ] Buoyancy and drag in liquids; wading and swimming
-- [ ] **Breathing with real rates:** a breath moves ~0.5 L (4 cells) of air in and out, 12–16
+- [x] Buoyancy and drag in liquids; wading and swimming
+- [x] **Breathing with real rates:** a breath moves ~0.5 L (4 cells) of air in and out, 12–16
       times a minute; at rest ~250 mL/min O₂ consumed (about 2 O₂ cells' worth per minute) and
       ~200 mL/min CO₂ produced, 5–10× more when working. With M4 mass, each breath removes and
       adds exact masses near the mouth. Optional global speed-up for gameplay (like
       `HEAT_TIME_SCALE`), documented as a deviation
-- [ ] Suffocation and CO₂ poisoning from the actual concentrations around the head (O₂ below
+- [x] Suffocation and CO₂ poisoning from the actual concentrations around the head (O₂ below
       ~16% impairs, below ~10% is dangerous; CO₂ above ~5% is dangerous). Test: a sealed room
       with one person reaches dangerous O₂ after the realistic time (about 2 h of game time for a
       5 × 3 m room)
-- [ ] Body heat (with M3): ~37 °C, ~100 W at rest, heating the cells around it
-- [ ] A simple test creature that wanders, for trying all of the above
+- [x] Body heat (with M3): ~37 °C, ~100 W at rest, heating the cells around it
+- [x] A simple test creature that wanders, for trying all of the above (key K)
+
+Acceptance notes (M4c): the body is a 9 × 35 rectangle; matter it displaces moves to the cells it
+leaves (exactly conserved; it does not splash). The sealed-room test gives 6.9 h, not 2 h: the
+world is one cell (5 cm) deep, so a 6.3 × 3.1 m room holds only 1 m³ of air; the time follows
+from the oxygen use within 4%. Breathing also stirs the air around a person (D-027).
 
 ## M5 – Matter variety and reactions
 

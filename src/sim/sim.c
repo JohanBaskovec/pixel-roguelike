@@ -13,6 +13,7 @@
 
 #include "core/jobs.h"
 #include "core/rng.h"
+#include "sim/creature.h"
 #include "sim/heat.h"
 #include "sim/particle.h"
 #include "sim/pressure.h"
@@ -961,6 +962,9 @@ void sim_tick(World *w, SimStats *stats) {
     SimStats total = {0};
     PhaseScratch *scratch = get_scratch(w);
     uint8_t stamp = (uint8_t)w->tick;
+
+    // Creatures first (serial, in list order); what they move is woken for this tick.
+    creatures_update(w);
 
     int n = w->chunks_x * w->chunks_y;
     for (int i = 0; i < n; i++) {

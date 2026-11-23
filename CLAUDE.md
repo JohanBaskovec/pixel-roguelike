@@ -27,12 +27,14 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 ## Current status
 
 **M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure**, **M3 –
-Temperature**, **M4 – Gas mass and pressure** and **M4b – Flowing water** are implemented: a 4096 × 2048 dirt box
+Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water** and **M4c – Creatures**
+are implemented: a 4096 × 2048 dirt box
 filled with void, a toolbar to paint water, steam, oxygen, CO2, hydrogen, nitrogen, air, dirt,
 rock, iron and ice (or erase, heat, cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
-liquids), free particles (jets that follow Torricelli, splashes), a camera (pan/zoom), tests and
-a benchmark. The next milestone is **M4c – Creatures**. See `docs/ROADMAP.md`, including the acceptance notes on what
+liquids), free particles (jets that follow Torricelli, splashes), creatures that walk, swim,
+breathe at real rates and give off body heat, a camera (pan/zoom), tests and a benchmark. The next
+milestone is **M5 – Matter variety and reactions**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
@@ -121,7 +123,8 @@ src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h, 
 src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
               sim (movement rules, gas mass and pressure, convection, tick), pressure (water
               bodies, transfers, jets), heat (conduction, phase changes), particle (free
-              particles), edit (brush strokes, edit queue), scene (box, demo, bench).
+              particles), creature (bodies, breathing), edit (brush strokes, edit queue), scene
+              (box, demo, bench).
               HEADLESS: no SDL video/render/events
 src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)
 src/ui/       immediate-mode widgets (button, panel, text)

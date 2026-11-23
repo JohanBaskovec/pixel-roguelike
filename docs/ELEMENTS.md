@@ -21,6 +21,7 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.43 | 1 |
 | 9 | Steam | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses 373.15 K → water | `#E6ECF2` α 0.25 | 3 |
 | 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | `#7C86A8` α 0.16 | 4 |
+| 11 | Body (a creature) | STATIC | 985 | 3500 | 0.5 | none (held at 37 °C) | `#D9A066` | 4c |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -103,6 +104,14 @@ All are clamped to `MAX_MOVE` = 32.
 | `SPLASH_MIN_SPEED` | 2 cells/tick | `sim/sim.c` | Landing speed from which falling liquid may splash |
 | `SPLASH_P16` | 1/4 | `sim/sim.c` | Chance that such a landing splashes |
 | `SPLASH_KEEP_MIN/MAX`, `SPLASH_UP` | 25–60%, 25% | `sim/sim.c` | Share of its speed a splash keeps, sideways and upward |
+| `WALK_SPEED` | 1.4 m/s | `sim/creature.c` | Walking speed (half when impaired or in liquid) |
+| `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
+| `BREATH_TICKS` | 257 | `sim/creature.c` | One breath every 4.3 s (14 a minute) |
+| `O2_KG_PER_S`, `CO2_KG_PER_S` | 250 / 200 mL/min | `sim/creature.c` | O₂ used and CO₂ made at rest (0.333 / 0.368 g/min); ×3 walking |
+| `PO2_IMPAIRED`, `PO2_DANGER`, `PCO2_DANGER` | 16 / 10 / 5 kPa | `sim/creature.c` | Partial pressures around the head (16% / 10% O₂, 5% CO₂ of an atmosphere) |
+| `DANGER_SECONDS`, `RECOVER_SECONDS` | 120 s, 600 s | `sim/creature.c` | Time to die in danger; time to recover fully |
+| `BODY_POWER_W` | 100 W | `sim/creature.c` | Body heat at rest (×3 walking, ×10 conduction speed-up) |
+| `STIR_CELLS`, `STIR_FAR` | 16 cells, 64 cells | `sim/creature.c` | Air stirred per breath (2 L) and how far off it is exchanged (3.2 m) |
 | `GRAVITY` | 9.81 m/s² | `sim/elements.h` | Gas pressure as a liquid height: P / (ρ·g·Δx); 1 atm = 207 cells of water |
 | `GRAVITY_INC_P16` | 0.87 | `sim/sim.c` | Chance per tick a falling liquid gains 1/16 px/tick of speed (≈ 9.8 m/s² at 5 cm/px) |
 | `FALL_SPEED_MAX` | 127/16 px/tick | `sim/sim.c` | Terminal fall speed, about 8 px/tick (24 m/s) |
@@ -138,6 +147,12 @@ Keep this list complete.
 7. For buoyancy, oxygen and nitrogen have the same density (air, `AIR_DENSITY_0C`), so painted
    air does not unmix. Real O₂ is 14% denser than N₂, but air stays mixed because it is mixed
    molecule by molecule, which one-gas-per-cell cannot represent.
+8. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
+   near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
+   currents, which one-gas-per-cell diffusion cannot do. Body heat is held at 37 °C with up to
+   100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a
+   9 × 35 rectangle. `metabolism_scale` speeds up breathing and health for gameplay or tests (1:
+   real time).
 
 ## Adding an element (checklist)
 

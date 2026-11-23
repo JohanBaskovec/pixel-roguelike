@@ -86,6 +86,9 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
                 continue;
             }
             size_t i = world_index(w, x, y);
+            if (w->cells[i].element == ELEM_BODY && e->mode == EDIT_PAINT) {
+                continue; // creatures' bodies are moved only by their creature
+            }
             if (e->mode != EDIT_PAINT) {
                 // Heat or cool. The stored temperature may go beyond a phase-change point (that
                 // is latent heat); the physical temperature is what is limited.

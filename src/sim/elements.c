@@ -15,6 +15,7 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_HYDROGEN] = {"Hydrogen",       BEHAVIOR_GAS,    0.0899f,  14300.0f, 0.18f,   293.15f, 0xE9A6E0, 110, 30,  6},
     [ELEM_STEAM]    = {"Steam",          BEHAVIOR_GAS,    0.59f,    2080.0f,  0.025f,  383.15f, 0xE6ECF2, 64,  30,  4},
     [ELEM_NITROGEN] = {"Nitrogen",       BEHAVIOR_GAS,    1.2506f,  1040.0f,  0.026f,  293.15f, 0x7C86A8, 40,  30,  3},
+    [ELEM_BODY]     = {"Body",           BEHAVIOR_STATIC, 985.0f,   3500.0f,  0.5f,    310.15f, 0xD9A066, 255, 12,  0},
 };
 // clang-format on
 

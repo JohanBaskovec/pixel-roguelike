@@ -17,6 +17,7 @@ enum {
     ELEM_HYDROGEN = 8,
     ELEM_STEAM = 9,
     ELEM_NITROGEN = 10,
+    ELEM_BODY = 11, // a creature's body (M4c): solid to matter, moved only by its creature
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.

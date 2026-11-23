@@ -337,3 +337,19 @@ to watch).
   gas-soup benchmark got 13% slower, mostly from splashes leaving holes that wake neighbours.
   Flow through a submerged opening is still not limited by its size (the body is joined).
 
+## D-027 — Creatures are entities stamped into the grid as solid body cells
+
+- **Status:** Accepted (M4c)
+- **Context:** Characters need their own position, shape and physics, but the grid's matter must
+  feel them: gas and water pushed aside, heat exchanged, air breathed.
+- **Decision:** A creature is an entity (position, velocity, state) whose body is stamped into the
+  grid as `ELEM_BODY` cells (static to every grid rule). It moves one cell at a time, swapping the
+  matter its leading edge enters with the body cells it leaves, so matter is conserved exactly.
+  Creatures update serially at the start of each tick. Breathing takes and adds exact masses near
+  the mouth and stirs the air around it (swapping gas cells near and far), because gases otherwise
+  mix only at interfaces (D-005).
+- **Consequences:** No grid rule needed changes: walls, water pressure, gas and particles handle
+  bodies already. Determinism holds for any thread count (tested). Matter displaced by a step
+  teleports across the body (9 or 35 cells), which reads as flowing around it. Stirring is an
+  explicit modelling choice for air currents (documented as a deviation in `ELEMENTS.md`).
+

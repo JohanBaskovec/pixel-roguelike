@@ -317,6 +317,47 @@ steady stream (the cells at the opening do not all ask every tick). Water painte
 still for a tick before it starts falling, and a round blob can briefly jet sideways from its own
 sides. A particle crossing a falling stream does not mix with it.
 
+### Creatures (M4c; D-027)
+
+Code: `src/sim/creature.c`. Creatures are entities, not cells: each has a position, a velocity and
+a body, a 9 × 35 rectangle (45 cm × 1.75 m) of `ELEM_BODY` cells stamped into the grid. Body
+cells are `BEHAVIOR_STATIC`, so liquid, gas, particles and water pressure treat them as walls, and
+brushes do not paint over them; heat conducts through them. Creatures are updated serially, in
+list order, at the start of each tick (before heat and movement).
+
+- **Moving.** Gravity (9.81 m/s²) and, in liquid, buoyancy for the submerged fraction of its sides
+  (body 985 kg/m³ against water's 1000: it floats, barely), drag, and swimming up while its head
+  is under. Walking at 1.4 m/s (half in liquid or when impaired), stepping up ledges of up to
+  `STEP_UP` (4 cells, 20 cm). It moves cell by cell; each step swaps the cells its leading edge
+  moves into (void, gas or liquid) with the body cells it leaves at the other end, so gas and
+  water flow around the body and **nothing is created or lost** (tested). Walking through a gas
+  boundary carries the gas it walks into to behind it.
+- **Breathing,** every `BREATH_TICKS` (4.3 s, 14 a minute). It takes the oxygen it uses
+  (250 mL/min at rest, ×3 walking) from the oxygen within 16 cells of its mouth (at most half of
+  each cell), and breathes out CO2 for what it used (200 mL/min): into CO2 near the mouth, or as
+  a new CO2 cell at the mouth (the gas there squeezed into its kind around). Each breath also
+  **stirs** the air: `STIR_CELLS` (16 cells, 2 L) times the speed-up and work, swapping gas
+  within 16 cells of the mouth with gas up to 64 cells away. Without it, the air next to the face
+  goes stale while the room stays fresh (gases mix only at interfaces; D-005), and a person
+  suffocates long before the room's oxygen runs low. Underwater it gets no oxygen.
+- **Health** from the partial pressures around the head (window of 16 cells around the mouth,
+  smoothed over breaths): O2 below 16 kPa → impaired (slower); O2 below 10 kPa, CO2 above 5 kPa,
+  or a breath that found less than half its oxygen → in danger, losing health (dead after 120 s);
+  otherwise recovering (600 s to full). Tested: in a sealed 6.3 × 3.1 m room (one cell deep:
+  1 m³ of air), one person at rest reaches danger after 6.9 hours of game time, within 4% of the
+  7.2 hours its oxygen use predicts.
+- **Body heat:** held at 37 °C, giving up to 100 W (×3 walking), scaled by the gas conduction
+  speed-up like the heat the body loses (`HEAT_TIME_SCALE_GAS`). Tested: in cold air the body
+  stays at 37 °C and warms the air around it.
+- `metabolism_scale` (1 = real time) speeds up breathing, stirring and health together, for
+  gameplay or tests; the room-size results do not depend on it.
+- The test creature (key K) wanders: it picks a direction about every 3 s and turns back when
+  blocked.
+
+**Known limitations.** The body is a rectangle and does not bend, crouch or climb. It is a cell
+thick, like everything (the world is a 5 cm slice). Wading only slows it down. Falling does no
+damage. Exhaled air is not humid.
+
 ## Heat pass (M3)
 
 Code: `src/sim/heat.c` (conduction, phase changes), `src/sim/sim.c` (convection), tables in

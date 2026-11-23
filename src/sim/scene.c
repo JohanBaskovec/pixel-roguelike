@@ -1,6 +1,7 @@
 #include "sim/scene.h"
 
 #include "core/rng.h"
+#include "sim/creature.h"
 #include "sim/edit.h"
 
 static void fill_rect(World *w, int x0, int y0, int x1, int y1, ElementId e, Rng *rng) {
@@ -56,6 +57,17 @@ void scene_demo(World *w) {
     fill_rect(w, tx0, ty0, tx1, ty1, ELEM_ROCK, &rng);
     fill_rect(w, tx0 + 6, ty0 - 1, tx1 - 6, ty1 - 6, ELEM_WATER, &rng);
     fill_rect(w, tx1 - 5, ty1 - 30, tx1, ty1 - 28, ELEM_VOID, &rng); // the hole
+    // A room of air on the floor, right of the U-tube, with a creature wandering in it (M4c).
+    int rx0 = W * 13 / 16, rx1 = W - 40, ry0 = H - 17 - 160, ry1 = H - 17;
+    fill_rect(w, rx0, ry0, rx1, ry1, ELEM_ROCK, &rng);
+    for (int y = ry0 + 6; y <= ry1 - 6; y++) {
+        Edit air = {rx0 + 6, y, rx1 - 6, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+        sim_apply_edit(w, &air);
+    }
+    int id = creature_spawn(w, (rx0 + rx1) / 2, ry1 - 6 - CREATURE_H);
+    if (id >= 0) {
+        w->creatures[id].wander = 1;
+    }
     // Water on the ledge, gases at mixed heights.
     blob(w, W / 4, H / 2 - 60, 50, ELEM_WATER);
     blob(w, W * 3 / 4, H / 4, 60, ELEM_CO2);

@@ -135,10 +135,15 @@ any cell's element indexes them without a bounds check. Unknown IDs, and the pse
 carries and its stored temperature (24 bytes; 3 MB). A flying particle is not on the grid: the
 cell it left is empty. See `SIMULATION.md` → Free particles.
 
+**Creatures (M4c).** `World.creatures` holds up to `CREATURE_MAX` (64) `Creature`s: position,
+velocity, walking and breathing state, health. Their bodies are `ELEM_BODY` cells on the grid.
+See `SIMULATION.md` → Creatures.
+
 ## Simulation tick
 
 ```
 sim_tick(world):
+    creatures: move, breathe, heat, in list order (serial; M4c)
     stamp = tick & 0xFF
     every chunk: cur <- next, next <- empty        (wakes from edits and the last tick)
     heat: conduction over heat-active chunks and their neighbours (parallel, Jacobi into
@@ -212,6 +217,8 @@ whatever the thread count. This requires:
   (Jacobi double-buffering, no reductions whose order depends on threads).
 - Free particles are launched in job order and updated serially in list order (removal swaps
   the last particle in, deterministically). Tested with jets on 1 and 4 threads.
+- Creatures update serially in list order, with randomness from a hash of seed, tick and their
+  id. Tested with three wandering, breathing creatures on 1 and 4 threads.
 
 ## Player edits
 

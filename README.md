@@ -68,6 +68,7 @@ ctest --test-dir build/release --output-on-failure
 | `T` | Temperature view |
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Steam, Dirt, Rock, Iron, Ice, Eraser |
 | `N` / `G` | Nitrogen / Air (each cell 21% chance oxygen, else nitrogen), at 1 atm |
+| `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
@@ -79,8 +80,9 @@ were updated, water moved by pressure, gas pressure equalisations, free particle
 ("Flying"), chunks conducting heat, active chunks, zoom, and the element, temperature (with
 melting/boiling progress), (for water) depth and absolute pressure (gas on the surface plus
 depth), (for gas) pressure and mass under the cursor, plus the partial pressure of each gas in a
-15 × 15 window around it. The demo scene (`--demo`) has a tall tank with a hole near its foot,
-which jets.
+15 × 15 window around it. Below, the first creatures with their health and the O₂ and CO₂
+around their heads. The demo scene (`--demo`) has a tall tank with a hole near its foot, which
+jets, and a room of air with a wandering creature.
 
 ## Documentation
 
