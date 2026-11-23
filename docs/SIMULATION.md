@@ -291,14 +291,10 @@ A gas cell does the following each tick, in order:
      Judged by the two regions' mean pressures, and only if this gas is still at least the other's
      afterwards (no flipping back). This is how total pressure evens out across different gases
      below the push ratio. Cells stay awake for it above a 3% difference.
-   - **Else, a different gas:** the two **mix** (trade places) only if that lowers the number of
-     same-gas contacts around the two cells. Gases spread into each other at their interface and
-     then stop: the number of same-gas contacts only ever drops, so a mixed region goes to sleep
-     instead of shuffling forever. (Mixing never moves the denser gas down on its own account:
-     bulk buoyancy does that.) In still gas this is slow (`P_GAS_MIX`, 1.6% a tick): it
-     stands for molecular diffusion, which covers about `√(2Dt)` = 4.5 cm (one cell) in 50 s, sped
-     up about 40× (a deliberate deviation: real air is never perfectly still). Where the gas has
-     a current (a cell or its neighbour), it is fast (`P_GAS_MIX_STIRRED`, 50%): turbulence.
+   - **Else, a different gas:** the two **mix** (trade places): by **diffusion** down the
+     concentration gradient in still gas, or by **turbulence** where the gas has a current (see
+     Gas mixtures and diffusion below). Mixing never moves the denser gas down on its own
+     account: bulk buoyancy does that.
    - Then, for any gas there: **pressure equalisation.** Walk a random 1..`GAS_REACH` (16) cells
      in that direction through gas of any kind, to the last cell of the same gas. If its
      temperature is within `GAS_JUMP_MAX_DT` (2 K), trade mass with it, otherwise with the
@@ -320,6 +316,50 @@ which then pushes and splits until it fills about 1700 cells at 1 atm. Steam con
 full water cell (125 g) with probability `m / m_water`, otherwise nothing (deterministic hash of
 seed, tick and cell), so mass is conserved on average. The condensation point does not depend on
 pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not 100 °C).
+
+### Gas mixtures and diffusion
+
+Code: `gas_gradient()`, `gas_blocks_differ()`, `gas_mix_gain()` and step 2e of `update_gas()` in
+`src/sim/sim.c`; `gas_blocks_update()` (block counts).
+
+Real molecular diffusion is far too slow to matter at this scale (CO2 in air: about 80 s to
+cover 5 cm, 9 hours to cover 1 m). What mixes a room is gentle turbulence, roughly 100 to 1000
+times faster. The game uses an effective diffusivity of about 2.5e-3 m²/s (about 150× molecular,
+a deliberate deviation: indoor air is never perfectly still), so nothing stays an unmixed clump:
+a sharp edge blurs by about 15 cm in 30 s, and a metre-wide haze spreads out in a few minutes.
+
+- **Diffusion down the gradient.** A gas cell `a` and a different gas `b` next to it trade places
+  when there is clearly more of `a` on its side than on b's side. Each side is a window across
+  the direction, 4, 8, 16 or 32 cells long (7 to 15 wide, sampled every 1 or 2 cells: 27 to 240
+  samples; `a` and `b` themselves not counted). "Clearly" means the fractions of `a` (among gas
+  cells) differ by `DIFFUSE_Z` (3) standard errors of a common mixture (pooled binomial), and `b`
+  is not rarer on its own side. The shortest scale where that holds is used: short windows see a
+  sharp edge, long, wide ones (less noise) a weak or smeared difference. The swap happens with
+  probability `P_GAS_MIX` (9.4%) times the gradient (the difference per cell, times 4, divided by
+  `4 p (1 − p)`, at most 1): dividing by the share of pairs that can swap makes the flow
+  proportional to the gradient alone, as in Fick's law, so a dilute haze spreads as fast as a
+  strong mix. Tested: oxygen and nitrogen side by side spread into each other as √t (3 cells of
+  oxygen per row past the middle after 30 s, twice that after 2 min).
+- **Small clusters** (a few cells of one gas side by side, too small to show as a gradient) are
+  broken up with probability `P_GAS_SPECKLE` (1.6%) where a swap lowers the share of same-gas
+  contacts around the two cells (walls count for neither side). Every such swap lowers that
+  share, so it comes to rest.
+- **Turbulence.** Where either cell has a current, they trade places at random with probability
+  `P_GAS_MIX_STIRRED` (50%) times the current's speed / 31: a step or a breath mixes fast, a
+  fading current gently.
+- **Coming to rest.** Once the gases are evenly mixed (no clear gradient at any scale, no small
+  cluster), nothing moves and the region sleeps. The precise gradient test is expensive (up to
+  800 cell reads), so it runs only after the swap's random draw, and only where the **gas block
+  counts** show a difference nearby: at the start of each tick, each awake chunk counts each gas
+  in its 8 × 8 blocks (`World.gas_blocks`, in parallel); `gas_blocks_differ()` compares the
+  cell's block with the blocks 1 to 4 away in each direction (2 standard errors). Still air
+  fails that at once and costs almost nothing. Cells next to a different gas stay awake until
+  their chunk's full check (every `BULK_FULL_EVERY` ticks), which decides whether they sleep.
+
+Tested: a ball of CO2 lands within 10 s with only a faint wake above it (no 15 × 15 window above
+the floor layer holds a quarter CO2), then the pool thins and spreads over the floor (its
+densest window drops by more than 5 points in 30 s, no window holds 70%); a random 50/50 mixture
+of CO2 and air stays put and sleeps; painted air sleeps.
 
 ### Gas mixtures and bulk buoyancy
 
@@ -388,8 +428,11 @@ level (5 kPa) before oxygen falls to 10 kPa, as in real sealed rooms.
 - Bulk buoyancy only sees differences above the noise of a mixture, so a thin CO2-rich haze over
   clean air sinks only where it is concentrated enough to stand out of its own noise (in reality
   it would sink, slowly). A heavy layer on top of a light one turns over, but it can stall with a
-  weak top-heavy gradient left. A sinking blob leaves a faint trail of mixture, and lands as a
-  low mound rather than a perfectly flat layer.
+  weak top-heavy gradient left. A sinking blob leaves a faint wake (diffusion blurs its edge as
+  it falls), and lands as a mound that spreads by diffusion rather than flowing out flat at once.
+- Diffusion stops where the remaining gradient is below the noise of the largest windows (about
+  1% per cell): a very shallow gradient over several metres stays. The air the player stirs and
+  breathes into keeps diffusing near the player (a few thousand more cells awake).
 - A gas cell suddenly heated far above its neighbours expands partly by trading mass with them,
   which mixes some of its heat into them. Gradual heating (a hot plate) is barely affected, since
   the mass moved is proportional to the temperature step.

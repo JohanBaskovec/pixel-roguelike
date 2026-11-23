@@ -63,6 +63,9 @@ typedef struct World {
     struct Creature *creatures;    // owned; creatures (creature.h)
     int32_t creature_count;
     uint32_t creature_next_id;
+    // Owned; gas counts per GAS_BLOCK x GAS_BLOCK block (GAS_SLOTS bytes each: all gas cells, then
+    // each gas by g_gas_slot), recounted at the start of every tick for the awake chunks (sim.c).
+    uint8_t *gas_blocks;
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.

@@ -98,12 +98,20 @@ typedef struct Reaction {
 #define FLAME_MAX_K    3000.0f // products are not heated beyond this (dissociation, not modelled)
 extern const Reaction g_reactions[REACTION_COUNT];
 extern uint8_t g_reaction_of[256];
+// Each gas's slot in a world's gas block counts (World.gas_blocks: 1..5; 0: not a gas; slot 0
+// counts all gas cells), per GAS_BLOCK x GAS_BLOCK block.
+extern uint8_t g_gas_slot[256];
+#define GAS_BLOCK_SHIFT 3
+#define GAS_BLOCK       (1 << GAS_BLOCK_SHIFT) // 8 cells
+#define GAS_SLOTS       6
 extern float g_min_ignite_k; // lowest ignition temperature of any reaction
 
-// Buoyancy scale K_BUOY and gas mixing probabilities (docs/SIMULATION.md), x/65536: P_GAS_MIX in
-// still gas (diffusion), P_GAS_MIX_STIRRED where the gas has a current (turbulence).
+// Buoyancy scale K_BUOY and gas mixing probabilities (docs/SIMULATION.md), x/65536: P_GAS_MIX for
+// diffusion down a gradient (times the gradient), P_GAS_SPECKLE for breaking up small clusters,
+// both in still gas; P_GAS_MIX_STIRRED where the gas has a current (turbulence, times its speed).
 #define K_BUOY_16            65536u
-#define P_GAS_MIX_16         1024u
+#define P_GAS_MIX_16         6144u
+#define P_GAS_SPECKLE_16     1024u
 #define P_GAS_MIX_STIRRED_16 32768u
 
 extern const ElementDef g_elem_defs[ELEM_COUNT];

@@ -95,8 +95,11 @@ All are clamped to `MAX_MOVE` = 32.
 | Global | Value | Where | Meaning |
 |---|---|---|---|
 | `K_BUOY` | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
-| `P_GAS_MIX` | 1/64 | `sim/elements.h` | Probability that two different gases trade places when that lowers their same-gas contacts, in still gas (diffusion, deviation 12) |
-| `P_GAS_MIX_STIRRED` | 1/2 | `sim/elements.h` | Same, where either cell has a current (turbulence) |
+| `P_GAS_MIX` | 9.4% | `sim/elements.h` | Diffusion: two different gases trade places with this probability times the concentration gradient (deviation 12) |
+| `P_GAS_SPECKLE` | 1/64 | `sim/elements.h` | Breaking up small clusters of one gas (where a swap lowers the share of same-gas contacts) |
+| `P_GAS_MIX_STIRRED` | 1/2 | `sim/elements.h` | Turbulence: where either cell has a current, a random swap with this probability times its speed / 31 |
+| `DIFFUSE_Z`, diffusion windows | 3; 4, 8, 16, 32 cells long, 7–15 wide | `sim/sim.c` | Diffusion: a gradient must be this many standard errors; the window scales |
+| `GATE_Z` | 2 | `sim/sim.c` | Gas block counts (8 × 8) gate the precise diffusion test |
 | `BULK_Z` | 2 | `sim/sim.c` | Bulk buoyancy between gases: windows differ by this many standard errors (pooled spread of their densities) |
 | `BULK_MIN_CONTRAST` | 1% | `sim/sim.c` | ... and by at least this contrast `(ρ_a − ρ_b) / (ρ_a + ρ_b)` |
 | `BULK_K` | 4 | `sim/sim.c` | A parcel sinks with probability `BULK_K · contrast` per tick (at most 1) |
@@ -201,9 +204,10 @@ Keep this list complete.
    real time).
 12. Gas mixtures (D-030): a cell of one gas among cells of others stands for gas mixed molecule by
     molecule, so it does not sink or rise by its kind; only bulk mixtures that are denser by more
-    than the noise of a mixture sink (a thin CO₂ haze does not). Still-gas diffusion
-    is about 40× real molecular diffusion (`P_GAS_MIX`), and stirred gas mixes fast
-    (`P_GAS_MIX_STIRRED`), standing in for turbulence.
+    than the noise of a mixture sink (a thin CO₂ haze does not). Still gas diffuses down its
+    concentration gradient at about 2.5e-3 m²/s, about 150× real molecular diffusion
+    (`P_GAS_MIX`): indoor air is never perfectly still, and nothing should stay an unmixed
+    clump. Stirred gas mixes faster still (`P_GAS_MIX_STIRRED`), standing in for turbulence.
 13. Weapons (M6a): a bullet is one cell (5 cm), far bigger than a real 5.56 mm bullet; its
     penetration (about 30 cm of earth, one chip of rock) is a rough figure, not a ballistic model,
     and it does not ricochet. Spent bullets and casings are full cells of lead and brass at their

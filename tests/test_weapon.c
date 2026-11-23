@@ -188,7 +188,7 @@ void test_player_runs_and_jumps(void) {
 
 void test_air_brush_spreads_oxygen(void) {
     // The Air brush paints 21% oxygen, never two oxygen cells side by side (evenly mixed), so the
-    // painted air does not shuffle: a big room of it is asleep after a few ticks.
+    // painted air does not shuffle: a big room of it is asleep within a fraction of a second.
     World *w = test_world_box(256, 256, 107);
     fill(w, 1, 1, 254, 254, EDIT_AIR);
     int64_t o2 = test_count(w, ELEM_OXYGEN), n2 = test_count(w, ELEM_NITROGEN);
@@ -203,7 +203,7 @@ void test_air_brush_spreads_oxygen(void) {
         }
     }
     EXPECT_EQ(pairs, 0);
-    sim_run_ticks(w, 10);
+    sim_run_ticks(w, 40); // cells fall asleep on their chunk's full check (every 16 ticks)
     SimStats st;
     sim_tick(w, &st);
     EXPECT(st.cells_visited < 100);

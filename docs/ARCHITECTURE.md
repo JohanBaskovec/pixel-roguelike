@@ -102,6 +102,7 @@ typedef struct World {
     void     *sim_scratch;           // owned; per-phase job contexts
     struct PressureState *pressure;  // owned; water-pressure pieces, union-find, body tops
     float    *mass;                  // kg per cell, gases only (M4); pressure = gas_pressure()
+    uint8_t  *gas_blocks;            // count of each gas per 8 x 8 block (diffusion gate, D-032)
 } World;
 ```
 
@@ -151,6 +152,8 @@ sim_tick(world):
         added to this tick's rects
     water pressure: relabel chunks whose still liquid changed (parallel), rebuild bodies with a
         union-find (serial); chunks whose body top rose are added to this tick's rects
+    gas block counts: each chunk with a non-empty cur rect counts each gas in its 8 x 8 blocks
+        (parallel; read-only during the movement pass)
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
         the first phase rotates with the tick; the chunks of a phase run in parallel;
         after each phase, the phase's water-pressure transfer requests are applied (serial;
@@ -311,4 +314,4 @@ beyond toolbars and HUDs (`DECISIONS.md` D-009).
 All large buffers are allocated once at world creation with 64-byte alignment
 (`SDL_aligned_alloc`). Nothing is allocated per tick. Budget at 4096 × 2048 (8.4 M cells) today:
 cells 32 MB + temperature 2 × 32 MB + gas mass 32 MB + piece labels 8 MB + water-pressure tables
-≈ 14 MB, plus the renderer's 32 MB staging buffer and 32 MB texture.
+≈ 14 MB + gas block counts 0.8 MB, plus the renderer's 32 MB staging buffer and 32 MB texture.

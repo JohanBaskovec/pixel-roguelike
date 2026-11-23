@@ -35,7 +35,7 @@ void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
 void test_condensing_keeps_mass_on_average(void);
 void test_air_stays_mixed(void);
-void test_gases_mix_and_settle(void);
+void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
 void test_co2_blob_sinks_and_pools(void);
 void test_dilute_co2_stays_in_air(void);
@@ -140,7 +140,7 @@ int main(int argc, char **argv) {
     RUN(test_boiling_keeps_mass);
     RUN(test_condensing_keeps_mass_on_average);
     RUN(test_air_stays_mixed);
-    RUN(test_gases_mix_and_settle);
+    RUN(test_gases_diffuse_into_each_other);
     RUN(test_gas_mixture_stays_mixed);
     RUN(test_co2_blob_sinks_and_pools);
     RUN(test_dilute_co2_stays_in_air);

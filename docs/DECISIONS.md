@@ -430,3 +430,26 @@ to watch).
 - **Consequences:** Shooting costs little (a few hundred cell checks per bullet, serial). Spent
   bullets and casings pile up as real matter. The camera follows the player at zoom 1. Next:
   simulate only near the player, HP and damage (ROADMAP M6b).
+
+## D-032 — Gas diffusion follows concentration gradients at several scales
+
+- **Status:** Accepted (M6a)
+- **Context:** Gases only mixed where a swap lowered the same-gas contacts next to the two cells.
+  That evened out an interface a few cells deep and then stopped, so the inside of a clump
+  never mixed and large pure clumps (a CO2 pool, a dilute wake) stayed forever. The user asked
+  that no large clump stay unmixed.
+- **Decision:** A gas cell trades places with a different neighbour when the fraction of its gas
+  is clearly higher on its side than on the neighbour's, compared in windows 4 to 32 cells long
+  (a pooled binomial test at 3 standard errors), with a probability proportional to the gradient
+  divided by the share of pairs that can swap (Fick's law: the flow does not depend on the
+  concentration). The rate stands for gentle indoor turbulence (about 2.5e-3 m²/s). The old
+  contact rule stays, slower, for clusters too small to be a gradient. Stirred gas swaps at
+  random in proportion to the current's speed. 8 × 8 gas block counts, recounted each tick for
+  awake chunks, gate the precise test, so still air costs almost nothing.
+- **Alternatives:** unbiased random swaps everywhere (true random-walk diffusion): mixtures would
+  never sleep, and all awake air would churn. A composition per cell: against D-005. Currents
+  around sinking gas (turbulent entrainment): tried, and it shredded blobs into standing columns.
+- **Consequences:** Interfaces widen as √t, a CO2 ball lands, pools and keeps thinning, mixtures
+  and still air sleep. The gas-soup benchmark is unchanged; the idle level costs a few ms more
+  where the player's breath keeps gradients alive. A gradient shallower than about 1% per cell
+  is left alone.

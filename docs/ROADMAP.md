@@ -253,6 +253,9 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 - [x] The element tools stay, beside the rifle
 - [x] Casings never block the player (after play-testing): bullets start at the muzzle, powders in
       flight pass through bodies, and walkers kick piles up to 40 cm high out of the way
+- [x] No large clump of gas stays unmixed (after play-testing): diffusion down concentration
+      gradients at several scales, at gentle indoor-turbulence rates, coming to rest once evenly
+      mixed (D-032)
 - Tests: digging and conservation, bullets stopping at iron and falling, air stirring, the same
   result on any thread count, small clumps, running and jumping, the Air brush
 

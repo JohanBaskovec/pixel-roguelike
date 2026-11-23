@@ -777,6 +777,104 @@ static inline void gas_clear(World *w, size_t i) {
     w->temp[i] = 0.0f;
 }
 
+// Diffusion (docs/SIMULATION.md -> Gas mixtures). The gas `a` at (x, y) trades places with the
+// different gas `b` next to it, in direction k, when there is clearly more of `a` on its own side
+// than on b's side: concentration flows down its gradient, through a clump's inside too, until the
+// gases are evenly mixed, and then nothing moves (the region sleeps). Each side is a window
+// across the direction (2 * k_diffuse_half_w[s] + 1 wide) and k_diffuse_d[s] cells along it,
+// sampled every k_diffuse_stride[s] cells: the short windows see a sharp edge, the long, wide ones
+// (27 to 240 samples, so less noise) a weak or smeared difference (up to 32 cells, the reach).
+// `a` and `b` themselves are not counted. "Clearly": the fractions of `a` differ by DIFFUSE_Z
+// standard errors of a common mixture (pooled), and `b` is not less on its own side.
+#define DIFFUSE_SCALES 4
+#define DIFFUSE_Z      3.0f
+static const int8_t k_diffuse_d[DIFFUSE_SCALES] = {4, 8, 16, 32};
+static const int8_t k_diffuse_stride[DIFFUSE_SCALES] = {1, 1, 2, 2};
+static const int8_t k_diffuse_half_w[DIFFUSE_SCALES] = {3, 3, 5, 7};
+
+// The swap probability factor (0..1) for `a` at (x, y) and its neighbour in direction k: the
+// gradient of the fraction of `a` (among gas cells) between the two sides, at the shortest scale
+// where it is clear (0 if none). The swap probability scales with it (Fick).
+// Cheap gate for gas_gradient: does the fraction of `a` in the 8 x 8 block of (x, y) differ from
+// that of a block 1 to 4 blocks away (left, right, up or down) by GATE_Z standard errors? If not,
+// there is no gradient worth the precise test (evenly mixed gas, like still air, costs almost
+// nothing). Block counts are a tick old at most (gas_blocks_update).
+#define GATE_Z 2.0f
+
+static bool gas_blocks_differ(const World *w, int x, int y, ElementId a) {
+    int bw = w->width >> GAS_BLOCK_SHIFT, bh = w->height >> GAS_BLOCK_SHIFT;
+    int bx = x >> GAS_BLOCK_SHIFT, by = y >> GAS_BLOCK_SHIFT, slot = g_gas_slot[a];
+    const uint8_t *b0 = &w->gas_blocks[(size_t)(by * bw + bx) * GAS_SLOTS];
+    if (b0[0] < 8) {
+        return true; // mostly not gas here: leave it to the precise test
+    }
+    for (int d = 1; d <= 4; d++) {
+        for (int k = 0; k < 4; k++) {
+            int nx = bx + k_dir4[k][0] * d, ny = by + k_dir4[k][1] * d;
+            if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) {
+                continue;
+            }
+            const uint8_t *b1 = &w->gas_blocks[(size_t)(ny * bw + nx) * GAS_SLOTS];
+            if (b1[0] < 8) {
+                continue;
+            }
+            float n0 = (float)b0[0], n1 = (float)b1[0];
+            float diff = (float)b0[slot] / n0 - (float)b1[slot] / n1;
+            float p = (float)(b0[slot] + b1[slot]) / (n0 + n1);
+            if (diff * diff > GATE_Z * GATE_Z * p * (1.0f - p) * (1.0f / n0 + 1.0f / n1)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static float gas_gradient(const World *w, int x, int y, int k, ElementId a, ElementId b) {
+    if (!gas_blocks_differ(w, x, y, a)) {
+        return 0.0f;
+    }
+    int dx = k_dir4[k][0], dy = k_dir4[k][1];
+    int ax = -dy, ay = dx; // across
+    for (int s = 0; s < DIFFUSE_SCALES; s++) {
+        int d = k_diffuse_d[s], st = k_diffuse_stride[s], hw = k_diffuse_half_w[s];
+        int na[2] = {0, 0}, nb[2] = {0, 0}, n[2] = {0, 0};
+        for (int t = 0; t < d; t += st) {
+            for (int q = -hw; q <= hw; q++) {
+                if (t == 0 && q == 0) {
+                    continue; // a and b themselves
+                }
+                for (int side = 0; side < 2; side++) {
+                    int along = side == 0 ? -t : 1 + t;
+                    ElementId e = world_elem(w, x + dx * along + ax * q, y + dy * along + ay * q);
+                    if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+                        n[side]++;
+                        na[side] += e == a;
+                        nb[side] += e == b;
+                    }
+                }
+            }
+        }
+        if (n[0] < 8 || n[1] < 8) {
+            continue; // mostly walls
+        }
+        float fa0 = (float)na[0] / (float)n[0], fa1 = (float)na[1] / (float)n[1];
+        float diff = fa0 - fa1;
+        if (diff <= 0.0f || (float)nb[1] * (float)n[0] < (float)nb[0] * (float)n[1]) {
+            continue;
+        }
+        float p = (float)(na[0] + na[1]) / (float)(n[0] + n[1]);
+        float var = p * (1.0f - p) * (1.0f / (float)n[0] + 1.0f / (float)n[1]);
+        if (diff * diff > DIFFUSE_Z * DIFFUSE_Z * var) {
+            // Fick: the swaps that can happen here (a on this side, b on that) are a fraction
+            // p (1 - p) of the pairs, so dividing by it makes the flow proportional to the
+            // gradient alone, whatever the concentration (dilute haze spreads as fast as a
+            // strong mix).
+            return PR_MIN(1.0f, diff / (float)d / PR_MAX(4.0f * p * (1.0f - p), 0.05f));
+        }
+    }
+    return 0.0f;
+}
+
 // The cells within 2 steps (Manhattan) of (x, y): nb[2 + dy][2 + dx]; corners unused.
 typedef struct GasNeighbourhood {
     ElementId e[5][5];
@@ -801,29 +899,38 @@ static inline void gas_load_neighbourhood(const World *w, int x, int y, GasNeigh
     }
 }
 
-// Diffusion (Fick): does trading places with the different gas in direction k lower the number of
-// same-gas contacts around the two cells? (The cell itself is nb->e[2][2].) Every such swap lowers
-// that number, so gases spread into each other at an interface and stop once mixed: a mixed region
-// sleeps.
+// Evening out at the smallest scale: does trading places with the different gas in direction k
+// lower the number of same-gas contacts around the two cells? (The cell itself is nb->e[2][2].)
+// It breaks up small clusters (a few cells of one gas side by side) that are too small to show as
+// a gradient. Every such swap lowers that number, so it comes to rest.
 static inline bool gas_mix_gain(const GasNeighbourhood *nb, int k) {
     int dx = k_dir4[k][0], dy = k_dir4[k][1];
     ElementId a = nb->e[2][2], b = nb->e[2 + dy][2 + dx];
-    int before = 0, after = 0;
-    for (int j = 0; j < 4; j++) { // around the cell, except the neighbour
+    // Same-gas contacts around each of the two places, as a share of the gas cells there (walls
+    // count for neither: a cell against a wall is no worse placed than one in the open).
+    int like_a = 0, other_a = 0, gas_a = 0; // around the cell, except the neighbour
+    for (int j = 0; j < 4; j++) {
         if (j != k) {
             ElementId r = nb->e[2 + k_dir4[j][1]][2 + k_dir4[j][0]];
-            before += r == a;
-            after += r == b;
+            like_a += r == a;
+            other_a += r == b;
+            gas_a += g_elem_behavior[r] == BEHAVIOR_GAS;
         }
     }
     // Around the neighbour, except the cell: straight on, and both sides.
+    int like_b = 0, other_b = 0, gas_b = 0;
     const int q[3][2] = {{2 * dx, 2 * dy}, {dx - dy, dy + dx}, {dx + dy, dy - dx}};
     for (int j = 0; j < 3; j++) {
         ElementId r = nb->e[2 + q[j][1]][2 + q[j][0]];
-        before += r == b;
-        after += r == a;
+        like_b += r == b;
+        other_b += r == a;
+        gas_b += g_elem_behavior[r] == BEHAVIOR_GAS;
     }
-    return after < before;
+    if (gas_a == 0 || gas_b == 0) {
+        return false;
+    }
+    // before: like_a / gas_a + like_b / gas_b; after: other_a / gas_a + other_b / gas_b.
+    return (other_a - like_a) * gas_b + (other_b - like_b) * gas_a < 0;
 }
 
 // May the gases at (x, y) and its neighbour in direction k, of different kinds, trade places to
@@ -1001,9 +1108,10 @@ static bool gas_equalize(TickCtx *c, int x, int y, int dx, int dy) {
     return true;
 }
 
-// Could the gas at (x, y) still do something? Stay awake if so. Cheap checks first: in a mixed
-// region (air) the mixing check runs for most cells.
-static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_up) {
+// Could the gas at (x, y) still do something? Stay awake if so. Cheap checks first. Next to a
+// different gas, diffusion is checked only on a tick that tries everything (`full`, every
+// BULK_FULL_EVERY ticks); until then the cell stays awake.
+static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_up, bool full) {
     size_t i = world_index(w, x, y);
     float m = w->mass[i];
     float pv = gas_pv(w, i, e);
@@ -1038,6 +1146,9 @@ static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_
     if (p_up > 0) {
         return true;
     }
+    if (other && !full) {
+        return true;
+    }
     if (other) {
         GasNeighbourhood nb;
         gas_load_neighbourhood(w, x, y, &nb);
@@ -1045,6 +1156,12 @@ static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_
             if (((other >> k) & 1u) && gas_mix_gain(&nb, k)) {
                 return true;
             }
+        }
+    }
+    for (int k = 0; k < 4; k++) {
+        if (((other >> k) & 1u) &&
+            gas_gradient(w, x, y, k, e, world_elem(w, x + k_dir4[k][0], y + k_dir4[k][1])) > 0.0f) {
+            return true;
         }
     }
     return false;
@@ -1311,15 +1428,24 @@ static void update_gas(TickCtx *c, int x, int y) {
                 rng_chance16(&c->rng, GAS_BALANCE_P16) && gas_balance(c, x, y, nx, ny)) {
                 return;
             }
-            // 2e. Else mix (trade places) where that spreads the gases into each other.
-            //     Slowly in still gas (diffusion), fast where it is moving (turbulence).
-            uint32_t pm =
-                (w->cells[i].aux | w->cells[ni].aux) ? P_GAS_MIX_STIRRED_16 : P_GAS_MIX_16;
-            if (rng_chance16(&c->rng, pm) && gas_mix_ok(w, x, y, r)) {
+            // 2e. Else mix (trade places). Where the gas is moving (a current in either cell),
+            //     turbulence: at random, with a probability up to P_GAS_MIX_STIRRED in proportion
+            //     to the current's speed. In still gas, diffusion: down the concentration
+            //     gradient, with a probability up to P_GAS_MIX in proportion to it
+            //     (gas_gradient), or, with probability P_GAS_SPECKLE, where that breaks up a
+            //     small cluster (gas_mix_gain).
+            int wind = PR_MAX(gas_wind_speed(w->cells[i].aux), gas_wind_speed(w->cells[ni].aux));
+            bool mix;
+            if (wind > 0) {
+                mix = rng_chance16(&c->rng, P_GAS_MIX_STIRRED_16 * (uint32_t)wind / GAS_WIND_MAX);
+            } else {
+                uint32_t roll = rng_next(&c->rng) >> 16;
+                mix = (roll < P_GAS_SPECKLE_16 && gas_mix_ok(w, x, y, r)) ||
+                      (roll < P_GAS_MIX_16 && rng_unit(&c->rng) < gas_gradient(w, x, y, r, e, n));
+            }
+            if (mix) {
                 swap_cells(c, x, y, nx, ny);
-                if (g_gas_buoy_density[e] != g_gas_buoy_density[n]) {
-                    gas_wake_bulk(c, PR_MIN(x, nx), PR_MIN(y, ny), PR_MAX(x, nx), PR_MAX(y, ny));
-                }
+                gas_wake_bulk(c, PR_MIN(x, nx), PR_MIN(y, ny), PR_MAX(x, nx), PR_MAX(y, ny));
                 return;
             }
         }
@@ -1332,7 +1458,8 @@ static void update_gas(TickCtx *c, int x, int y) {
     // 3. Did not move. Stay awake only if something is still possible.
     //    Bulk buoyancy was not fully tried this tick: stay awake while a lighter gas is under or
     //    beside a denser one, until a tick that tries it all says no.
-    if (gas_is_mobile(w, x, y, e, p_up) || (scales < 3 && gas_bulk_gate(w, x, y, e, up))) {
+    if (gas_is_mobile(w, x, y, e, p_up, scales == 3) ||
+        (scales < 3 && gas_bulk_gate(w, x, y, e, up))) {
         keep_alive(c, x, y);
     }
 }
@@ -1448,7 +1575,7 @@ static void update_chunk(TickCtx *c) {
 
 // Scratch memory for one phase: the chunks to update and one TickCtx per chunk.
 typedef struct PhaseScratch {
-    int *chunk_list;
+    int *chunk_list; // every chunk (gas_blocks_update)
     TickCtx *ctx;
     int capacity;
 } PhaseScratch;
@@ -1466,7 +1593,8 @@ static void phase_job(void *user, int index) {
 static PhaseScratch *get_scratch(World *w) {
     int capacity = ((w->chunks_x + 1) / 2) * ((w->chunks_y + 1) / 2);
     if (!w->sim_scratch) {
-        size_t bytes = sizeof(PhaseScratch) + (size_t)capacity * (sizeof(int) + sizeof(TickCtx));
+        size_t bytes = sizeof(PhaseScratch) + (size_t)capacity * sizeof(TickCtx) +
+                       (size_t)w->chunks_x * (size_t)w->chunks_y * sizeof(int);
         PhaseScratch *s = pr_aligned_alloc_zero(64, bytes + 64);
         PR_ASSERT_ALWAYS(s != NULL);
         s->capacity = capacity;
@@ -1475,6 +1603,50 @@ static PhaseScratch *get_scratch(World *w) {
         w->sim_scratch = s;
     }
     return w->sim_scratch;
+}
+
+// Gas block counts (World.gas_blocks) of the chunks awake this tick, recounted in parallel before
+// the movement pass (each job writes only its own chunk's blocks). A chunk whose cells change is
+// awake the next tick, so the counts are at most a tick old.
+typedef struct GasBlockJob {
+    World *w;
+    const int *chunks;
+} GasBlockJob;
+
+static void gas_blocks_job(void *user, int index) {
+    const GasBlockJob *job = user;
+    World *w = job->w;
+    int ci = job->chunks[index];
+    int cx = ci % w->chunks_x, cy = ci / w->chunks_x;
+    int bw = w->width >> GAS_BLOCK_SHIFT;
+    for (int by = 0; by < CHUNK_SIZE / GAS_BLOCK; by++) {
+        for (int bx = 0; bx < CHUNK_SIZE / GAS_BLOCK; bx++) {
+            uint8_t counts[GAS_SLOTS] = {0};
+            int x0 = (cx << CHUNK_SHIFT) + bx * GAS_BLOCK,
+                y0 = (cy << CHUNK_SHIFT) + by * GAS_BLOCK;
+            for (int y = y0; y < y0 + GAS_BLOCK; y++) {
+                const Cell *row = &w->cells[world_index(w, x0, y)];
+                for (int x = 0; x < GAS_BLOCK; x++) {
+                    uint8_t slot = g_gas_slot[row[x].element];
+                    counts[0] += slot != 0;
+                    counts[slot] += slot != 0;
+                }
+            }
+            size_t b = (size_t)((y0 >> GAS_BLOCK_SHIFT) * bw + (x0 >> GAS_BLOCK_SHIFT));
+            memcpy(&w->gas_blocks[b * GAS_SLOTS], counts, GAS_SLOTS);
+        }
+    }
+}
+
+static void gas_blocks_update(World *w, int *list) {
+    int count = 0;
+    for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
+        if (!dirty_rect_empty(&w->chunks[i].cur)) {
+            list[count++] = i;
+        }
+    }
+    GasBlockJob job = {w, list};
+    jobs_run(w->jobs, count, gas_blocks_job, &job);
 }
 
 void sim_tick(World *w, SimStats *stats) {
@@ -1529,6 +1701,7 @@ void sim_tick(World *w, SimStats *stats) {
     total.phase_changes = heat.phase_changes;
 
     pressure_update(w);
+    gas_blocks_update(w, scratch->chunk_list);
 
     // Splashes only while the particle list has plenty of room.
     bool splash_ok = w->particle_count < SPLASH_LIST_LIMIT;

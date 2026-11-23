@@ -35,9 +35,10 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->chunks = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(Chunk));
     w->particles = pr_aligned_alloc_zero(64, PARTICLE_MAX * sizeof(Particle));
     w->creatures = pr_aligned_alloc_zero(64, CREATURE_MAX * sizeof(Creature));
+    w->gas_blocks = pr_aligned_alloc_zero(64, n / (GAS_BLOCK * GAS_BLOCK) * GAS_SLOTS);
     w->pressure = w->chunks ? pressure_create(w) : NULL;
     if (!w->cells || !w->temp || !w->temp_next || !w->mass || !w->particles || !w->creatures ||
-        !w->piece || !w->chunks || !w->pressure) {
+        !w->piece || !w->chunks || !w->pressure || !w->gas_blocks) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
         return NULL;
@@ -60,6 +61,7 @@ void world_destroy(World *w) {
     pr_aligned_free(w->chunks);
     pr_aligned_free(w->particles);
     pr_aligned_free(w->creatures);
+    pr_aligned_free(w->gas_blocks);
     pr_aligned_free(w->sim_scratch);
     free(w);
 }

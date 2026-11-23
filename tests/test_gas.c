@@ -15,7 +15,7 @@ void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
 void test_condensing_keeps_mass_on_average(void);
 void test_air_stays_mixed(void);
-void test_gases_mix_and_settle(void);
+void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
 void test_co2_blob_sinks_and_pools(void);
 void test_dilute_co2_stays_in_air(void);
@@ -181,27 +181,27 @@ void test_air_stays_mixed(void) {
     world_destroy(w);
 }
 
-void test_gases_mix_and_settle(void) {
-    // Oxygen on the left, nitrogen on the right (same buoyancy): they spread into each other at
-    // the interface, then stop moving.
+void test_gases_diffuse_into_each_other(void) {
+    // Oxygen on the left, nitrogen on the right (same buoyancy): they diffuse into each other,
+    // the mixed band widening as the square root of time (Fick), at the game's diffusivity (about
+    // 2.5e-3 m^2/s, gentle indoor turbulence): sqrt(D t / pi) = 3 cells of oxygen per row on the
+    // nitrogen side after 30 s, twice that after 2 min.
     World *w = test_world_box(128, 64, 47);
     paint(w, 1, 1, 63, 62, ELEM_OXYGEN);
     paint(w, 64, 1, 126, 62, ELEM_NITROGEN);
-    sim_run_ticks(w, 3000);
-    int64_t o2_right = 0;
-    for (int y = 1; y <= 62; y++) {
-        for (int x = 64; x <= 126; x++) {
-            o2_right += test_cell_is(w, x, y, ELEM_OXYGEN);
+    int64_t o2_right[2];
+    for (int k = 0; k < 2; k++) {
+        sim_run_ticks(w, k == 0 ? 1800 : 5400);
+        o2_right[k] = 0;
+        for (int y = 1; y <= 62; y++) {
+            for (int x = 64; x <= 126; x++) {
+                o2_right[k] += test_cell_is(w, x, y, ELEM_OXYGEN);
+            }
         }
     }
-    // Molecular diffusion is slow (about sqrt(2 D t) = 4.5 cm, one cell, in 50 s): a thin mixed
-    // layer forms at the interface.
-    EXPECT(o2_right > 20);
-    SimStats st;
-    for (int t = 0; t < 2000; t++) {
-        sim_tick(w, &st);
-    }
-    EXPECT(st.cells_visited < 2000);
+    EXPECT(o2_right[0] > 2 * 62 && o2_right[0] < 5 * 62);
+    double ratio = (double)o2_right[1] / (double)o2_right[0];
+    EXPECT(ratio > 1.5 && ratio < 2.5); // sqrt(4) = 2
     world_destroy(w);
 }
 
@@ -249,25 +249,57 @@ void test_gas_mixture_stays_mixed(void) {
     world_destroy(w);
 }
 
+// Highest fraction of `e` among the gas cells of any 15 x 15 window with its top row in [y0, y1).
+static double max_window_fraction(const World *w, ElementId e, int y0, int y1) {
+    double best = 0.0;
+    for (int y = y0; y + 15 <= y1; y += 3) {
+        for (int x = 1; x + 15 < w->width - 1; x += 3) {
+            int n = 0, gas = 0;
+            for (int yy = y; yy < y + 15; yy++) {
+                for (int xx = x; xx < x + 15; xx++) {
+                    ElementId c = world_elem(w, xx, yy);
+                    gas += g_elem_behavior[c] == BEHAVIOR_GAS;
+                    n += c == e;
+                }
+            }
+            if (gas > 100) {
+                best = fmax(best, (double)n / gas);
+            }
+        }
+    }
+    return best;
+}
+
 void test_co2_blob_sinks_and_pools(void) {
-    // A ball of CO2 (1.2 m across) high in a room of air sinks as a whole (bulk buoyancy), spreads
-    // over the floor and pools there; little of it mixes into the air on the way. Mass is kept.
+    // A ball of CO2 (1.2 m across) high in a room of air sinks as a whole (bulk buoyancy) and
+    // lands on the floor within seconds, with little left behind on the way. There it spreads and
+    // diffuses into the air: no clump stays pure, and the pool keeps thinning. Mass is kept.
     World *w = co2_room(49, co2_blob);
     double m = test_mass(w, ELEM_CO2);
-    sim_run_ticks(w, 1800);
-    EXPECT(fabs(test_mass(w, ELEM_CO2) - m) < 1e-4 * m);
-    int64_t low = 0, all = test_count(w, ELEM_CO2), spread = 0;
+    sim_run_ticks(w, 600);
+    int64_t low = 0, all = test_count(w, ELEM_CO2);
     for (int y = 106; y <= 126; y++) {
         for (int x = 1; x <= 126; x++) {
             low += test_cell_is(w, x, y, ELEM_CO2);
         }
     }
-    for (int x = 1; x <= 126; x++) {
-        spread += test_cell_is(w, x, 126, ELEM_CO2);
-    }
-    EXPECT(low > all / 2); // most of it is in the bottom 20 rows
-    EXPECT(spread > 40);   // spread over the floor, wider than the ball was
+    EXPECT(low > all / 2);                                  // most of it in the bottom 20 rows
+    EXPECT(max_window_fraction(w, ELEM_CO2, 1, 85) < 0.25); // only a faint wake above
+    double peak = max_window_fraction(w, ELEM_CO2, 1, 127);
+    sim_run_ticks(w, 1800);
+    EXPECT(fabs(test_mass(w, ELEM_CO2) - m) < 1e-4 * m);
     EXPECT(test_mean_y(w, ELEM_CO2) > 90.0);
+    EXPECT(max_window_fraction(w, ELEM_CO2, 1, 127) < peak - 0.05); // the pool thins
+    EXPECT(max_window_fraction(w, ELEM_CO2, 1, 127) < 0.7);         // no pure clump
+    int columns = 0; // columns of the bottom 20 rows holding CO2: it spread over the floor
+    for (int x = 1; x <= 126; x++) {
+        bool any = false;
+        for (int y = 106; y <= 126 && !any; y++) {
+            any = test_cell_is(w, x, y, ELEM_CO2);
+        }
+        columns += any;
+    }
+    EXPECT(columns > 50);
     world_destroy(w);
 }
 

@@ -235,11 +235,12 @@ void test_creatures_same_for_any_thread_count(void) {
 
 // ---- Gas currents: moving matter stirs the air ----
 
-// A sealed room (192 x h world) of horizontal stripes of oxygen and nitrogen, 8 cells thick.
+// A sealed room (192 x h world) of horizontal stripes of oxygen and nitrogen, 16 cells thick
+// (thick enough that diffusion alone blurs only their edges in a few seconds).
 static World *striped_room(uint64_t seed, int h) {
     World *w = test_world_box(192, h, seed);
     for (int y = 1; y <= h - 2; y++) {
-        fill(w, 1, y, 190, y, ((y / 8) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN);
+        fill(w, 1, y, 190, y, ((y / 16) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN);
     }
     return w;
 }
@@ -248,7 +249,7 @@ static World *striped_room(uint64_t seed, int h) {
 static int64_t out_of_stripe(const World *w, int x0, int y0, int x1, int y1) {
     int64_t n = 0;
     for (int y = y0; y <= y1; y++) {
-        ElementId want = ((y / 8) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN;
+        ElementId want = ((y / 16) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN;
         for (int x = x0; x <= x1; x++) {
             ElementId e = world_elem(w, x, y);
             n += g_elem_behavior[e] == BEHAVIOR_GAS && e != want;

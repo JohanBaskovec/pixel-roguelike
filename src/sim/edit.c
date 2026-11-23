@@ -206,17 +206,15 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             uint32_t bits = rng_next(rng);
             ElementId el = e->element;
             if (el == EDIT_AIR) {
-                // Air is mixed molecule by molecule: no two oxygen cells side by side, and none
-                // against a solid or liquid (the most even mix one gas per cell allows, which
-                // diffusion leaves alone, so painted air is settled at once). Oxygen with
-                // probability AIR_O2_PAINT_P where no neighbour is oxygen, solid or liquid:
-                // about AIR_O2_FRAC of the cells.
+                // Air is mixed molecule by molecule: no two oxygen cells side by side (the most
+                // even mix one gas per cell allows, which diffusion leaves alone, so painted air
+                // is settled at once). Oxygen with probability AIR_O2_PAINT_P where no neighbour
+                // is oxygen: about AIR_O2_FRAC of the cells.
                 bool o2_near = false;
                 static const int8_t k_n[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
                 for (int k = 0; k < 4; k++) {
                     ElementId n = world_elem(w, x + k_n[k][0], y + k_n[k][1]);
-                    o2_near |=
-                        n == ELEM_OXYGEN || (n != ELEM_VOID && g_elem_behavior[n] != BEHAVIOR_GAS);
+                    o2_near |= n == ELEM_OXYGEN;
                 }
                 el = !o2_near && (bits >> 16) < (uint32_t)(AIR_O2_PAINT_P * 65536.0f)
                          ? ELEM_OXYGEN

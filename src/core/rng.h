@@ -43,3 +43,8 @@ static inline bool rng_bit(Rng *r) {
 static inline bool rng_chance16(Rng *r, uint32_t p) {
     return (rng_next(r) >> 16) < p;
 }
+
+// Uniform float in [0, 1).
+static inline float rng_unit(Rng *r) {
+    return (float)(rng_next(r) >> 8) * (1.0f / 16777216.0f);
+}

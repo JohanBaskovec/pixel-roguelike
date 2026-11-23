@@ -48,6 +48,7 @@ const Reaction g_reactions[REACTION_COUNT] = {
     {ELEM_HYDROGEN, ELEM_OXYGEN, ELEM_STEAM, 773.0f, 7.937f, 120e6f},
 };
 uint8_t g_reaction_of[256];
+uint8_t g_gas_slot[256];
 float g_min_ignite_k = 1e30f;
 
 // Molar masses of gases, kg/mol.
@@ -103,6 +104,13 @@ void elements_init(void) {
         g_elem_density_q[i] = UINT32_MAX;
         g_elem_spread[i] = 0;
     }
+    int slots = 0;
+    for (int i = 0; i < ELEM_COUNT; i++) {
+        if (g_elem_defs[i].behavior == BEHAVIOR_GAS) {
+            g_gas_slot[i] = (uint8_t)++slots;
+        }
+    }
+    PR_ASSERT_ALWAYS(slots < GAS_SLOTS);
     for (int r = 0; r < REACTION_COUNT; r++) {
         g_reaction_of[g_reactions[r].a] = (uint8_t)(r + 1);
         g_min_ignite_k = PR_MIN(g_min_ignite_k, g_reactions[r].ignite_k);
