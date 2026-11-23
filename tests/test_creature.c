@@ -16,6 +16,8 @@ void test_creature_breathes_at_real_rates(void);
 void test_creature_suffocates_in_sealed_room(void);
 void test_creature_body_heat(void);
 void test_creatures_same_for_any_thread_count(void);
+void test_walking_stirs_air(void);
+void test_falling_sand_stirs_air(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -220,4 +222,74 @@ void test_creatures_same_for_any_thread_count(void) {
     world_destroy(a);
     world_destroy(b);
     jobs_destroy(pool);
+}
+
+// ---- Gas currents: moving matter stirs the air ----
+
+// A sealed room of horizontal stripes of oxygen and nitrogen, 8 cells thick.
+static World *striped_room(uint64_t seed) {
+    World *w = test_world_box(256, 128, seed);
+    for (int y = 1; y <= 126; y++) {
+        fill(w, 1, y, 254, y, ((y / 8) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN);
+    }
+    return w;
+}
+
+// Cells in the rect not holding their stripe's gas: how stirred it is.
+static int64_t out_of_stripe(const World *w, int x0, int y0, int x1, int y1) {
+    int64_t n = 0;
+    for (int y = y0; y <= y1; y++) {
+        ElementId want = ((y / 8) & 1) ? ELEM_OXYGEN : ELEM_NITROGEN;
+        for (int x = x0; x <= x1; x++) {
+            ElementId e = world_elem(w, x, y);
+            n += g_elem_behavior[e] == BEHAVIOR_GAS && e != want;
+        }
+    }
+    return n;
+}
+
+void test_walking_stirs_air(void) {
+    // A creature walking along the floor drags the air around: the stripes it passes through get
+    // mixed much more than in the same room with nobody walking (stripes also mix a little at
+    // their edges on their own). Gas mass is conserved, and once it stops, the air calms down
+    // about as much as the undisturbed room.
+    World *w = striped_room(79), *still = striped_room(79);
+    int id = creature_spawn(w, 10, 91);
+    int id2 = creature_spawn(still, 10, 91);
+    w->creatures[id].metabolism_scale = still->creatures[id2].metabolism_scale = 0.0f;
+    double o2 = test_mass(w, ELEM_OXYGEN), n2 = test_mass(w, ELEM_NITROGEN);
+    w->creatures[id].walk = 1;
+    sim_run_ticks(w, 240); // about 110 cells
+    sim_run_ticks(still, 240);
+    w->creatures[id].walk = 0;
+    int64_t path = out_of_stripe(w, 20, 80, 120, 126);
+    int64_t calm = out_of_stripe(still, 20, 80, 120, 126);
+    EXPECT(path > calm * 3 / 2);
+    EXPECT(fabs(test_mass(w, ELEM_OXYGEN) - o2) < 1e-4 * o2);
+    EXPECT(fabs(test_mass(w, ELEM_NITROGEN) - n2) < 1e-4 * n2);
+    sim_run_ticks(w, 900);
+    sim_run_ticks(still, 900);
+    SimStats st, st2;
+    sim_tick(w, &st);
+    sim_tick(still, &st2);
+    EXPECT(st.cells_visited < st2.cells_visited * 2 + 2000);
+    world_destroy(w);
+    world_destroy(still);
+}
+
+void test_falling_sand_stirs_air(void) {
+    // Sand falling through the striped room churns the column it falls through, compared with the
+    // same room without sand. Gas mass is conserved.
+    World *w = striped_room(80), *still = striped_room(80);
+    fill(w, 120, 2, 135, 20, ELEM_SAND);
+    fill(still, 120, 2, 135, 20, ELEM_ROCK); // the same cells taken, but nothing falls
+    double o2 = test_mass(w, ELEM_OXYGEN);
+    sim_run_ticks(w, 300);
+    sim_run_ticks(still, 300);
+    int64_t column = out_of_stripe(w, 110, 30, 145, 100);
+    int64_t calm = out_of_stripe(still, 110, 30, 145, 100);
+    EXPECT(column > calm * 3 / 2);
+    EXPECT(fabs(test_mass(w, ELEM_OXYGEN) - o2) < 1e-4 * o2);
+    world_destroy(w);
+    world_destroy(still);
 }

@@ -49,6 +49,8 @@ void test_creature_breathes_at_real_rates(void);
 void test_creature_suffocates_in_sealed_room(void);
 void test_creature_body_heat(void);
 void test_creatures_same_for_any_thread_count(void);
+void test_walking_stirs_air(void);
+void test_falling_sand_stirs_air(void);
 void test_sand_piles_up(void);
 void test_sand_sinks_in_water(void);
 void test_digging_makes_rubble(void);
@@ -131,6 +133,8 @@ int main(int argc, char **argv) {
     RUN(test_creature_suffocates_in_sealed_room);
     RUN(test_creature_body_heat);
     RUN(test_creatures_same_for_any_thread_count);
+    RUN(test_walking_stirs_air);
+    RUN(test_falling_sand_stirs_air);
     RUN(test_sand_piles_up);
     RUN(test_sand_sinks_in_water);
     RUN(test_digging_makes_rubble);

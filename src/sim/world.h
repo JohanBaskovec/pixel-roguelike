@@ -15,7 +15,8 @@ typedef struct Cell {
     ElementId element;
     uint8_t stamp; // low 8 bits of the tick in which the cell was last updated or moved
     uint8_t shade; // random at creation; colour variation; moves with the cell
-    uint8_t aux;   // per-behaviour scratch. Liquids: bit 7 = flow direction, bits 0-6 = fall speed
+    uint8_t aux;   // per-behaviour scratch. Liquids and powders: bit 7 = flow direction, bits 0-6 =
+                   // fall speed. Gases: a current (gas_wind): bits 3-7 speed, bits 0-2 direction
 } Cell;
 
 _Static_assert(sizeof(Cell) == 4, "Cell must stay 4 bytes");
@@ -75,6 +76,35 @@ void world_clear(World *w);
 // identical for any number of threads. The pool must outlive its use by the world.
 static inline void world_set_job_pool(World *w, JobPool *pool) {
     w->jobs = pool;
+}
+
+// Gas currents (M5+): a gas cell's aux holds a direction (0 up, then clockwise in 45 degree steps)
+// and a speed 0..GAS_WIND_MAX (it moves one cell with probability speed / 32 per tick).
+#define GAS_WIND_MAX 31
+static const int8_t k_wind_dir[8][2] = {{0, -1}, {1, -1}, {1, 0},  {1, 1},
+                                        {0, 1},  {-1, 1}, {-1, 0}, {-1, -1}};
+static inline int gas_wind_speed(uint8_t aux) {
+    return aux >> 3;
+}
+static inline int gas_wind_dir(uint8_t aux) {
+    return aux & 7;
+}
+static inline uint8_t gas_wind(int dir, int speed) {
+    return (uint8_t)((PR_CLAMP(speed, 0, GAS_WIND_MAX) << 3) | (dir & 7));
+}
+// The direction index of a step (dx, dy), each -1..1, not both 0.
+static inline int gas_wind_dir_of(int dx, int dy) {
+    static const int8_t k_index[3][3] = {{7, 0, 1}, {6, 0, 2}, {5, 4, 3}};
+    return k_index[dy + 1][dx + 1];
+}
+// Gives the gas cell at (x, y) a current, unless it already has a stronger one. Returns true if
+// it changed (the caller wakes it).
+static inline bool gas_push_wind(Cell *c, int dir, int speed) {
+    if (g_elem_behavior[c->element] != BEHAVIOR_GAS || gas_wind_speed(c->aux) >= speed) {
+        return false;
+    }
+    c->aux = gas_wind(dir, speed);
+    return true;
 }
 
 // Still liquid: liquid that is not falling. Only still liquid carries pressure.

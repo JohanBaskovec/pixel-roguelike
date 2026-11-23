@@ -134,6 +134,9 @@ static inline bool in_reach(const TickCtx *c, int x, int y) {
 // read and write within MAX_MOVE of the cell (threading invariant).
 #define LIQUID_LOOKAHEAD MAX_MOVE
 
+// Falling matter stirs the gas it passes through (gas currents, defined with the gas rules).
+static void stir_by_fall(TickCtx *c, int x, int y, int speed);
+
 static inline Cell *cell_ptr(World *w, int x, int y) {
     return &w->cells[world_index(w, x, y)];
 }
@@ -270,6 +273,9 @@ static void update_liquid(TickCtx *c, int x, int y) {
         speed = PR_MAX(speed, 1);
         swap_cells(c, x, y, x, target);
         cell_ptr(w, x, target)->aux = (uint8_t)((dir > 0 ? 0x80 : 0) | speed);
+        if (g_elem_behavior[world_elem(w, x, y)] == BEHAVIOR_GAS) {
+            stir_by_fall(c, x, y, speed);
+        }
         return;
     }
 
@@ -888,11 +894,87 @@ static bool react(TickCtx *c, int x, int y) {
     return true;
 }
 
+// ---- Gas currents: moving matter stirs the air. docs/SIMULATION.md -> Gas currents ----
+
+// A current loses one speed step with this probability (x/65536) per tick (about a second from
+// full speed), passes speed minus WIND_PASS_LOSS to the cell it pushes, spreads to a random
+// neighbour (minus WIND_SPREAD_LOSS) with probability WIND_SPREAD_P16, and turns 45 degrees,
+// losing WIND_TURN_LOSS, when blocked.
+#define WIND_DECAY_P16   16384u
+#define WIND_PASS_LOSS   2
+#define WIND_SPREAD_LOSS 4
+#define WIND_SPREAD_P16  32768u
+#define WIND_TURN_LOSS   3
+
+// Falling matter (liquid or powder) kicks the gas it passes aside and drags the gas beside it
+// down: the current's speed is FALL_WIND_BASE plus its fall speed (1/16 cells per tick) / 4.
+#define FALL_WIND_BASE 6
+
+// The gas cell at (x, y), now holding gas that a falling cell at fall speed `speed` displaced.
+static void stir_by_fall(TickCtx *c, int x, int y, int speed) {
+    World *w = c->w;
+    int s = FALL_WIND_BASE + speed / 4;
+    int side = rng_bit(&c->rng) ? 1 : -1;
+    bool changed = gas_push_wind(cell_ptr(w, x, y), gas_wind_dir_of(side, -1), s);
+    for (int k = -1; k <= 1; k += 2) { // entrained beside the falling column
+        if (world_in_bounds(w, x + k, y)) {
+            changed |= gas_push_wind(cell_ptr(w, x + k, y), 4, s / 2);
+        }
+    }
+    if (changed) {
+        ctx_wake(c, x - 2, y - 2, x + 2, y + 2, false, false);
+    }
+}
+
+// Moves the gas at (x, y) along its current, if it has one. Returns true if it moved.
+static bool gas_follow_wind(TickCtx *c, int x, int y) {
+    World *w = c->w;
+    Cell *cell = cell_ptr(w, x, y);
+    int s = gas_wind_speed(cell->aux);
+    if (s == 0) {
+        return false;
+    }
+    int d = gas_wind_dir(cell->aux);
+    int s2 = s - (rng_chance16(&c->rng, WIND_DECAY_P16) ? 1 : 0);
+    keep_alive(c, x, y);
+    // Viscosity: the current spreads to a neighbour.
+    if (s2 > WIND_SPREAD_LOSS && rng_chance16(&c->rng, WIND_SPREAD_P16)) {
+        int k = (int)rng_range(&c->rng, 4);
+        int nx = x + k_dir4[k][0], ny = y + k_dir4[k][1];
+        if (world_in_bounds(w, nx, ny) &&
+            gas_push_wind(cell_ptr(w, nx, ny), d, s2 - WIND_SPREAD_LOSS)) {
+            keep_alive(c, nx, ny);
+        }
+    }
+    if (rng_chance16(&c->rng, (uint32_t)s * 2048u)) {
+        int dx = k_wind_dir[d][0], dy = k_wind_dir[d][1];
+        int tx = x + dx, ty = y + dy;
+        ElementId t = world_elem(w, tx, ty);
+        if ((t == ELEM_VOID || g_elem_behavior[t] == BEHAVIOR_GAS) &&
+            (dx == 0 || dy == 0 || diagonal_open(w, x, y, dx, dy))) {
+            gas_push_wind(cell_ptr(w, tx, ty), d, s2 - WIND_PASS_LOSS); // pushed along
+            cell->aux = gas_wind(d, s2);
+            swap_cells(c, x, y, tx, ty);
+            return true;
+        }
+        // Blocked: turn 45 degrees either way.
+        cell->aux = gas_wind((d + (rng_bit(&c->rng) ? 1 : 7)) & 7, s2 - WIND_TURN_LOSS);
+        return false;
+    }
+    cell->aux = gas_wind(d, s2);
+    return false;
+}
+
 static void update_gas(TickCtx *c, int x, int y) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
     Cell self = w->cells[i];
     ElementId e = self.element;
+
+    // Currents first: moving air carries the gas along.
+    if (self.aux != 0 && gas_follow_wind(c, x, y)) {
+        return;
+    }
 
     // 0. Reactions (burning), only where something is hot enough to ignite.
     if (c->may_react && g_reaction_of[e] && react(c, x, y)) {
@@ -1020,6 +1102,9 @@ static void update_powder(TickCtx *c, int x, int y) {
         speed = PR_MAX(speed, 1);
         swap_cells(c, x, y, x, target);
         cell_ptr(w, x, target)->aux = (uint8_t)speed;
+        if (g_elem_behavior[world_elem(w, x, y)] == BEHAVIOR_GAS) {
+            stir_by_fall(c, x, y, speed);
+        }
         return;
     }
     cell->aux = 0; // landed

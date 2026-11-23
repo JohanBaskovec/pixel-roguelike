@@ -95,17 +95,34 @@ static bool can_move(const World *w, const Creature *c, int dx, int dy) {
     return true;
 }
 
+// Gas currents a moving body makes (docs/SIMULATION.md -> Gas currents): the air it pushes in
+// front of it, and the wake it drags behind it.
+#define BODY_PUSH_WIND 12
+#define BODY_WAKE_WIND 18
+// A breath out blows a puff from the mouth.
+#define BREATH_WIND 14
+
+static void push_wind(World *w, int x, int y, int dir, int speed) {
+    if (world_in_bounds(w, x, y)) {
+        gas_push_wind(&w->cells[world_index(w, x, y)], dir, speed);
+    }
+}
+
 // Moves the body one cell. The matter in each cell it moves into trades places with the body cell
-// it leaves at the other end: gas and liquid flow around the body, and nothing is lost.
+// it leaves at the other end: gas and liquid flow around the body, and nothing is lost. The air in
+// front is pushed along and the air behind follows (gas currents).
 static bool move(World *w, Creature *c, int dx, int dy) {
     if (!can_move(w, c, dx, dy)) {
         return false;
     }
+    int dir = gas_wind_dir_of(dx, dy);
     if (dx != 0) {
         int lx = dx > 0 ? c->x + CREATURE_W : c->x - 1;
         int tx = dx > 0 ? c->x : c->x + CREATURE_W - 1;
         for (int r = 0; r < CREATURE_H; r++) {
             swap_world_cells(w, lx, c->y + r, tx, c->y + r);
+            push_wind(w, tx, c->y + r, dir, BODY_WAKE_WIND);      // behind, now
+            push_wind(w, lx + dx, c->y + r, dir, BODY_PUSH_WIND); // in front
         }
         c->x += dx;
     } else {
@@ -113,6 +130,8 @@ static bool move(World *w, Creature *c, int dx, int dy) {
         int ty = dy > 0 ? c->y : c->y + CREATURE_H - 1;
         for (int k = 0; k < CREATURE_W; k++) {
             swap_world_cells(w, c->x + k, ly, c->x + k, ty);
+            push_wind(w, c->x + k, ty, dir, BODY_WAKE_WIND);
+            push_wind(w, c->x + k, ly + dy, dir, BODY_PUSH_WIND);
         }
         c->y += dy;
     }
@@ -271,6 +290,12 @@ static void breathe(World *w, Creature *c, float work) {
     int mx, my;
     mouth_cell(w, c, &mx, &my);
     stir(w, c, mx, my, work);
+    // The breath out: a puff away from the face, rising a little (it is warm).
+    int out = mx >= c->x + CREATURE_W ? 1 : -1;
+    for (int k = -1; k <= 1; k++) {
+        push_wind(w, mx, my + k, gas_wind_dir_of(out, 0), BREATH_WIND);
+        push_wind(w, mx + out, my + k, gas_wind_dir_of(out, -1), BREATH_WIND - 4);
+    }
     measure_air(w, c, mx, my);
     float seconds = (float)BREATH_TICKS * TICK_SECONDS * c->metabolism_scale * work;
     float need = O2_KG_PER_S * seconds;

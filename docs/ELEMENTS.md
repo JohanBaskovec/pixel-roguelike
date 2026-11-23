@@ -110,6 +110,10 @@ All are clamped to `MAX_MOVE` = 32.
 | `SPLASH_MIN_SPEED` | 2 cells/tick | `sim/sim.c` | Landing speed from which falling liquid may splash |
 | `SPLASH_P16` | 1/4 | `sim/sim.c` | Chance that such a landing splashes |
 | `SPLASH_KEEP_MIN/MAX`, `SPLASH_UP` | 25–60%, 25% | `sim/sim.c` | Share of its speed a splash keeps, sideways and upward |
+| `WIND_DECAY_P16`, `WIND_SPREAD_P16` | 1/4, 1/2 | `sim/sim.c` | Gas currents: chance per tick to lose a speed step, to spread to a neighbour |
+| `WIND_PASS_LOSS`, `WIND_SPREAD_LOSS`, `WIND_TURN_LOSS` | 2, 4, 3 | `sim/sim.c` | Speed a current loses when it pushes a cell, spreads, or turns at a wall |
+| `BODY_PUSH_WIND`, `BODY_WAKE_WIND`, `BREATH_WIND` | 12, 18, 14 | `sim/creature.c` | Currents from a walking body (front, wake) and a breath out |
+| `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from falling matter (plus fall speed / 4) |
 | Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |
 | `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
 | `REACT_REACH` | 3 cells | `sim/sim.c` | Farthest oxidiser cell a fuel cell reacts with |
@@ -163,7 +167,10 @@ Keep this list complete.
 9. Lava and molten iron flow like water under water pressure; only their sideways spread is
    smaller (viscosity is not modelled). Rock melts at a single temperature (real rock melts over
    a range, about 1300–1500 K for granite).
-10. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
+10. Gas currents are a coarse stand-in for air flow: a direction and a speed per gas cell, not a
+    solved velocity field (no vortices from pressure, no inertia beyond the current fading over
+    about 2 s). They are made by bodies and falling matter, not by pressure differences.
+11. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
    currents, which one-gas-per-cell diffusion cannot do. Body heat is held at 37 °C with up to
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a

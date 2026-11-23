@@ -174,7 +174,8 @@ static void apply_chunk(void *user, int index) {
             }
             if (to != e) {
                 c.element = to;
-                c.aux &= 0x80; // at rest (a new liquid or gas cell starts still)
+                // At rest: a new liquid keeps its flow direction, a new gas has no current.
+                c.aux = g_elem_behavior[to] == BEHAVIOR_GAS ? 0 : (uint8_t)(c.aux & 0x80);
                 c.stamp = (uint8_t)(w->tick - 1);
                 w->cells[i] = c;
                 w->temp[i] = to == ELEM_VOID ? 0.0f : t_new;

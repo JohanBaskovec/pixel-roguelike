@@ -143,7 +143,8 @@ void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits) {
     // Not equal to the stamp of the next tick, so the cell is simulated in it.
     c.stamp = (uint8_t)(w->tick - 1);
     c.shade = (uint8_t)random_bits;
-    c.aux = (uint8_t)((random_bits >> 8) & 0x80); // random initial flow direction, zero speed
+    // Liquids: random initial flow direction, zero speed. Gases: no current.
+    c.aux = g_elem_behavior[e] == BEHAVIOR_GAS ? 0 : (uint8_t)((random_bits >> 8) & 0x80);
     w->cells[i] = c;
     w->temp[i] = g_elem_defs[e].spawn_temp;
     w->mass[i] = g_elem_behavior[e] == BEHAVIOR_GAS ? gas_mass_at(e, P_ATM, w->temp[i]) : 0.0f;

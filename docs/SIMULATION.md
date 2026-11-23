@@ -318,6 +318,27 @@ pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not
 All constants live at the top of the gas section of `src/sim/sim.c` and in `src/sim/elements.h`.
 Their current values are in `ELEMENTS.md`.
 
+### Gas currents: moving matter stirs the air (M5)
+
+Code: `gas_follow_wind()` and `stir_by_fall()` in `src/sim/sim.c`; sources in
+`src/sim/creature.c`. A gas cell's `aux` holds a **current**: a direction (8, in 45° steps) and a
+speed 0–31. The gas otherwise has no velocity: without currents, moving bodies and falling matter
+would only swap the cells they touch, and a room's air would stay perfectly still.
+
+- A gas cell with a current moves one cell along it with probability `speed / 32` per tick
+  (swapping with the gas or void there), and the cell it pushes picks up the current minus
+  `WIND_PASS_LOSS`. Blocked, the current turns 45° and loses `WIND_TURN_LOSS`. It spreads to a
+  random neighbour (minus `WIND_SPREAD_LOSS`) half the time, and loses a step a quarter of the
+  time: a current at full speed dies out in about 2 s. Cells with a current stay awake; then the
+  air sleeps again (tested).
+- **Sources:** a creature's step pushes the air in front of it (speed 12) and drags a wake behind
+  it (18); each breath out blows a puff from the mouth (14, rising a little). Liquid or powder
+  falling through gas kicks the displaced gas sideways and upward and drags the gas beside it
+  down (6 plus the fall speed / 4).
+- Currents move cells, so they **mix** the gases they pass through, and mass is conserved
+  exactly (tested: walking along a striped room of oxygen and nitrogen, or sand falling through
+  it, mixes the stripes there far more than in the same room left alone).
+
 ### Reactions (M5)
 
 Code: `react()` in `src/sim/sim.c`, table `g_reactions` in `src/sim/elements.c`. A reaction turns a

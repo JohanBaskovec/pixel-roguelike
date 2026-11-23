@@ -369,3 +369,17 @@ to watch).
   stopped at the first non-lighter cell, and swapped lighter liquid to the source, let oil leak
   into the far arm of a U-tube.
 
+## D-029 — Gas currents: a direction and speed per gas cell, in its aux byte
+
+- **Status:** Accepted (M5)
+- **Context:** Play-testing showed the air never moving: bodies and falling matter swapped only
+  the cells they touched, and mixed air slept. Real air is dragged along (wakes, entrainment).
+- **Decision:** Gas cells keep a current (3-bit direction, 5-bit speed) in `aux`, which gases did
+  not use. A current moves its cell along, hands part of itself to the cell it pushes and to a
+  neighbour, turns at walls and fades in about 2 s. Creatures' steps and breaths, and falling
+  liquid and powder, create currents. No new memory; no solved flow field.
+- **Consequences:** Walking and falling matter visibly stir and mix gases, with mass conserved and
+  results identical for any thread count. The gas-soup benchmark did not get slower (14–15 ms;
+  its mixtures settle sooner). Currents do not arise from pressure differences or heat; buoyancy
+  and pressure equalisation still do that work.
+
