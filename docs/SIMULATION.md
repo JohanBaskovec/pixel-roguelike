@@ -161,11 +161,15 @@ dropped bounced between chunks and decayed only slowly; a small propagation cost
 for many seconds, a large one made big pools imprecise. Labelling bodies exactly avoids the
 problem altogether, and is also cheaper (no gradient traces).
 
-**Known limitations:**
+**Known limitations** (and where they are planned in ROADMAP.md):
 - The flow rate through an opening is not physical: it is limited by how many cells request
   transfers per tick (up to 128 per chunk), not proportional to the square root of the depth.
-- Different liquids do not push each other (only one liquid exists so far).
-- A sealed body has no pressure (closed pipes do not push).
+  Planned in M4b (free particles, Torricelli outflow, jets).
+- Different liquids do not push each other (only one liquid exists so far). Planned in M5.
+- A body's surface pressure is taken as zero: trapped or pressurised gas does not push on water,
+  and heating does not pressurise sealed containers. Planned in M4 (gas pressure acting on
+  liquids). Note that a body completely full of liquid in rigid walls has nothing to push against
+  in reality either; pipes connected to an open tank already work (they are one body).
 - Transfers move a cell from the top of the body to the opening in one step. Visually this reads
   as the surface lowering and the water flowing out, but water does not travel through the body.
 

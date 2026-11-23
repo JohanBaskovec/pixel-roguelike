@@ -42,6 +42,8 @@ switches tools and elements and controls time (pause, step, speed).
 
 - Vacuum is a perfect insulator; there is no heat radiation (D-017).
 - Water pressure uses a pressure field while keeping one element per pixel (D-018, milestone M2b).
+- Creatures breathe at real rates by default (≈250 mL/min of O₂ at rest), with an optional
+  gameplay speed-up (roadmap M4c).
 
 ## Open design questions
 
@@ -49,7 +51,9 @@ These are intentionally unresolved. Record answers in `DECISIONS.md` when they a
 
 - **Genre.** Is this a colony sim (ONI), a roguelike with a player character (Noita, and the repo
   name), or a hybrid?
-- **Agents.** Are there colonists who carry out orders, a single avatar, or both?
+- **Agents.** Are there colonists who carry out orders, a single avatar, or both? (The creature
+  engine in roadmap M4c — bodies that push gas and water around, breathing at real rates — is
+  needed either way.)
 - **Physical scale.** How big is one pixel? The working assumption is 5 cm (see `SIMULATION.md`).
   The answer affects character size, gas masses and heat time scales.
 - **Gas model.** Gas can be one particle per pixel (Noita) or carry a mass per pixel with pressure

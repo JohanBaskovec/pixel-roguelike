@@ -20,6 +20,7 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice (later) | `#7A7A7A` α 0.55 | 1 |
 | 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.43 | 1 |
 | 9 | Steam | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses 373.15 K → water | `#E6ECF2` α 0.25 | 3 |
+| 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | faint, TBD | 4 |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -30,7 +31,9 @@ Notes
 - **Per-pixel variation:** every element's brightness varies by up to ± its `shade_var` (0–255
   scale; void 3, dirt 18, rock 14, iron 8, ice 10, water 10, gases 30), so materials look
   textured.
-- **Molar masses** (needed from M4): O₂ 0.032, CO₂ 0.044, H₂ 0.002, H₂O 0.018 kg/mol.
+- **Molar masses** (needed from M4): O₂ 0.032, CO₂ 0.044, H₂ 0.002, H₂O 0.018, N₂ 0.028 kg/mol.
+- **Nitrogen** (M4) is inert. With it, air can be realistic: 78% N₂, 21% O₂, ~1% argon (ignored),
+  0.04% CO₂ by volume. Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately once heat
   exists.
@@ -86,6 +89,7 @@ Keep this list complete.
    opening it is pushed toward, and the flow rate through an opening is not proportional to the
    square root of the depth (see SIMULATION.md → Liquid pressure).
 5. No heat radiation: vacuum is a perfect insulator (D-017).
+6. Until M4 there is no nitrogen, so "air" is pure oxygen.
 
 ## Adding an element (checklist)
 

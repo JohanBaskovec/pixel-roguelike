@@ -143,19 +143,75 @@ different liquids.
 - [ ] Phase changes with latent heat: water ↔ ice, water ↔ steam (new element: steam)
 - [ ] Temperature overlay view (`T`), and heat/cool brushes
 - [ ] Hot cells glow (blackbody tint)
+- [ ] Transfers carry temperature (already true: cells move with their temperature); test that a
+      U-tube with hot and cold arms mixes heat only through the moved water
 
 ## M4 – Gas mass and pressure
 
 - [ ] Gas cells carry mass; gas expands into vacuum and thins out; pressure = f(mass, T)
 - [ ] Gases flow from high to low pressure; different gases still do not share a cell
-- [ ] Pressure overlay view
+- [ ] **Nitrogen** (inert gas) so that air can be realistic: 78% N₂, 21% O₂ by volume. Until
+      then "air" is pure oxygen, which makes breathing and suffocation unrealistic
+- [ ] **Gas pressure acts on liquids:** a liquid body's surface pressure is the gas pressure above
+      it, not zero. Water compares (gas pressure + depth) at its surface with (gas pressure) at an
+      opening. Gives pressurised tanks pushing water up pipes, and trapped air resisting water
+      coming into a container. Test: sealed tank, pressurised gas on top, water rises in a pipe
+- [ ] **Pressure from heating sealed gas** (ideal gas law with M3 temperatures). Test: heated
+      sealed container's gas pressure rises as P ∝ T
+- [ ] Gas pressure in the pressure overlay; cursor inspector shows partial pressures
 - [ ] Revisit D-005 and record the outcome
+
+## M4b – Flowing water (free-flying particles)
+
+Fast-moving matter leaves the grid while it flies, as in Noita, and lands back into it.
+
+- [ ] Free particles: position and velocity (x and y) in floating point, drawn over the grid;
+      created when a cell is launched, turned back into a cell where it lands. Deterministic
+      (fixed update order), bounded count
+- [ ] **Outflow speed from depth** (Torricelli): water leaves an opening at √(2·g·depth), as a
+      jet; the number of cells per opening cell per tick follows from the speed (about 1.5 at
+      1 m depth, 5 at 10 m). Test: a deep reservoir drains faster than a shallow one, and the
+      jet reaches further
+- [ ] Better streams, splashes and spray: falling water that hits something keeps part of its
+      momentum sideways; drops and jets arc
+- [ ] Revisit the falling-stream rules (D-014) once particles carry falling water
+
+## M4c – Creatures
+
+Characters are entities, not cells: own position, body shape and physics. Depends on the open
+question in VISION.md (colonists given orders, or a directly controlled character); this
+milestone builds what both need.
+
+- [ ] Body: a pixel mask (a person is about 35 × 9 px at 5 cm per pixel), walking, stepping up
+      small ledges, falling, collision with solids; updated on the main thread between ticks
+      (deterministic, like edits)
+- [ ] **Bodies displace matter:** each tick the body is stamped into the grid; gas and liquid in
+      the cells it moves into are pushed into the cells it leaves or to the sides, so moving
+      creatures stir gas, push water aside and splash. Matter is conserved. Test: walking through
+      a gas boundary mixes it; total cells per element unchanged
+- [ ] Buoyancy and drag in liquids; wading and swimming
+- [ ] **Breathing with real rates:** a breath moves ~0.5 L (4 cells) of air in and out, 12–16
+      times a minute; at rest ~250 mL/min O₂ consumed (about 2 O₂ cells' worth per minute) and
+      ~200 mL/min CO₂ produced, 5–10× more when working. With M4 mass, each breath removes and
+      adds exact masses near the mouth. Optional global speed-up for gameplay (like
+      `HEAT_TIME_SCALE`), documented as a deviation
+- [ ] Suffocation and CO₂ poisoning from the actual concentrations around the head (O₂ below
+      ~16% impairs, below ~10% is dangerous; CO₂ above ~5% is dangerous). Test: a sealed room
+      with one person reaches dangerous O₂ after the realistic time (about 2 h of game time for a
+      5 × 3 m room)
+- [ ] Body heat (with M3): ~37 °C, ~100 W at rest, heating the cells around it
+- [ ] A simple test creature that wanders, for trying all of the above
 
 ## M5 – Matter variety and reactions
 
 - [ ] Powders (sand, rubble). Digging solids produces rubble or debris
 - [ ] Reactions table, e.g. H2 + O2 + ignition → steam + heat (combustion); more as design asks
 - [ ] Melting rock or iron into liquids at high temperatures
+- [ ] More liquids (molten metal, lava, maybe oil) with real densities
+- [ ] **Liquids push each other:** water pressure compares pressures instead of levels; a body's
+      effective surface includes the weight of the lighter liquids stacked on it (their height ×
+      their density ÷ its density), and openings get the same correction. Test: a U-tube with oil
+      in one arm shows the real level difference (a manometer)
 
 ## M6 – World
 
@@ -166,7 +222,7 @@ different liquids.
 ## Later (depends on the design answers in VISION.md)
 
 - Digging and building orders: a designation layer painted with the brush, then carried out by
-  agents
-- Agents (colonists or an avatar), their needs (breathing O2, temperature), pathfinding through a
-  pixel world
+  creatures
+- Pathfinding through a pixel world (for colonists, if the design has them)
+- Wall strength: containers and walls that crack or burst under pressure (water or heated gas)
 - Audio, lighting, menus
