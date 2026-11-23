@@ -14,6 +14,7 @@ typedef struct AppConfig {
     int frames;             // > 0: quit after this many frames, running exactly 1 tick per frame
     const char *screenshot; // with frames: save the last frame as BMP here
     bool demo;              // start with the demo scene instead of the empty box
+    int threads;            // simulation threads; 0 = one per logical core
 } AppConfig;
 
 typedef struct App {
@@ -21,6 +22,7 @@ typedef struct App {
     SDL_Window *window;
     SDL_Renderer *renderer;
     World *world;
+    JobPool *jobs;
     WorldRenderer wr;
     Ui ui;
     EditQueue edits;
@@ -39,15 +41,20 @@ typedef struct App {
     bool stroke_moved; // a stroke segment was queued by an event this frame
 
     SDL_FRect panel;
-    SDL_FRect world_dst;
+    SDL_FRect view; // the window area showing the world (right of the panel)
+
+    // Camera: world cell at the view's top-left corner, and zoom (screen pixels per cell).
+    float cam_x, cam_y;
+    int zoom_index;
+    bool panning; // middle mouse button held
 
     // Timing and stats
     double accumulator;
     uint64_t frame_count;
     double stat_t0;
     int stat_frames, stat_ticks;
-    double stat_sim_s;
-    double fps, sim_ms;
+    double stat_sim_s, stat_upload_s, stat_work_s;
+    double fps, sim_ms, upload_ms, work_ms;
     SimStats last_stats;
 } App;
 

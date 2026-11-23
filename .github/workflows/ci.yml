@@ -34,7 +34,34 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Benchmark smoke run
-        run: ./build/pr-bench --width 256 --height 256 --ticks 30 --warmup 5
+        run: ./build/pr-bench --width 256 --height 256 --ticks 30 --warmup 5 --threads 4
+
+  linux-tsan:
+    name: Linux (gcc, ThreadSanitizer)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SDL3 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxcursor-dev \
+            libxrandr-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=gcc -DPR_TSAN=ON -DPR_WERROR=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Benchmark smoke run (4 threads)
+        run: ./build/pr-bench --width 512 --height 256 --ticks 30 --warmup 5 --threads 4
 
   windows:
     name: Windows (MSVC, Release)

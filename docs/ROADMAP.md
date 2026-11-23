@@ -80,24 +80,37 @@ sizes, square brush, erase through walls, pouring); 15 tests pass under GCC ASan
 `-Werror` build. Not yet verified: 60 FPS on a real desktop GPU and display (the dev container
 renders through Xvfb at a steady 59–60 FPS with vsync).
 
-## M2 – Performance foundation
+## M2 – Performance foundation ✅
 
-- [ ] Thread pool (SDL threads), one worker per core minus one
-- [ ] 4-phase checkerboard chunk scheduling; max displacement of 32 px per tick enforced (assert in
-      Debug)
-- [ ] Dirty rects propagate across chunk borders; chunks sleep and wake correctly
-- [ ] Deterministic per-chunk RNG; test that 1 thread and N threads produce the same world
+- [x] Thread pool (SDL threads): fork-join, one thread per logical core, the caller works too
+      (`src/core/jobs.c`)
+- [x] 4-phase checkerboard chunk scheduling, parallel per phase; reach of 32 px per job enforced
+      (assert on every swap in Debug)
+- [x] Dirty rects propagate across chunk borders (per-job wake buffers merged after each phase,
+      D-019); chunks sleep and wake correctly
+- [x] Deterministic per-chunk RNG; test that 1, 3 and 4 threads produce the same world
+      (`test_same_result_for_any_thread_count`); ThreadSanitizer build (`PR_TSAN`) runs clean
+- [x] Texture upload of dirty chunks only, and only those in view; one upload per chunk row;
+      conversion on the thread pool (D-020)
+- [x] HUD timers: simulation, drawing (convert + upload), whole frame; thread count; zoom
+- [x] Default world **4096 × 2048** (8.4 M cells); camera pan (middle-drag, WASD/arrows), zoom
+      (Ctrl+wheel, around the cursor), Home shows the whole world
+- [x] `pr-bench --threads N --fill F`
+
+Moved to later (not needed for M2):
 - [ ] Test that spreading water behaves the same wherever chunk borders fall (D-014). Falling
-      streams are covered already (`test_falling_stream_has_no_chunk_bulges`)
+      streams and pouring are covered already
 - [ ] Experiment: a permanent 1-cell wall ring at the world edge to drop bounds checks from
       neighbour reads
-- [ ] Texture upload of dirty chunks only
-- [ ] Scoped profiler timers shown in the HUD (sim / heat / upload / render)
-- [ ] Default world grows to **4096 × 2048** (8.4 M cells); camera pan (MMB drag / WASD) and zoom
-      (Ctrl+wheel)
 
 **Acceptance:** 4096 × 2048 world, 60 ticks/s with about 2 M cells active, on a 6–8-core
 desktop. Thread-count determinism test passes.
+
+*Status:* the determinism test passes, and ThreadSanitizer is clean. The speed target is **not
+yet verified on a desktop**. On the 4-vCPU, 2.1 GHz development VM, 2.3 M active cells take
+42 ms/tick with 4 threads (3.7× the single-threaded speed), so about 24 ticks/s. A desktop core is
+roughly 2–3× faster and a 6–8-core desktop has twice the threads, which should bring this to
+about 10 ms/tick. Check with `pr-bench --width 4096 --height 2048 --fill 0.7`.
 
 ## M2b – Water pressure (D-018)
 

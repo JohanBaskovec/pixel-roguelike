@@ -197,3 +197,27 @@ to watch).
   pass over active liquid. Pressure travels a bounded distance per tick, so very large bodies
   balance over seconds rather than instantly. The surface wander, and with it the shimmer, goes
   away.
+
+## D-019 — Parallel phases with per-job wake buffers
+
+- **Status:** Accepted (M2); resolves the open choice in D-006
+- **Context:** In a parallel phase, a job's moves near its chunk border wake cells in neighbouring
+  chunks. Up to four jobs can touch the same neighbour's dirty rect. The options were atomic
+  min/max on the shared rects, or buffering.
+- **Decision:** Each job has a wake buffer for the 3×3 chunks around its own. The main thread
+  merges the buffers after the phase. The thread pool is a simple fork-join pool on SDL threads
+  (atomic job counter; the caller works too). Jobs work on a stack copy of their context.
+- **Consequences:** There are no atomics or locks in the hot path, and the merge is cheap (at most
+  9 rects per job). The result is independent of thread count (tested). Lesson recorded in
+  `ARCHITECTURE.md`: per-job state that sits side by side in memory and is written constantly must
+  be thread-local, or false sharing eats the speed-up.
+
+## D-020 — Rendering: world-sized texture, visible dirty chunks, row-span uploads
+
+- **Status:** Accepted (M2)
+- **Decision:** Keep one world-sized streaming texture. Each frame, convert only render-dirty chunks
+  inside the view (in parallel), and upload one rect per chunk row spanning its dirty chunks.
+  Sampling is nearest-neighbour when zoomed in, linear when zoomed out.
+- **Consequences:** Off-screen activity costs no rendering. The texture needs 32 MB of GPU memory
+  at 4096 × 2048, and 4096 px textures are supported by all current GPUs. Worlds beyond the GPU's
+  maximum texture size (often 16384) will need tiling (M6, world streaming).

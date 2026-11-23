@@ -3,14 +3,14 @@
 A 2D side-view game where every pixel is simulated: gases, liquids and solids, each with its own
 temperature, density and behaviour. It draws on *Oxygen Not Included* and *Noita*.
 
-**Status:** milestone M1 (sandbox box) is done. You can paint water, gases (oxygen, CO2,
-hydrogen) and solids (dirt, rock, iron, ice) into a box with dirt walls and watch them behave.
+**Status:** milestones M1 (sandbox box) and M2 (multithreading, big world, camera) are done. You
+can paint water, gases (oxygen, CO2, hydrogen) and solids (dirt, rock, iron, ice) into a
+4096 × 2048 box with dirt walls and watch them behave.
 See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Tech
 
-C17 · SDL3 · CMake. A chunked cellular-automaton simulation running on the CPU (single-threaded
-in M1; multithreading arrives in M2).
+C17 · SDL3 · CMake. A chunked cellular-automaton simulation running on all CPU cores.
 
 ## Build
 
@@ -37,8 +37,8 @@ cmake --build build/release -j
 ./build/release/pixel-roguelike
 ```
 
-Options: `--width N --height N` (world size, rounded up to multiples of 64; default 1024×768),
-`--seed N`, `--demo` (start with a demo scene).
+Options: `--width N --height N` (world size, rounded up to multiples of 64; default 4096×2048),
+`--threads N` (default: one per CPU core), `--seed N`, `--demo` (start with a demo scene).
 
 Tests and benchmark:
 
@@ -59,14 +59,17 @@ ctest --test-dir build/release --output-on-failure
 | Shift + left mouse | Paint only into empty (void) cells |
 | Mouse wheel, `[` / `]` | Brush radius 0–256 px (0 = one pixel) |
 | `B` | Toggle circle / square brush |
+| Middle mouse drag, `WASD` / arrows | Pan the view |
+| `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×) |
+| `Home` | Show the whole world |
 | `1`–`9` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Dirt, Rock, Iron, Ice, Eraser |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
 | `R` | Reset to the empty box |
 | `Esc` | Quit |
 
-The panel shows FPS, simulation time per tick, how many cells were updated, active chunks, and
-the element and temperature under the cursor.
+The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells
+were updated, active chunks, zoom, and the element and temperature under the cursor.
 
 ## Documentation
 

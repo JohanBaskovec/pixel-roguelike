@@ -16,6 +16,7 @@ void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
 void test_pour_against_wall_makes_no_tower(void);
+void test_same_result_for_any_thread_count(void);
 void test_edit_single_pixel(void);
 void test_edit_circle_area(void);
 void test_edit_stroke_has_no_gaps(void);
@@ -44,6 +45,7 @@ int main(void) {
     RUN(test_poured_water_spreads);
     RUN(test_falling_stream_has_no_chunk_bulges);
     RUN(test_pour_against_wall_makes_no_tower);
+    RUN(test_same_result_for_any_thread_count);
     RUN(test_edit_single_pixel);
     RUN(test_edit_circle_area);
     RUN(test_edit_stroke_has_no_gaps);

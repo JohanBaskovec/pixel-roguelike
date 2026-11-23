@@ -27,7 +27,7 @@ with 6–8 cores.
 | Milestone | World | Target |
 |---|---|---|
 | M1 | 1024 × 768 (0.8 M cells), single-threaded | 60 ticks/s with the whole box churning |
-| M2 | 4096 × 2048 (8.4 M cells), multithreaded | 60 ticks/s with ≈ 2 M active cells |
+| M2 | 4096 × 2048 (8.4 M cells), multithreaded | 60 ticks/s with ≈ 2 M active cells (desktop, not yet verified; see ROADMAP) |
 
 ## Techniques we rely on
 
@@ -56,20 +56,25 @@ Planned experiments, decided by data only:
 - A permanent 1-cell wall ring at the world edge, so neighbour reads need no bounds check.
 - Chunk-major memory layout instead of row-major.
 - Full SoA for `Cell`.
-- Atomics vs per-worker deferred lists for cross-chunk dirty marking.
+- ~~Atomics vs per-worker deferred lists for cross-chunk dirty marking~~: per-job buffers (D-019).
 - SIMD for the heat pass.
 - `SDL_LockTexture` vs `SDL_UpdateTexture` for uploads.
 
 ## Measuring
 
 - **`pr-bench`** (headless) builds a deterministic scenario: a world filled with a churning mix of
-  water and three gases over a dirt-and-rock floor. It runs a warm-up, then N ticks, and prints:
+  water and three gases over a dirt-and-rock floor (`--fill F` sets how much of the space above
+  the floor is filled; `--threads N` the thread count, default all cores). It runs a warm-up,
+  then N ticks, and prints:
   - ms/tick at p50, p99 and max
   - updated cells per tick
   - **ns per updated cell** (the main number to watch)
   - thread count, world size, build type, compiler
-- **In-game HUD timers** (M2) are scoped timers built on `SDL_GetPerformanceCounter`, aggregated
-  per frame: sim, heat, edits, upload, render.
+- **In-game HUD timers**, built on `SDL_GetPerformanceCounter` and averaged over half a second:
+  Sim (per tick), Draw (convert + upload of visible dirty chunks, per frame), Frame (all work per
+  frame, excluding the wait for vsync).
+- **Races:** build with `-DPR_TSAN=ON` (ThreadSanitizer) and run `pr-tests` and a few
+  `pr-bench --threads 4` ticks after any threading change.
 - **External profilers:** `perf` / Hotspot (Linux), Instruments (macOS), and Superluminal or VS
   Profiler (Windows). Use a `RelWithDebInfo` build. Tracy may be added later; it needs a
   `DECISIONS.md` entry because it is a dependency.
@@ -91,6 +96,9 @@ Rules
 | 2026-11-22 | M1+ | same | gcc 13.3 -O3 | 1024×768 bench scene | 1 | 59.8 | 13.1 / 19.2 | Surface liquid looks through its own liquid (no measurable change) |
 | 2026-11-22 | M1+ | same | gcc 13.3 -O3 | 1024×768 bench scene | 1 | 56.2 | 12.3 / 16.0 | Falling liquid waits behind falling liquid (no measurable change) |
 | 2026-11-23 | M1+ | same | gcc 13.3 -O3 | 1024×768 bench scene | 1 | 59.6 | 12.5 / 20.1 | Pressured liquid looks through its own liquid; wait only if the column below has room (within noise) |
+| 2026-11-23 | M2 | same | gcc 13.3 -O3 | 1024×768 bench scene | 1 / 2 / 3 / 4 | — | 12.4 / 7.7 / 5.5 / 4.1 (p50) | Parallel phases. 3.0× at 4 threads. Before the stack-copy fix (false sharing on job contexts): 12.2 / 11.9 / 9.7 / 8.0 |
+| 2026-11-23 | M2 | same | gcc 13.3 -O3 | 4096×2048, `--fill 0.35` (≈1.0 M active) | 1 / 4 | 67.3 / 18.2 | 67.6 / 19.1 (p50) | 3.7× at 4 threads |
+| 2026-11-23 | M2 | same | gcc 13.3 -O3 | 4096×2048, `--fill 0.7` (≈2.3 M active) | 4 | 18.7 | 41.8 / 51.0 | The M2 target scene: about 24 ticks/s on this VM |
 
 Notes on the M1 baseline:
 - The bench scene is a worst case: 65% of the box is a random mix of water, three gases and

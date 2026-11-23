@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/common.h"
+#include "core/jobs.h"
 #include "sim/elements.h"
 
 #define CHUNK_SIZE  64
@@ -39,6 +40,8 @@ typedef struct World {
     Chunk *chunks;
     uint64_t seed;
     uint64_t tick;
+    JobPool *jobs;     // not owned; NULL runs everything on the calling thread
+    void *sim_scratch; // owned; per-phase job state, allocated by the first sim_tick
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.
@@ -47,6 +50,12 @@ void world_destroy(World *w);
 
 // Sets every cell to void and wakes the whole world.
 void world_clear(World *w);
+
+// Runs the simulation (and rendering conversion) on this pool. NULL: single-threaded. Results are
+// identical for any number of threads. The pool must outlive its use by the world.
+static inline void world_set_job_pool(World *w, JobPool *pool) {
+    w->jobs = pool;
+}
 
 static inline bool world_in_bounds(const World *w, int x, int y) {
     return (unsigned)x < (unsigned)w->width && (unsigned)y < (unsigned)w->height;
@@ -91,42 +100,6 @@ static inline void dirty_rect_add(DirtyRect *r, int x0, int y0, int x1, int y1) 
 // Wake every cell in the world-space rect (inclusive, clamped) for the next tick, and mark the
 // chunks it touches for re-render.
 void world_wake_rect(World *w, int x0, int y0, int x1, int y1);
-
-// A cell changed at (x, y): wake its 3x3 neighbourhood and mark it for re-render.
-static inline void world_wake_cell(World *w, int x, int y) {
-    int lx = x & CHUNK_MASK, ly = y & CHUNK_MASK;
-    if (PR_LIKELY(lx > 0 && lx < CHUNK_SIZE - 1 && ly > 0 && ly < CHUNK_SIZE - 1)) {
-        Chunk *c = world_chunk(w, x >> CHUNK_SHIFT, y >> CHUNK_SHIFT);
-        dirty_rect_add(&c->next, lx - 1, ly - 1, lx + 1, ly + 1);
-        c->render_dirty = 1;
-    } else {
-        world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
-    }
-}
-
-// Two cells changed (a swap): wake the 3x3 neighbourhoods of both, as one rect when possible.
-static inline void world_wake_pair(World *w, int x0, int y0, int x1, int y1) {
-    int ax = PR_MIN(x0, x1) - 1, bx = PR_MAX(x0, x1) + 1;
-    int ay = PR_MIN(y0, y1) - 1, by = PR_MAX(y0, y1) + 1;
-    int cx = ax >> CHUNK_SHIFT, cy = ay >> CHUNK_SHIFT;
-    if (PR_LIKELY(ax >= 0 && ay >= 0 && cx == (bx >> CHUNK_SHIFT) && cy == (by >> CHUNK_SHIFT))) {
-        Chunk *c = world_chunk(w, cx, cy);
-        dirty_rect_add(&c->next, ax & CHUNK_MASK, ay & CHUNK_MASK, bx & CHUNK_MASK,
-                       by & CHUNK_MASK);
-        c->render_dirty = 1;
-    } else {
-        world_wake_cell(w, x0, y0);
-        world_wake_cell(w, x1, y1);
-    }
-}
-
-// The cell at (x, y) did not change but may move next tick (e.g. a probabilistic move failed).
-// Keeps only that cell awake; no re-render.
-static inline void world_keep_alive(World *w, int x, int y) {
-    Chunk *c = world_chunk(w, x >> CHUNK_SHIFT, y >> CHUNK_SHIFT);
-    int lx = x & CHUNK_MASK, ly = y & CHUNK_MASK;
-    dirty_rect_add(&c->next, lx, ly, lx, ly);
-}
 
 // Puts a fresh cell of `e` at (x, y), with spawn temperature and random shade. Does not wake.
 void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits);

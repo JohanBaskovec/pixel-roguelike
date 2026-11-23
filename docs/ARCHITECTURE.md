@@ -92,6 +92,8 @@ typedef struct World {
     Chunk    *chunks;
     uint64_t  seed;
     uint64_t  tick;
+    JobPool  *jobs;                  // not owned; NULL runs single-threaded
+    void     *sim_scratch;           // owned; per-phase job contexts
 } World;                             // M4 adds float *mass (kg per cell) for gases
 ```
 
@@ -127,7 +129,7 @@ sim_tick(world):
     stamp = tick & 0xFF
     every chunk: cur <- next, next <- empty        (wakes from edits and the last tick)
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
-        the first phase rotates with the tick      (M1: one thread; M2: parallel per phase)
+        the first phase rotates with the tick; the chunks of a phase run in parallel
     heat pass over heat-active chunks              (M3)
     phase changes                                  (M3; part of the heat pass)
     tick++
@@ -144,7 +146,7 @@ still could (a probabilistic move that failed) keeps only itself awake (`world_k
 nothing changes inside a chunk during a tick, its next rect is empty and the chunk sleeps until
 something wakes it: a neighbour's change, a player edit, or (M3) heat.
 
-### Parallel movement: 4-phase checkerboard *(M2)*
+### Parallel movement: 4-phase checkerboard
 
 Chunks are grouped by `(cx & 1, cy & 1)` into 4 phases. The scheduler runs the phases one after
 another, with a barrier between them. Within a phase, all dirty chunks of that group are processed
@@ -158,9 +160,24 @@ between them. Each worker reaches at most 32 px into that gap, so their regions 
 further than 32 px from the cell it updates**, in any direction. Liquid spreading and lookahead,
 gas drift and any future projectile must clamp to this. Debug builds assert it on every swap.
 
-Dirty-rect updates that land in a neighbouring chunk go through either SDL atomics (min/max via
-compare-and-swap) or a per-worker deferred list merged after the phase. Pick whichever benchmarks
-better and record it in `DECISIONS.md`.
+**How a phase runs** (`sim_tick` in `src/sim/sim.c`):
+1. List the phase's chunks with a non-empty dirty rect. Give each a `TickCtx`: its chunk, its RNG,
+   its stats, and wake buffers for the 3×3 chunks around it.
+2. `jobs_run()` updates them in parallel, one job per chunk. A job works on a copy of its
+   `TickCtx` on its own stack, because updating the contexts in place, side by side in one array,
+   made threads fight over shared cache lines (it cost half the speed-up).
+3. After the barrier, the main thread merges every job's wake buffers into the chunks' `next`
+   rects and `render_dirty` flags. Min/max and OR do not depend on order, so neither does the
+   result (D-019).
+
+Wakes never write to another chunk's metadata during a phase, so no atomics or locks are needed
+in the hot path.
+
+**Thread pool** (`src/core/jobs.c`): a fork-join pool on SDL threads. `jobs_run(pool, count, fn,
+user)` runs `fn(user, i)` for every `i`, with workers claiming indices from an atomic counter. The
+calling thread works too, and the call returns when all jobs are done. With a NULL pool, or a
+single thread, jobs run in order on the caller. The world uses the pool set with
+`world_set_job_pool()`; the game creates one thread per logical core (`--threads N` to change).
 
 ### Determinism
 
@@ -198,17 +215,28 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
 
 ## Rendering
 
-- One `SDL_Texture` (`SDL_PIXELFORMAT_RGBA8888`, `SDL_TEXTUREACCESS_STREAMING`), the same size as
-  the world, or the same size as the visible window into the world once a camera exists (M2).
+- One `SDL_Texture` (`SDL_PIXELFORMAT_XRGB8888`, `SDL_TEXTUREACCESS_STREAMING`), the same size as
+  the world (32 MB at 4096 × 2048), plus a world-sized staging buffer in system memory.
 - A lookup table `lut[element][shade]` holds the final colour: the base colour varied by shade,
   then blended over the void colour by the element's alpha (gases, water). Conversion is one
   table load per cell.
-- For each chunk with `render_dirty`, convert its cells. If more than a quarter of the chunks are
-  dirty, upload the whole texture once; otherwise upload each dirty chunk's rect
-  (`SDL_UpdateTexture` with a sub-rect).
-- Draw the texture with `SDL_SCALEMODE_NEAREST`, scaled to fit the area right of the toolbar with
-  the aspect ratio kept. The scale is rounded down to an integer when it is ≥ 1, so all pixels are
-  the same size.
+- Each frame, only render-dirty chunks **inside the camera view** are converted (in parallel on
+  the job pool) and uploaded. Dirty chunks outside the view keep their flag until they come into
+  view. Uploads are one `SDL_UpdateTexture` per chunk row, spanning that row's dirty chunks: a few
+  large uploads are much cheaper than many small ones (D-020).
+- The visible part of the texture is drawn into the view (the window right of the toolbar).
+  Zoomed in (zoom ≥ 1), sampling is nearest-neighbour, so pixels stay sharp. Zoomed out, it is
+  linear, which reduces flicker from skipped pixels.
+
+## Camera
+
+- The camera is the world position of the view's top-left corner (`cam_x`, `cam_y`), plus a zoom
+  level from a fixed list: 1/4, 1/3, 1/2, 1, 2, 3, 4, 6, 8 screen pixels per cell. Integer
+  levels keep every cell the same size on screen.
+- It is clamped so the view stays inside the world (a world smaller than the view is centred),
+  and snapped to whole screen pixels so the image does not shimmer while panning.
+- Controls: middle-drag or WASD/arrows to pan, Ctrl+wheel to zoom around the cursor, Home to fit
+  the whole world (also the start view).
 - Overlays (temperature, pressure) are alternative colour mappings in the same conversion step.
 - If we need shaders (glow, lighting, smooth gas rendering), move to the SDL3 GPU API. Record that
   in `DECISIONS.md`.
@@ -230,7 +258,7 @@ beyond toolbars and HUDs (`DECISIONS.md` D-009).
 
 - World coordinates: integer cells, origin at the **top-left**, **+y is down** (matches memory
   layout and SDL). "Up" in the rules means `y - 1`.
-- Screen → world: `world = (screen - viewport_origin) / scale (+ camera offset in M2)`.
+- Screen → world: `world = cam + (screen - view_origin) / zoom`.
 
 ## Memory
 

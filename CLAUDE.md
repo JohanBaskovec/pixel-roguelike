@@ -26,11 +26,11 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 ## Current status
 
-**M1 – Sandbox box is implemented.** A dirt box filled with void, a toolbar to paint water,
-oxygen, CO2, hydrogen, dirt, rock, iron and ice (or erase), single-threaded chunked simulation,
-tests and a benchmark. The next milestones are **M2 – Performance foundation** (threads, camera,
-bigger world), then **M2b – Water pressure**. See `docs/ROADMAP.md`, including the M1 acceptance
-notes on what is still unverified.
+**M1 – Sandbox box** and **M2 – Performance foundation** are implemented: a 4096 × 2048 dirt box
+filled with void, a toolbar to paint water, oxygen, CO2, hydrogen, dirt, rock, iron and ice (or
+erase), a multithreaded chunked simulation, a camera (pan/zoom), tests and a benchmark. The next
+milestone is **M2b – Water pressure**. See `docs/ROADMAP.md`, including the acceptance notes on
+what is still unverified (desktop performance).
 
 ## Stack
 
@@ -58,7 +58,11 @@ ctest --test-dir build/debug --output-on-failure
 ```
 
 ```bash
-./build/release/pr-bench            # headless simulation benchmark, prints ns/cell and ms/tick
+./build/release/pr-bench --threads 4 --width 4096 --height 2048 --fill 0.7   # headless benchmark
+```
+
+```bash
+cmake -S . -B build/tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPR_TSAN=ON   # ThreadSanitizer
 ```
 
 ```bash
@@ -66,8 +70,9 @@ ctest --test-dir build/debug --output-on-failure
 ./build/release/pixel-roguelike --demo --frames 300 --screenshot out.bmp
 ```
 
-CMake options: `PR_SANITIZE` (ASan+UBSan), `PR_NATIVE` (`-march=native`, off by default),
-`PR_USE_SYSTEM_SDL`, `PR_BUILD_TESTS` (on), `PR_BUILD_BENCH` (on), `PR_WERROR` (CI).
+CMake options: `PR_SANITIZE` (ASan+UBSan), `PR_TSAN` (ThreadSanitizer), `PR_NATIVE`
+(`-march=native`, off by default), `PR_USE_SYSTEM_SDL`, `PR_BUILD_TESTS` (on), `PR_BUILD_BENCH`
+(on), `PR_WERROR` (CI).
 
 On Linux, building SDL3 from source needs the X11/Wayland development packages listed in
 `README.md`. The first configure downloads SDL (about 25 s to build on 4 cores).
@@ -108,14 +113,14 @@ Details: `docs/ARCHITECTURE.md`.
 ## Source layout
 
 ```
-src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h
-              (M2: thread pool, profiler). SDL threads/atomics allowed
+src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h, jobs (thread
+              pool). SDL threads/atomics allowed
 src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
               sim (movement rules, tick), edit (brush strokes, edit queue), scene (box, demo,
               bench). HEADLESS: no SDL video/render/events
-src/render/   world -> texture (colour LUT, dirty-chunk upload)
+src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)
 src/ui/       immediate-mode widgets (button, panel, text)
-src/game/     app: input, toolbar, brush strokes, HUD, fixed-timestep frame
+src/game/     app: input, toolbar, brush strokes, camera, HUD, fixed-timestep frame
 src/main.c    argument parsing, SDL init, main loop
 tests/        behaviour tests (CTest) on tiny worlds; test_util.c builds worlds from ASCII
 bench/        pr-bench, headless benchmark
@@ -139,6 +144,10 @@ benchmark all link.
 - Never iterate the whole world when only dirty chunks or rects need work.
 - Never let a cell move, or a rule read, more than 32 px from the cell being updated (the
   threading invariant above). Do multi-cell moves as one swap to the destination.
+- Rules run in parallel. They may write only cells within reach, and wake only through the job's
+  `TickCtx` (`ctx_wake`, `keep_alive`); never write chunk metadata or any shared state directly.
+  Per-job state that is written often must live on the job's stack (false sharing).
+- After any threading change, run the tests under ThreadSanitizer (`PR_TSAN`).
 - Randomness comes only from the per-chunk RNG, seeded from `(world_seed, tick, chunk_x, chunk_y)`.
   Never use `rand()`, and never let worker threads touch a global RNG. Results must be identical
   for any thread count.

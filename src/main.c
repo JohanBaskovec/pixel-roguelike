@@ -9,13 +9,13 @@
 
 static void usage(void) {
     pr_log_info("Usage: pixel-roguelike [--width N] [--height N] [--seed N] [--demo]\n"
-                "                       [--frames N] [--screenshot file.bmp]");
+                "                       [--threads N] [--frames N] [--screenshot file.bmp]");
 }
 
 int main(int argc, char *argv[]) {
     AppConfig cfg = {0};
-    cfg.world_w = 1024;
-    cfg.world_h = 768;
+    cfg.world_w = 4096;
+    cfg.world_h = 2048;
     cfg.seed = 1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -30,6 +30,8 @@ int main(int argc, char *argv[]) {
             cfg.frames = atoi(argv[++i]);
         } else if (strcmp(a, "--screenshot") == 0 && has_value) {
             cfg.screenshot = argv[++i];
+        } else if (strcmp(a, "--threads") == 0 && has_value) {
+            cfg.threads = atoi(argv[++i]);
         } else if (strcmp(a, "--demo") == 0) {
             cfg.demo = true;
         } else {

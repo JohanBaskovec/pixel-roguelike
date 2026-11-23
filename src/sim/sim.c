@@ -2,17 +2,77 @@
 //
 // HOT PATH: everything below runs per cell per tick. No allocation, logging, SDL calls, locks
 // or function pointers. Respect MAX_MOVE.
+//
+// THREADING: the chunks of one checkerboard phase are updated in parallel, one job per chunk.
+// A job reads and writes cells only within MAX_MOVE of its own chunk (asserted on every swap in
+// Debug), so jobs of the same phase never touch the same cells. Wakes for the next tick go into
+// the job's own TickCtx (the 3x3 chunks around its chunk) and are merged into the chunks after
+// the phase. See docs/ARCHITECTURE.md -> Parallel movement.
 
 #include "sim/sim.h"
 
+#include "core/jobs.h"
 #include "core/rng.h"
 
+#include <string.h>
+
+// Per-job state. Also holds the job's results (wakes, stats) until they are merged.
 typedef struct TickCtx {
     World *w;
     Rng rng;
     uint8_t stamp;
+    int cx, cy;         // the chunk this job updates
+    int base_x, base_y; // its top-left cell
+    DirtyRect wake[9];  // next-tick wakes for the 3x3 chunks around it (chunk-local coords)
+    uint8_t render[9];  // ... and whether they need re-rendering
     SimStats stats;
 } TickCtx;
+
+// Mark a world-space rect, which must lie in the 3x3 chunks around the job's chunk.
+static void ctx_wake_slow(TickCtx *c, int x0, int y0, int x1, int y1, bool render) {
+    World *w = c->w;
+    x0 = PR_MAX(x0, 0);
+    y0 = PR_MAX(y0, 0);
+    x1 = PR_MIN(x1, w->width - 1);
+    y1 = PR_MIN(y1, w->height - 1);
+    for (int ccy = y0 >> CHUNK_SHIFT; ccy <= y1 >> CHUNK_SHIFT; ccy++) {
+        int by = ccy << CHUNK_SHIFT;
+        for (int ccx = x0 >> CHUNK_SHIFT; ccx <= x1 >> CHUNK_SHIFT; ccx++) {
+            int bx = ccx << CHUNK_SHIFT;
+            int slot = (ccx - c->cx + 1) + 3 * (ccy - c->cy + 1);
+            PR_ASSERT(ccx - c->cx >= -1 && ccx - c->cx <= 1 && ccy - c->cy >= -1 &&
+                      ccy - c->cy <= 1);
+            dirty_rect_add(&c->wake[slot], PR_MAX(x0 - bx, 0), PR_MAX(y0 - by, 0),
+                           PR_MIN(x1 - bx, CHUNK_SIZE - 1), PR_MIN(y1 - by, CHUNK_SIZE - 1));
+            c->render[slot] |= (uint8_t)render;
+        }
+    }
+}
+
+static inline void ctx_wake(TickCtx *c, int x0, int y0, int x1, int y1, bool render) {
+    int lx0 = x0 - c->base_x, ly0 = y0 - c->base_y;
+    int lx1 = x1 - c->base_x, ly1 = y1 - c->base_y;
+    if (PR_LIKELY(lx0 >= 0 && ly0 >= 0 && lx1 < CHUNK_SIZE && ly1 < CHUNK_SIZE)) {
+        dirty_rect_add(&c->wake[4], lx0, ly0, lx1, ly1);
+        c->render[4] |= (uint8_t)render;
+    } else {
+        ctx_wake_slow(c, x0, y0, x1, y1, render);
+    }
+}
+
+// The cell at (x, y) did not change but may move next tick (e.g. a probabilistic move failed):
+// keep only that cell awake, no re-render.
+static inline void keep_alive(TickCtx *c, int x, int y) {
+    ctx_wake(c, x, y, x, y, false);
+}
+
+#ifndef NDEBUG
+// Is (x, y) within the cells this job may write: its chunk plus MAX_MOVE on every side?
+static inline bool in_reach(const TickCtx *c, int x, int y) {
+    return x >= c->base_x - MAX_MOVE && x < c->base_x + CHUNK_SIZE + MAX_MOVE &&
+           y >= c->base_y - MAX_MOVE && y < c->base_y + CHUNK_SIZE + MAX_MOVE;
+}
+#endif
 
 // Gravity: liquids gain 1/16 px/tick of fall speed with this probability (x/65536) each tick.
 // 0.87/16 px/tick^2 * 60^2 * 0.05 m = 9.8 m/s^2 at 5 cm per pixel. Random rather than on fixed
@@ -42,6 +102,7 @@ static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     PR_ASSERT(world_in_bounds(w, x0, y0) && world_in_bounds(w, x1, y1));
     PR_ASSERT(x1 - x0 <= MAX_MOVE && x0 - x1 <= MAX_MOVE && y1 - y0 <= MAX_MOVE &&
               y0 - y1 <= MAX_MOVE);
+    PR_ASSERT(in_reach(c, x0, y0) && in_reach(c, x1, y1));
     size_t i0 = world_index(w, x0, y0);
     size_t i1 = world_index(w, x1, y1);
     Cell a = w->cells[i0];
@@ -53,7 +114,9 @@ static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     float t = w->temp[i0];
     w->temp[i0] = w->temp[i1];
     w->temp[i1] = t;
-    world_wake_pair(w, x0, y0, x1, y1);
+    // Both cells changed: wake their 3x3 neighbourhoods (as one rect) and re-render.
+    ctx_wake(c, PR_MIN(x0, x1) - 1, PR_MIN(y0, y1) - 1, PR_MAX(x0, x1) + 1, PR_MAX(y0, y1) + 1,
+             true);
     c->stats.cells_moved++;
 }
 
@@ -145,7 +208,7 @@ static void update_liquid(TickCtx *c, int x, int y) {
         }
         if (target == 0) {
             cell->aux = (uint8_t)((dir > 0 ? 0x80 : 0) | speed);
-            world_keep_alive(w, x, y); // jammed behind falling liquid: wait, still falling
+            keep_alive(c, x, y); // jammed behind falling liquid: wait, still falling
             return;
         }
         swap_cells(c, x, y, x, target);
@@ -236,7 +299,7 @@ static void update_liquid(TickCtx *c, int x, int y) {
                 swap_cells(c, x, y, x + wdir, y);
                 cell_ptr(w, x + wdir, y)->aux = (uint8_t)(wdir > 0 ? 0x80 : 0);
             } else {
-                world_keep_alive(w, x, y);
+                keep_alive(c, x, y);
             }
             return;
         }
@@ -304,28 +367,25 @@ static void update_gas(TickCtx *c, int x, int y) {
 
     // 3. Did not move. Stay awake only if a move is still possible.
     if (gas_is_mobile(w, x, y, self)) {
-        world_keep_alive(w, x, y);
+        keep_alive(c, x, y);
     }
 }
 
-static void update_chunk(TickCtx *c, int cx, int cy) {
+static void update_chunk(TickCtx *c) {
     World *w = c->w;
-    Chunk *chunk = world_chunk(w, cx, cy);
-    DirtyRect r = chunk->cur;
-    int base_x = cx << CHUNK_SHIFT;
-    int base_y = cy << CHUNK_SHIFT;
+    DirtyRect r = world_chunk(w, c->cx, c->cy)->cur;
 
     c->rng = rng_from_seed(w->seed ^ pr_splitmix64(w->tick) ^
-                           (((uint64_t)(uint32_t)cx << 32) | (uint32_t)cy));
+                           (((uint64_t)(uint32_t)c->cx << 32) | (uint32_t)c->cy));
     c->stats.chunks_active++;
 
     // Bottom to top; horizontal direction alternates every tick (no left/right bias).
     bool left_to_right = (w->tick & 1) == 0;
     for (int ly = r.max_y; ly >= r.min_y; ly--) {
-        int y = base_y + ly;
+        int y = c->base_y + ly;
         Cell *row = &w->cells[world_index(w, 0, y)];
         for (int i = 0; i <= r.max_x - r.min_x; i++) {
-            int x = base_x + (left_to_right ? r.min_x + i : r.max_x - i);
+            int x = c->base_x + (left_to_right ? r.min_x + i : r.max_x - i);
             Cell *cell = &row[x];
             uint8_t b = g_elem_behavior[cell->element];
             if (b <= BEHAVIOR_STATIC || cell->stamp == c->stamp) {
@@ -347,10 +407,41 @@ static void update_chunk(TickCtx *c, int cx, int cy) {
     }
 }
 
+// Scratch memory for one phase: the chunks to update and one TickCtx per chunk.
+typedef struct PhaseScratch {
+    int *chunk_list;
+    TickCtx *ctx;
+    int capacity;
+} PhaseScratch;
+
+static void phase_job(void *user, int index) {
+    // Work on a copy on this thread's stack: jobs' contexts sit side by side in one array, and
+    // updating them in place (every move touches the stats and wakes) made threads fight over
+    // shared cache lines.
+    TickCtx *slot = &((TickCtx *)user)[index];
+    TickCtx c = *slot;
+    update_chunk(&c);
+    *slot = c;
+}
+
+static PhaseScratch *get_scratch(World *w) {
+    int capacity = ((w->chunks_x + 1) / 2) * ((w->chunks_y + 1) / 2);
+    if (!w->sim_scratch) {
+        size_t bytes = sizeof(PhaseScratch) + (size_t)capacity * (sizeof(int) + sizeof(TickCtx));
+        PhaseScratch *s = pr_aligned_alloc_zero(64, bytes + 64);
+        PR_ASSERT_ALWAYS(s != NULL);
+        s->capacity = capacity;
+        s->ctx = (TickCtx *)(((uintptr_t)(s + 1) + 63) & ~(uintptr_t)63);
+        s->chunk_list = (int *)(s->ctx + capacity);
+        w->sim_scratch = s;
+    }
+    return w->sim_scratch;
+}
+
 void sim_tick(World *w, SimStats *stats) {
-    TickCtx c = {0};
-    c.w = w;
-    c.stamp = (uint8_t)w->tick;
+    SimStats total = {0};
+    PhaseScratch *scratch = get_scratch(w);
+    uint8_t stamp = (uint8_t)w->tick;
 
     int n = w->chunks_x * w->chunks_y;
     for (int i = 0; i < n; i++) {
@@ -358,23 +449,60 @@ void sim_tick(World *w, SimStats *stats) {
         dirty_rect_clear(&w->chunks[i].next);
     }
 
-    // 4-phase checkerboard order. Single-threaded in M1; in M2 the chunks of one phase run in
-    // parallel. Using the same order now keeps results identical across the switch.
+    // 4-phase checkerboard. Chunks of one phase are two chunks apart, so their jobs (each
+    // reaching MAX_MOVE = half a chunk beyond its chunk) never touch the same cells. The phase
+    // that goes first rotates every tick, so no group of chunks always moves first.
     for (int i = 0; i < 4; i++) {
         int phase = (int)((i + w->tick) & 3);
         int px = phase & 1, py = phase >> 1;
+        int jobs = 0;
         for (int cy = py; cy < w->chunks_y; cy += 2) {
             for (int cx = px; cx < w->chunks_x; cx += 2) {
-                if (!dirty_rect_empty(&world_chunk(w, cx, cy)->cur)) {
-                    update_chunk(&c, cx, cy);
+                if (dirty_rect_empty(&world_chunk(w, cx, cy)->cur)) {
+                    continue;
+                }
+                TickCtx *c = &scratch->ctx[jobs++];
+                memset(c, 0, sizeof(*c));
+                c->w = w;
+                c->stamp = stamp;
+                c->cx = cx;
+                c->cy = cy;
+                c->base_x = cx << CHUNK_SHIFT;
+                c->base_y = cy << CHUNK_SHIFT;
+                for (int k = 0; k < 9; k++) {
+                    dirty_rect_clear(&c->wake[k]);
                 }
             }
+        }
+        PR_ASSERT(jobs <= scratch->capacity);
+
+        jobs_run(w->jobs, jobs, phase_job, scratch->ctx);
+
+        // Merge each job's wakes into the chunks. Min/max and OR are order-independent, so the
+        // result does not depend on which thread ran which job.
+        for (int j = 0; j < jobs; j++) {
+            TickCtx *c = &scratch->ctx[j];
+            for (int k = 0; k < 9; k++) {
+                int ccx = c->cx + k % 3 - 1, ccy = c->cy + k / 3 - 1;
+                if (ccx < 0 || ccy < 0 || ccx >= w->chunks_x || ccy >= w->chunks_y) {
+                    continue;
+                }
+                Chunk *chunk = world_chunk(w, ccx, ccy);
+                if (!dirty_rect_empty(&c->wake[k])) {
+                    DirtyRect *r = &c->wake[k];
+                    dirty_rect_add(&chunk->next, r->min_x, r->min_y, r->max_x, r->max_y);
+                }
+                chunk->render_dirty |= c->render[k];
+            }
+            total.cells_visited += c->stats.cells_visited;
+            total.cells_moved += c->stats.cells_moved;
+            total.chunks_active += c->stats.chunks_active;
         }
     }
 
     w->tick++;
     if (stats) {
-        *stats = c.stats;
+        *stats = total;
     }
 }
 

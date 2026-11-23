@@ -12,6 +12,7 @@ if(NOT PR_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(PR_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer (GCC/Clang)" OFF)
+option(PR_TSAN "Build with ThreadSanitizer (GCC/Clang; not together with PR_SANITIZE)" OFF)
 option(PR_NATIVE "Optimise for the build machine's CPU (-march=native)" OFF)
 option(PR_USE_SYSTEM_SDL "Use an installed SDL3 instead of fetching it" OFF)
 option(PR_BUILD_TESTS "Build the test suite" ON)
@@ -74,6 +75,10 @@ function(pr_configure_target target)
       target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
       target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endif()
+    if(PR_TSAN)
+      target_compile_options(${target} PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+      target_link_options(${target} PRIVATE -fsanitize=thread)
+    endif()
   endif()
 endfunction()
 
@@ -82,6 +87,7 @@ endfunction()
 # ---------------------------------------------------------------------------
 add_library(pr_sim STATIC
   src/core/core.c
+  src/core/jobs.c
   src/sim/elements.c
   src/sim/world.c
   src/sim/sim.c
@@ -96,6 +102,9 @@ endif()
 pr_configure_target(pr_sim)
 if(PR_SANITIZE AND NOT MSVC)
   target_link_options(pr_sim INTERFACE -fsanitize=address,undefined)
+endif()
+if(PR_TSAN AND NOT MSVC)
+  target_link_options(pr_sim INTERFACE -fsanitize=thread)
 endif()
 
 # ---------------------------------------------------------------------------

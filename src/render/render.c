@@ -38,19 +38,18 @@ bool render_init(WorldRenderer *r, SDL_Renderer *sdl, World *w) {
     r->texture = SDL_CreateTexture(sdl, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING,
                                    w->width, w->height);
     if (!r->texture) {
-        pr_log_error("SDL_CreateTexture failed: %s", SDL_GetError());
+        pr_log_error("SDL_CreateTexture (%dx%d) failed: %s", w->width, w->height, SDL_GetError());
         return false;
     }
     SDL_SetTextureScaleMode(r->texture, SDL_SCALEMODE_NEAREST);
     r->pixels = pr_aligned_alloc_zero(64, (size_t)w->width * w->height * sizeof(uint32_t));
-    if (!r->pixels) {
+    r->dirty_list = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(int));
+    if (!r->pixels || !r->dirty_list) {
         pr_log_error("render_init: out of memory");
         return false;
     }
     build_lut(r);
-    for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
-        w->chunks[i].render_dirty = 1;
-    }
+    render_invalidate(w);
     return true;
 }
 
@@ -59,11 +58,28 @@ void render_shutdown(WorldRenderer *r) {
         SDL_DestroyTexture(r->texture);
     }
     pr_aligned_free(r->pixels);
+    pr_aligned_free(r->dirty_list);
     *r = (WorldRenderer){0};
 }
 
-static void convert_chunk(WorldRenderer *r, const World *w, int cx, int cy) {
-    int x0 = cx << CHUNK_SHIFT, y0 = cy << CHUNK_SHIFT;
+void render_invalidate(World *w) {
+    for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
+        w->chunks[i].render_dirty = 1;
+    }
+}
+
+typedef struct ConvertJob {
+    WorldRenderer *r;
+    const World *w;
+} ConvertJob;
+
+static void convert_chunk(void *user, int index) {
+    ConvertJob *job = user;
+    WorldRenderer *r = job->r;
+    const World *w = job->w;
+    int chunk = r->dirty_list[index];
+    int x0 = (chunk % w->chunks_x) << CHUNK_SHIFT;
+    int y0 = (chunk / w->chunks_x) << CHUNK_SHIFT;
     for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
         const Cell *src = &w->cells[world_index(w, x0, y)];
         uint32_t *dst = &r->pixels[(size_t)y * r->width + x0];
@@ -73,39 +89,48 @@ static void convert_chunk(WorldRenderer *r, const World *w, int cx, int cy) {
     }
 }
 
-void render_upload(WorldRenderer *r, World *w) {
-    int n = w->chunks_x * w->chunks_y;
-    int dirty = 0;
-    for (int i = 0; i < n; i++) {
-        dirty += w->chunks[i].render_dirty;
-    }
-    r->chunks_uploaded = (uint32_t)dirty;
-    if (dirty == 0) {
-        return;
-    }
-    // Many dirty chunks: one full upload beats many small ones.
-    bool full = dirty * 4 > n;
-    int pitch = r->width * (int)sizeof(uint32_t);
-    for (int cy = 0; cy < w->chunks_y; cy++) {
-        for (int cx = 0; cx < w->chunks_x; cx++) {
+void render_upload(WorldRenderer *r, World *w, int cx0, int cy0, int cx1, int cy1) {
+    cx0 = PR_MAX(cx0, 0);
+    cy0 = PR_MAX(cy0, 0);
+    cx1 = PR_MIN(cx1, w->chunks_x - 1);
+    cy1 = PR_MIN(cy1, w->chunks_y - 1);
+    int count = 0;
+    for (int cy = cy0; cy <= cy1; cy++) {
+        for (int cx = cx0; cx <= cx1; cx++) {
             Chunk *c = world_chunk(w, cx, cy);
-            if (!c->render_dirty) {
-                continue;
-            }
-            c->render_dirty = 0;
-            convert_chunk(r, w, cx, cy);
-            if (!full) {
-                SDL_Rect rect = {cx << CHUNK_SHIFT, cy << CHUNK_SHIFT, CHUNK_SIZE, CHUNK_SIZE};
-                const uint32_t *src = &r->pixels[(size_t)rect.y * r->width + rect.x];
-                SDL_UpdateTexture(r->texture, &rect, src, pitch);
+            if (c->render_dirty) {
+                c->render_dirty = 0;
+                r->dirty_list[count++] = cy * w->chunks_x + cx;
             }
         }
     }
-    if (full) {
-        SDL_UpdateTexture(r->texture, NULL, r->pixels, pitch);
+    r->chunks_uploaded = (uint32_t)count;
+    if (count == 0) {
+        return;
+    }
+    ConvertJob job = {r, w};
+    jobs_run(w->jobs, count, convert_chunk, &job);
+
+    // One upload per chunk row, spanning its dirty chunks (the list is in row order). Chunks in
+    // between that were not dirty are re-sent unchanged; that is cheaper than many small uploads.
+    int pitch = r->width * (int)sizeof(uint32_t);
+    for (int i = 0; i < count;) {
+        int row = r->dirty_list[i] / w->chunks_x;
+        int first = r->dirty_list[i] % w->chunks_x, last = first;
+        while (i < count && r->dirty_list[i] / w->chunks_x == row) {
+            last = r->dirty_list[i] % w->chunks_x;
+            i++;
+        }
+        SDL_Rect rect = {first << CHUNK_SHIFT, row << CHUNK_SHIFT,
+                         (last - first + 1) << CHUNK_SHIFT, CHUNK_SIZE};
+        SDL_UpdateTexture(r->texture, &rect, &r->pixels[(size_t)rect.y * r->width + rect.x], pitch);
     }
 }
 
-void render_draw(WorldRenderer *r, const SDL_FRect *dst) {
-    SDL_RenderTexture(r->sdl, r->texture, NULL, dst);
+void render_draw(WorldRenderer *r, const SDL_FRect *src, const SDL_FRect *dst, bool smooth) {
+    if (smooth != r->smooth) {
+        SDL_SetTextureScaleMode(r->texture, smooth ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+        r->smooth = smooth;
+    }
+    SDL_RenderTexture(r->sdl, r->texture, src, dst);
 }

@@ -41,6 +41,7 @@ void world_destroy(World *w) {
     pr_aligned_free(w->cells);
     pr_aligned_free(w->temp);
     pr_aligned_free(w->chunks);
+    pr_aligned_free(w->sim_scratch);
     free(w);
 }
 

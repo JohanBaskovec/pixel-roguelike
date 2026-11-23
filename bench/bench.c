@@ -1,8 +1,13 @@
 // Headless simulation benchmark. See docs/PERFORMANCE.md -> Measuring.
 //
-//   pr-bench [--width N] [--height N] [--ticks N] [--warmup N] [--seed N]
+//   pr-bench [--width N] [--height N] [--ticks N] [--warmup N] [--seed N] [--threads N]
+//            [--fill F]
+//
+// --threads: total threads (0 = one per logical core, the default; 1 = single-threaded).
+// --fill:    fraction (0..1) of the space above the rock floor filled with churning matter.
 
 #include "core/common.h"
+#include "core/jobs.h"
 #include "sim/scene.h"
 #include "sim/sim.h"
 
@@ -32,7 +37,8 @@ static int cmp_double(const void *a, const void *b) {
 #endif
 
 int main(int argc, char **argv) {
-    int width = 1024, height = 768, ticks = 600, warmup = 60;
+    int width = 1024, height = 768, ticks = 600, warmup = 60, threads = 0;
+    float fill = 1.0f;
     uint64_t seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (strcmp(argv[i], "--width") == 0) {
@@ -45,6 +51,10 @@ int main(int argc, char **argv) {
             warmup = atoi(argv[i + 1]);
         } else if (strcmp(argv[i], "--seed") == 0) {
             seed = strtoull(argv[i + 1], NULL, 10);
+        } else if (strcmp(argv[i], "--threads") == 0) {
+            threads = atoi(argv[i + 1]);
+        } else if (strcmp(argv[i], "--fill") == 0) {
+            fill = (float)atof(argv[i + 1]);
         }
     }
     if (ticks <= 0) {
@@ -56,7 +66,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "failed to create world\n");
         return 1;
     }
-    scene_bench(w);
+    JobPool *pool = jobs_create(threads);
+    world_set_job_pool(w, pool);
+    scene_bench(w, fill);
     sim_run_ticks(w, warmup);
 
     double *ms = malloc(sizeof(double) * (size_t)ticks);
@@ -77,17 +89,19 @@ int main(int argc, char **argv) {
     printf("pr-bench\n");
     printf("  build      %s\n", BUILD_TYPE);
     printf("  compiler   %s\n", COMPILER);
-    printf("  world      %dx%d (%.2f M cells)\n", w->width, w->height,
-           (double)w->width * w->height / 1e6);
-    printf("  threads    1\n");
+    printf("  world      %dx%d (%.2f M cells), fill %.2f\n", w->width, w->height,
+           (double)w->width * w->height / 1e6, (double)fill);
+    printf("  threads    %d\n", jobs_thread_count(pool));
     printf("  ticks      %d (after %d warm-up)\n", ticks, warmup);
     printf("  updated    %.0f cells/tick (moved %.0f)\n", (double)visited / ticks,
            (double)moved / ticks);
-    printf("  ns/cell    %.2f\n", visited ? total * 1e9 / (double)visited : 0.0);
+    printf("  ns/cell    %.2f (wall time / updated cells; lower with more threads)\n",
+           visited ? total * 1e9 / (double)visited : 0.0);
     printf("  ms/tick    p50 %.3f  p99 %.3f  max %.3f  mean %.3f\n", ms[ticks / 2],
            ms[(int)(ticks * 0.99)], ms[ticks - 1], total * 1000.0 / ticks);
 
     free(ms);
     world_destroy(w);
+    jobs_destroy(pool);
     return 0;
 }

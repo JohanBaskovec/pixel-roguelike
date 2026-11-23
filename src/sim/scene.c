@@ -48,17 +48,20 @@ void scene_demo(World *w) {
     blob(w, W / 8, H / 6, 30, ELEM_ICE);
 }
 
-void scene_bench(World *w) {
+void scene_bench(World *w, float fill) {
     scene_empty_box(w, SCENE_WALL_THICKNESS);
     Rng rng = rng_from_seed(w->seed ^ 0xBE4C11ull);
     int t = SCENE_WALL_THICKNESS;
     int floor_y = w->height - w->height / 4;
+    int band_top = floor_y - (int)((float)(floor_y - t) * PR_CLAMP(fill, 0.0f, 1.0f));
     for (int y = t; y < w->height - t; y++) {
         for (int x = t; x < w->width - t; x++) {
             uint32_t r = rng_range(&rng, 100);
             ElementId e;
             if (y >= floor_y) {
                 e = (r < 85) ? ELEM_ROCK : ELEM_DIRT;
+            } else if (y < band_top) {
+                e = ELEM_VOID;
             } else if (r < 25) {
                 e = ELEM_WATER;
             } else if (r < 40) {

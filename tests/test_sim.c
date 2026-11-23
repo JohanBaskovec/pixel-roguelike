@@ -1,5 +1,6 @@
 #include "test.h"
 
+#include "core/jobs.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
 
@@ -18,6 +19,7 @@ void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
 void test_pour_against_wall_makes_no_tower(void);
+void test_same_result_for_any_thread_count(void);
 
 void test_solids_never_move(void) {
     World *w = test_world_box(64, 64, 1);
@@ -304,4 +306,38 @@ void test_pour_against_wall_makes_no_tower(void) {
     }
     EXPECT(stacked < 200);
     world_destroy(w);
+}
+
+static World *scripted_world_threads(uint64_t seed, JobPool *pool) {
+    World *w = test_world_box(384, 256, seed);
+    world_set_job_pool(w, pool);
+    for (int t = 0; t < 400; t++) {
+        if (t % 20 == 0) {
+            ElementId e = (ElementId)(ELEM_WATER + (t / 20) % 4);
+            Edit ed = {30 + t / 2, 20, 60 + t / 3, 40, 8, EDIT_CIRCLE, e, 0};
+            sim_apply_edit(w, &ed);
+        }
+        sim_tick(w, NULL);
+    }
+    return w;
+}
+
+void test_same_result_for_any_thread_count(void) {
+    // The world after the same seed and edits must be bit-identical whether the simulation ran
+    // on 1 thread or several (docs/ARCHITECTURE.md -> Determinism).
+    JobPool *pool4 = jobs_create(4);
+    JobPool *pool3 = jobs_create(3);
+    World *a = scripted_world_threads(77, NULL);
+    World *b = scripted_world_threads(77, pool4);
+    World *c = scripted_world_threads(77, pool3);
+    size_t n = (size_t)a->width * a->height;
+    EXPECT(jobs_thread_count(pool4) == 4);
+    EXPECT(memcmp(a->cells, b->cells, n * sizeof(Cell)) == 0);
+    EXPECT(memcmp(a->temp, b->temp, n * sizeof(float)) == 0);
+    EXPECT(memcmp(a->cells, c->cells, n * sizeof(Cell)) == 0);
+    world_destroy(a);
+    world_destroy(b);
+    world_destroy(c);
+    jobs_destroy(pool4);
+    jobs_destroy(pool3);
 }
