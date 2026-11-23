@@ -23,13 +23,24 @@ static const float k_zoom[] = {0.25f, 1.0f / 3.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f,
 typedef struct Tool {
     ElementId element;
     const char *label; // NULL: use the element name
+    uint8_t mode;      // EditMode
+    SDL_Keycode key;
+    uint32_t swatch; // UI_NO_SWATCH: none; 0: the element's colour
 } Tool;
 
-// Toolbar order = number keys 1..9.
 static const Tool k_tools[] = {
-    {ELEM_WATER, NULL},    {ELEM_OXYGEN, NULL}, {ELEM_CO2, "CO2"},
-    {ELEM_HYDROGEN, NULL}, {ELEM_DIRT, NULL},   {ELEM_ROCK, NULL},
-    {ELEM_IRON, NULL},     {ELEM_ICE, NULL},    {ELEM_VOID, "Eraser"},
+    {ELEM_WATER, NULL, EDIT_PAINT, SDLK_1, 0},
+    {ELEM_OXYGEN, NULL, EDIT_PAINT, SDLK_2, 0},
+    {ELEM_CO2, "CO2", EDIT_PAINT, SDLK_3, 0},
+    {ELEM_HYDROGEN, NULL, EDIT_PAINT, SDLK_4, 0},
+    {ELEM_STEAM, NULL, EDIT_PAINT, SDLK_5, 0},
+    {ELEM_DIRT, NULL, EDIT_PAINT, SDLK_6, 0},
+    {ELEM_ROCK, NULL, EDIT_PAINT, SDLK_7, 0},
+    {ELEM_IRON, NULL, EDIT_PAINT, SDLK_8, 0},
+    {ELEM_ICE, NULL, EDIT_PAINT, SDLK_9, 0},
+    {ELEM_VOID, "Eraser", EDIT_PAINT, SDLK_0, UI_NO_SWATCH},
+    {ELEM_VOID, "Heat", EDIT_HEAT, SDLK_H, 0xFF5020},
+    {ELEM_VOID, "Cool", EDIT_COOL, SDLK_C, 0x40A0FF},
 };
 #define TOOL_COUNT ((int)PR_ARRAY_COUNT(k_tools))
 
@@ -160,6 +171,7 @@ static void queue_segment(App *app, int wx, int wy) {
     e.radius = app->brush_radius;
     e.shape = app->brush_square ? EDIT_SQUARE : EDIT_CIRCLE;
     e.element = app->paint_button == SDL_BUTTON_RIGHT ? ELEM_VOID : k_tools[app->tool].element;
+    e.mode = app->paint_button == SDL_BUTTON_RIGHT ? EDIT_PAINT : k_tools[app->tool].mode;
     e.only_void = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0 && e.element != ELEM_VOID;
     if (!edit_queue_push(&app->edits, &e)) {
         sim_apply_edits(app->world, &app->edits);
@@ -185,8 +197,14 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             break;
         case SDL_EVENT_KEY_DOWN: {
             SDL_Keycode k = ev->key.key;
-            if (k >= SDLK_1 && k <= SDLK_9 && (int)(k - SDLK_1) < TOOL_COUNT) {
-                app->tool = (int)(k - SDLK_1);
+            int tool = -1;
+            for (int i = 0; i < TOOL_COUNT; i++) {
+                if (k_tools[i].key == k) {
+                    tool = i;
+                }
+            }
+            if (tool >= 0) {
+                app->tool = tool;
             } else if (k == SDLK_SPACE) {
                 app->paused = !app->paused;
             } else if (k == SDLK_PERIOD) {
@@ -204,6 +222,11 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 camera_fit(app);
             } else if (k == SDLK_P) {
                 app->wr.pressure_view = !app->wr.pressure_view;
+                app->wr.temperature_view = false;
+                render_invalidate(app->world);
+            } else if (k == SDLK_T) {
+                app->wr.temperature_view = !app->wr.temperature_view;
+                app->wr.pressure_view = false;
                 render_invalidate(app->world);
             } else if (k == SDLK_ESCAPE) {
                 app->running = false;
@@ -303,15 +326,15 @@ static void draw_panel(App *app) {
     ui_text(ui, x, y, 0x9AA0AA, "TOOLS");
     y += 14.0f;
     for (int i = 0; i < TOOL_COUNT; i++) {
-        ElementId e = k_tools[i].element;
+        const Tool *t = &k_tools[i];
         char label[48];
-        SDL_snprintf(label, sizeof(label), "%d %s", i + 1,
-                     k_tools[i].label ? k_tools[i].label : elem_name(e));
-        uint32_t swatch = e == ELEM_VOID ? UI_NO_SWATCH : g_elem_defs[e].color;
-        if (ui_button(ui, (SDL_FRect){x, y, w, 24.0f}, label, swatch, app->tool == i)) {
+        SDL_snprintf(label, sizeof(label), "%s %s", SDL_GetKeyName(t->key),
+                     t->label ? t->label : elem_name(t->element));
+        uint32_t swatch = t->swatch ? t->swatch : g_elem_defs[t->element].color;
+        if (ui_button(ui, (SDL_FRect){x, y, w, 21.0f}, label, swatch, app->tool == i)) {
             app->tool = i;
         }
-        y += 28.0f;
+        y += 24.0f;
     }
 
     y += 8.0f;
@@ -337,6 +360,8 @@ static void draw_panel(App *app) {
             (unsigned long long)app->last_stats.cells_visited);
     y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Pressure %7u", app->last_stats.transfers);
+    y += 12.0f;
+    ui_text(ui, x, y, 0xE8E8E8, "Heat     %4u ch", app->last_stats.heat_chunks);
     y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Chunks   %4u/%d", app->last_stats.chunks_active,
             app->world->chunks_x * app->world->chunks_y);
@@ -366,8 +391,17 @@ static void draw_panel(App *app) {
         y += 12.0f;
         if (e != ELEM_VOID && e != ELEM_OUT) {
             float t = app->world->temp[world_index(app->world, wx, wy)];
-            ui_text(ui, x, y, 0xE8E8E8, "%.1f C", (double)(t - 273.15f));
+            ui_text(ui, x, y, 0xE8E8E8, "%.1f C", (double)(elem_temp(e, t) - 273.15f));
             y += 12.0f;
+            bool heating = false;
+            float progress = elem_phase_progress(e, t, &heating);
+            if (progress >= 0.0f) {
+                const char *what =
+                    heating ? (g_elem_behavior[e] == BEHAVIOR_LIQUID ? "boiling" : "melting")
+                            : (g_elem_behavior[e] == BEHAVIOR_GAS ? "condensing" : "freezing");
+                ui_text(ui, x, y, 0xFFC060, "%s %d%%", what, (int)(progress * 100.0f));
+                y += 12.0f;
+            }
             int depth = sim_pressure_depth(app->world, wx, wy);
             if (depth >= 0) {
                 // 1000 kg/m^3 * 9.81 m/s^2 * depth * 5 cm, in kPa above the surface's pressure.
@@ -386,7 +420,7 @@ static void draw_panel(App *app) {
         "MMB drag, WASD  pan",
         "Ctrl+wheel  zoom",
         "Home  whole world",
-        "P  pressure view",
+        "P  pressure  T  temperature",
         "Space  pause  . step",
         "R  reset   Esc  quit",
     };
@@ -494,8 +528,8 @@ bool app_frame(App *app, double frame_dt) {
     SDL_RenderClear(app->renderer);
     SDL_Rect clip = {(int)app->view.x, (int)app->view.y, (int)app->view.w, (int)app->view.h};
     SDL_SetRenderClipRect(app->renderer, &clip);
-    if (app->wr.pressure_view) {
-        render_invalidate(app->world); // pressure can change anywhere in a body: redraw all
+    if (app->wr.pressure_view || app->wr.temperature_view) {
+        render_invalidate(app->world); // these can change anywhere: redraw everything
     }
     draw_world(app);
     draw_brush_outline(app);

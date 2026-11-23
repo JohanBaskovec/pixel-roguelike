@@ -35,8 +35,11 @@ Notes
 - **Nitrogen** (M4) is inert. With it, air can be realistic: 78% N₂, 21% O₂, ~1% argon (ignored),
   0.04% CO₂ by volume. Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
-  spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately once heat
-  exists.
+  spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
+- **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
+  steam above 100 °C (L = 2257 kJ/kg); steam → water below 100 °C. Tables `g_elem_above` /
+  `g_elem_below` in `src/sim/elements.c`. Water's density follows its real curve (densest at
+  4 °C); gases follow the ideal gas law.
 
 ## Derived values at 5 cm cells
 
@@ -63,6 +66,7 @@ Movement constants. These are game-feel values, not physics.
 | Oxygen | 3 | Random-walk step length into void |
 | CO₂ | 2 | Heavier molecules, slower spread |
 | Hydrogen | 6 | Lighter molecules, faster spread |
+| Steam | 4 | Water vapour (18 g/mol), between oxygen and hydrogen |
 
 All are clamped to `MAX_MOVE` = 32.
 
@@ -75,16 +79,25 @@ All are clamped to `MAX_MOVE` = 32.
 | `LIQUID_LOOKAHEAD` | 32 | `sim/sim.c` | How far a surface liquid cell looks sideways for a drop (= `MAX_MOVE`) |
 | `TICK_MAX_REQUESTS` | 128 | `sim/sim.c` | Water-pressure transfer requests per chunk per tick |
 | `SOURCE_ROWS` | 8 | `sim/pressure.c` | Rows below a body's top a transfer may take water from once the top row is used up |
-| `HEAT_TIME_SCALE` | TBD in M3 | | Global speed-up of conduction (see SIMULATION.md) |
-| `HEAT_EPSILON_K` | TBD in M3 | | Temperature difference below which a chunk may sleep thermally |
+| `HEAT_TIME_SCALE` | 1000 | `sim/elements.h` | Speed-up of conduction in solids and liquids (see SIMULATION.md) |
+| `HEAT_TIME_SCALE_GAS` | 10 | `sim/elements.h` | Speed-up of conduction in any contact involving a gas |
+| `HEAT_SLEEP_K` | 0.001 K/tick | `sim/heat.c` | A chunk stays heat-active while temperatures change faster than this |
+| `HEAT_WAKE_MOVEMENT_K` | 0.02 K/tick | `sim/heat.c` | Temperature change that wakes a chunk's fluids (convection) |
+| `K_CONVECTION` | 200 | `sim/sim.c` | Liquid convection swap probability per unit of relative density difference |
+| `CONVECTION_MIN_K` | 0.05 K | `sim/sim.c` | Smallest temperature difference that drives convection or same-gas buoyancy |
+| `BOIL_EXCESS_CAP_K` | 20 K | `sim/heat.c` | Freshly boiled steam starts at most this far above 100 °C (no gas mass until M4) |
+| `EDIT_HEAT_STEP_K` | 8 K | `sim/edit.h` | Heat / Cool brush change per application (60 per second while held) |
 
 ## Gameplay deviations from reality
 
 Keep this list complete.
 
 1. Gases are tinted so they are visible.
-2. Heat conduction is uniformly sped up by `HEAT_TIME_SCALE` (M3).
-3. M1–M3 gas is one particle per pixel at fixed density, with no pressure, until M4.
+2. Heat conduction is sped up: 1000× in solids and liquids, 10× where a gas is involved
+   (`HEAT_TIME_SCALE`, `HEAT_TIME_SCALE_GAS`). Relative conductivities stay real.
+3. M1–M3 gas is one particle per pixel at fixed density, with no pressure, until M4. So boiling
+   turns one water cell into one steam cell (mass not conserved), and freshly boiled steam's
+   temperature is capped (`BOIL_EXCESS_CAP_K`).
 4. Liquids are incompressible. Pressure moves water from the top of a body straight to the
    opening it is pushed toward, and the flow rate through an opening is not proportional to the
    square root of the depth (see SIMULATION.md → Liquid pressure).

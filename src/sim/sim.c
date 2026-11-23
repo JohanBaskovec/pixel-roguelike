@@ -13,22 +13,33 @@
 
 #include "core/jobs.h"
 #include "core/rng.h"
+#include "sim/heat.h"
 #include "sim/pressure.h"
 
+#include <math.h>
 #include <string.h>
 
 #define TICK_MAX_REQUESTS 128 // water-pressure requests per chunk per tick; more retry next tick
+
+// Convection: swap probability per unit of relative density difference (a liquid 0.25% lighter
+// than the same liquid above it, e.g. water 10 K warmer at 25 degC, rises with p = 0.5).
+#define K_CONVECTION 200.0f
+// Smallest temperature difference that drives convection or same-gas buoyancy.
+#define CONVECTION_MIN_K 0.05f
+// Temperatures closer than this count as equal when deciding whether moving cells need heat.
+#define HEAT_UNIFORM_K 0.01f
 
 // Per-job state. Also holds the job's results (wakes, stats) until they are merged.
 typedef struct TickCtx {
     World *w;
     Rng rng;
     uint8_t stamp;
-    int cx, cy;         // the chunk this job updates
-    int base_x, base_y; // its top-left cell
-    DirtyRect wake[9];  // next-tick wakes for the 3x3 chunks around it (chunk-local coords)
-    uint8_t render[9];  // ... and whether they need re-rendering
-    uint8_t liquid[9];  // ... and whether liquid moved there (recompute water pressure)
+    int cx, cy;                 // the chunk this job updates
+    int base_x, base_y;         // its top-left cell
+    DirtyRect wake[9];          // next-tick wakes for the 3x3 chunks around it (chunk-local coords)
+    uint8_t render[9];          // ... and whether they need re-rendering
+    uint8_t liquid[9];          // ... and whether liquid moved there (recompute water pressure)
+    float arr_lo[9], arr_hi[9]; // temperatures of cells that moved into those chunks
     SimStats stats;
     int nreq; // water-pressure requests, carried out after the phase
     PressureRequest req[TICK_MAX_REQUESTS];
@@ -66,6 +77,18 @@ static inline void ctx_wake(TickCtx *c, int x0, int y0, int x1, int y1, bool ren
     } else {
         ctx_wake_slow(c, x0, y0, x1, y1, render, liquid);
     }
+}
+
+// A cell with temperature t moved to (x, y): remember it for the destination chunk's heat check.
+static inline void ctx_arrive(TickCtx *c, int x, int y, Cell cell, float t) {
+    if (g_elem_cap[cell.element] == 0.0f) {
+        return;
+    }
+    int slot = ((x >> CHUNK_SHIFT) - c->cx + 1) + 3 * ((y >> CHUNK_SHIFT) - c->cy + 1);
+    PR_ASSERT(slot >= 0 && slot < 9);
+    float tp = elem_temp(cell.element, t);
+    c->arr_lo[slot] = PR_MIN(c->arr_lo[slot], tp);
+    c->arr_hi[slot] = PR_MAX(c->arr_hi[slot], tp);
 }
 
 // The cell at (x, y) did not change but may move next tick (e.g. a probabilistic move failed):
@@ -120,10 +143,14 @@ static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     float t = w->temp[i0];
     w->temp[i0] = w->temp[i1];
     w->temp[i1] = t;
+    ctx_arrive(c, x1, y1, a, t);           // a moved to (x1, y1)
+    ctx_arrive(c, x0, y0, b, w->temp[i0]); // b moved to (x0, y0)
     // Both cells changed: wake their 3x3 neighbourhoods (as one rect) and re-render.
     // Still liquid moved (or started to fall): its body must be relabelled for water pressure.
     // Falling liquid passing through does not change any body.
-    bool liquid = cell_is_still_liquid(a) || cell_is_still_liquid(b);
+    // Two still cells of the same liquid trading places (convection) leave the bodies unchanged.
+    bool sa = cell_is_still_liquid(a), sb = cell_is_still_liquid(b);
+    bool liquid = (sa || sb) && !(sa && sb && a.element == b.element);
     ctx_wake(c, PR_MIN(x0, x1) - 1, PR_MIN(y0, y1) - 1, PR_MAX(x0, x1) + 1, PR_MAX(y0, y1) + 1,
              true, liquid);
     c->stats.cells_moved++;
@@ -259,6 +286,29 @@ static void update_liquid(TickCtx *c, int x, int y) {
         }
     }
 
+    // 3. Convection: if the same liquid sits above this cell and is denser (for water: colder,
+    //    unless near 4 degC), the two trade places with a probability that grows with the
+    //    difference. Warm water rises, cold water sinks, and heat is carried with them.
+    if (y > 0) {
+        Cell above = w->cells[world_index(w, x, y - 1)];
+        if (above.element == cell->element && cell_is_still_liquid(above)) {
+            float ts = elem_temp(cell->element, w->temp[world_index(w, x, y)]);
+            float ta = elem_temp(cell->element, w->temp[world_index(w, x, y - 1)]);
+            if (fabsf(ts - ta) >= CONVECTION_MIN_K) {
+                float ds = elem_fluid_density(cell->element, ts);
+                float da = elem_fluid_density(cell->element, ta);
+                if (da > ds) {
+                    float p = PR_MIN(K_CONVECTION * (da - ds) / da, 1.0f);
+                    if (rng_chance16(&c->rng, (uint32_t)(p * 65536.0f))) {
+                        swap_cells(c, x, y, x, y - 1);
+                        return;
+                    }
+                    keep_alive(c, x, y);
+                }
+            }
+        }
+    }
+
     // A cell with still liquid on top of it is not at the surface: it does not flow on its own
     // (water pressure moves water to where it is pushed). Falling water on top does not count.
     bool pressured = !liquid_surface_free(w, x, y, cell->element) &&
@@ -319,6 +369,26 @@ static void update_liquid(TickCtx *c, int x, int y) {
 
 // True if the gas at (x, y) could still move: a neighbour is void or a different gas, or a
 // denser fluid sits above it.
+// Probability (x/65536) that the fluid at (x, y) rises through the fluid directly above it:
+// K_BUOY * (rho_above - rho_self) / (rho_above + rho_self), with densities at the cells' physical
+// temperatures (so hot gas rises through the same gas when it is cold). 0 if it is not lighter.
+static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, ElementId up) {
+    if (!elem_is_fluid(up)) {
+        return 0;
+    }
+    float ts = elem_temp(self, w->temp[world_index(w, x, y)]);
+    float tu = elem_temp(up, w->temp[world_index(w, x, y - 1)]);
+    if (fabsf(ts - tu) < CONVECTION_MIN_K) {
+        // Same temperature: it cancels out of the density ratio; use the precomputed table.
+        return up == self ? 0 : g_buoy_p[up][self];
+    }
+    float ds = elem_fluid_density(self, ts), du = elem_fluid_density(up, tu);
+    if (du <= ds) {
+        return 0;
+    }
+    return (uint32_t)((float)K_BUOY_16 * (du - ds) / (du + ds));
+}
+
 static bool gas_is_mobile(const World *w, int x, int y, ElementId self) {
     for (int i = 0; i < 8; i++) {
         ElementId t = world_elem(w, x + k_dir8[i][0], y + k_dir8[i][1]);
@@ -326,8 +396,7 @@ static bool gas_is_mobile(const World *w, int x, int y, ElementId self) {
             return true;
         }
     }
-    ElementId up = world_elem(w, x, y - 1);
-    return up != self && elem_is_fluid(up) && g_elem_density_q[up] > g_elem_density_q[self];
+    return buoyancy_p(w, x, y, self, world_elem(w, x, y - 1)) > 0;
 }
 
 static void update_gas(TickCtx *c, int x, int y) {
@@ -335,13 +404,12 @@ static void update_gas(TickCtx *c, int x, int y) {
     ElementId self = cell_ptr(w, x, y)->element;
     uint32_t d = g_elem_density_q[self];
 
-    // 1. Buoyancy: rise through a denser fluid above.
-    ElementId up = world_elem(w, x, y - 1);
-    if (up != self && elem_is_fluid(up) && g_elem_density_q[up] > d) {
-        if (rng_chance16(&c->rng, g_buoy_p[up][self])) {
-            swap_cells(c, x, y, x, y - 1);
-            return;
-        }
+    // 1. Buoyancy: rise through a denser fluid above (including colder gas of the same kind:
+    //    warm air rises).
+    uint32_t p_up = buoyancy_p(w, x, y, self, world_elem(w, x, y - 1));
+    if (p_up > 0 && rng_chance16(&c->rng, p_up)) {
+        swap_cells(c, x, y, x, y - 1);
+        return;
     }
 
     // 2. Random walk. Into void: expansion, several cells at once. Into another gas: mixing.
@@ -458,10 +526,43 @@ void sim_tick(World *w, SimStats *stats) {
         dirty_rect_clear(&w->chunks[i].next);
         w->chunks[i].head_dirty = w->chunks[i].head_dirty_next;
         w->chunks[i].head_dirty_next = 0;
+        w->chunks[i].heat_active = w->chunks[i].heat_active_next;
+        w->chunks[i].heat_active_next = 0;
+    }
+    // Cells moved into these chunks last tick: they need the heat pass only if temperatures differ
+    // within the chunk or against its neighbours (a world at one temperature costs nothing).
+    for (int cy = 0; cy < w->chunks_y; cy++) {
+        for (int cx = 0; cx < w->chunks_x; cx++) {
+            Chunk *ch = world_chunk(w, cx, cy);
+            if (!ch->heat_check) {
+                continue;
+            }
+            ch->heat_check = 0;
+            float lo = ch->temp_lo, hi = ch->temp_hi;
+            static const int8_t d4[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+            for (int k = 0; k < 4; k++) {
+                int nx = cx + d4[k][0], ny = cy + d4[k][1];
+                if (nx >= 0 && ny >= 0 && nx < w->chunks_x && ny < w->chunks_y) {
+                    Chunk *nb = world_chunk(w, nx, ny);
+                    lo = PR_MIN(lo, nb->temp_lo);
+                    hi = PR_MAX(hi, nb->temp_hi);
+                }
+            }
+            if (hi - lo > HEAT_UNIFORM_K) {
+                ch->heat_active = 1;
+            }
+        }
     }
 
     // Water pressure: relabel still liquid where it changed and rebuild the bodies. This may add
     // whole chunks to this tick's dirty rects (where a body's top rose).
+    // Heat first: conduction and phase changes (cells that melt, freeze, boil or condense must be
+    // relabelled for water pressure and simulated this tick).
+    HeatStats heat;
+    heat_update(w, &heat);
+    total.heat_chunks = heat.chunks;
+    total.phase_changes = heat.phase_changes;
+
     pressure_update(w);
 
     // 4-phase checkerboard. Chunks of one phase are two chunks apart, so their jobs (each
@@ -486,6 +587,8 @@ void sim_tick(World *w, SimStats *stats) {
                 c->base_y = cy << CHUNK_SHIFT;
                 for (int k = 0; k < 9; k++) {
                     dirty_rect_clear(&c->wake[k]);
+                    c->arr_lo[k] = 1e30f;
+                    c->arr_hi[k] = -1e30f;
                 }
             }
         }
@@ -509,6 +612,11 @@ void sim_tick(World *w, SimStats *stats) {
                 }
                 chunk->render_dirty |= c->render[k];
                 chunk->head_dirty_next |= c->liquid[k];
+                if (c->arr_lo[k] <= c->arr_hi[k]) { // cells moved in, with their temperatures
+                    chunk->temp_lo = PR_MIN(chunk->temp_lo, c->arr_lo[k]);
+                    chunk->temp_hi = PR_MAX(chunk->temp_hi, c->arr_hi[k]);
+                    chunk->heat_check = 1;
+                }
             }
             total.cells_visited += c->stats.cells_visited;
             total.cells_moved += c->stats.cells_moved;

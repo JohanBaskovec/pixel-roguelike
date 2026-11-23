@@ -25,7 +25,7 @@ void test_water_flows_through_hole_until_level(void);
 
 void test_solids_never_move(void) {
     World *w = test_world_box(64, 64, 1);
-    Edit e = {20, 10, 40, 10, 2, EDIT_CIRCLE, ELEM_IRON, 0};
+    Edit e = {20, 10, 40, 10, 2, EDIT_CIRCLE, ELEM_IRON, 0, EDIT_PAINT};
     sim_apply_edit(w, &e);
     e.element = ELEM_ICE;
     e.y0 = e.y1 = 30;
@@ -43,7 +43,7 @@ void test_solids_never_move(void) {
 
 void test_water_falls_and_levels(void) {
     World *w = test_world_box(64, 64, 2);
-    Edit e = {32, 12, 32, 12, 8, EDIT_CIRCLE, ELEM_WATER, 0};
+    Edit e = {32, 12, 32, 12, 8, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
     int64_t n = sim_apply_edit(w, &e);
     sim_run_ticks(w, 1500);
     EXPECT_EQ(test_count(w, ELEM_WATER), n);
@@ -73,9 +73,9 @@ void test_water_falls_and_levels(void) {
 
 void test_water_sinks_through_gas(void) {
     World *w = test_world_box(64, 64, 3);
-    Edit fill = {32, 32, 32, 32, 40, EDIT_SQUARE, ELEM_OXYGEN, 1};
+    Edit fill = {32, 32, 32, 32, 40, EDIT_SQUARE, ELEM_OXYGEN, 1, EDIT_PAINT};
     sim_apply_edit(w, &fill);
-    Edit water = {32, 8, 32, 8, 5, EDIT_CIRCLE, ELEM_WATER, 0};
+    Edit water = {32, 8, 32, 8, 5, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
     sim_apply_edit(w, &water);
     sim_run_ticks(w, 600);
     EXPECT(test_mean_y(w, ELEM_WATER) > 58.0);
@@ -84,7 +84,7 @@ void test_water_sinks_through_gas(void) {
 
 void test_gas_expands_into_void(void) {
     World *w = test_world_box(64, 64, 4);
-    Edit e = {32, 56, 32, 56, 4, EDIT_CIRCLE, ELEM_OXYGEN, 0};
+    Edit e = {32, 56, 32, 56, 4, EDIT_CIRCLE, ELEM_OXYGEN, 0, EDIT_PAINT};
     sim_apply_edit(w, &e);
     sim_run_ticks(w, 1500);
     int top_half = 0;
@@ -100,8 +100,8 @@ void test_gas_expands_into_void(void) {
 // Box completely filled with gas, heavy layer on top of a light one; they should invert.
 static World *gas_layers(ElementId top, ElementId bottom, uint64_t seed) {
     World *w = test_world_box(64, 64, seed);
-    Edit a = {1, 1, 62, 31, 0, EDIT_SQUARE, top, 0};
-    Edit b = {1, 32, 62, 62, 0, EDIT_SQUARE, bottom, 0};
+    Edit a = {1, 1, 62, 31, 0, EDIT_SQUARE, top, 0, EDIT_PAINT};
+    Edit b = {1, 32, 62, 62, 0, EDIT_SQUARE, bottom, 0, EDIT_PAINT};
     for (int y = 1; y <= 31; y++) {
         a.y0 = a.y1 = y;
         sim_apply_edit(w, &a);
@@ -132,7 +132,7 @@ void test_counts_conserved(void) {
     World *w = test_world_box(128, 128, 7);
     ElementId els[] = {ELEM_WATER, ELEM_OXYGEN, ELEM_CO2, ELEM_HYDROGEN, ELEM_ROCK};
     for (int i = 0; i < 5; i++) {
-        Edit e = {20 + i * 20, 30, 30 + i * 18, 90, 6, EDIT_CIRCLE, els[i], 0};
+        Edit e = {20 + i * 20, 30, 30 + i * 18, 90, 6, EDIT_CIRCLE, els[i], 0, EDIT_PAINT};
         sim_apply_edit(w, &e);
     }
     int64_t before[ELEM_COUNT];
@@ -151,7 +151,7 @@ static World *scripted_world(uint64_t seed) {
     for (int t = 0; t < 300; t++) {
         if (t % 30 == 0) {
             ElementId e = (ElementId)(ELEM_WATER + (t / 30) % 4);
-            Edit ed = {20 + t / 4, 20, 40 + t / 5, 30, 5, EDIT_CIRCLE, e, 0};
+            Edit ed = {20 + t / 4, 20, 40 + t / 5, 30, 5, EDIT_CIRCLE, e, 0, EDIT_PAINT};
             sim_apply_edit(w, &ed);
         }
         sim_tick(w, NULL);
@@ -175,7 +175,7 @@ void test_deterministic(void) {
 void test_settled_world_sleeps(void) {
     // A pool of complete rows has nowhere to go: everything sleeps.
     World *w = test_world_box(128, 128, 8);
-    Edit row = {1, 0, 126, 0, 0, EDIT_SQUARE, ELEM_WATER, 0};
+    Edit row = {1, 0, 126, 0, 0, EDIT_SQUARE, ELEM_WATER, 0, EDIT_PAINT};
     for (int y = 100; y <= 126; y++) {
         row.y0 = row.y1 = y;
         sim_apply_edit(w, &row);
@@ -189,7 +189,7 @@ void test_settled_world_sleeps(void) {
 
     // A poured pool settles completely: no cell is updated any more (no surface shimmer).
     w = test_world_box(128, 128, 8);
-    Edit e = {64, 40, 64, 40, 25, EDIT_CIRCLE, ELEM_WATER, 0};
+    Edit e = {64, 40, 64, 40, 25, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
     sim_apply_edit(w, &e);
     sim_run_ticks(w, 3000);
     sim_tick(w, &s);
@@ -226,7 +226,7 @@ void test_poured_water_spreads(void) {
     // this left 21% of the floor dry and a peak of 25 cells; flat is about 10.)
     World *w = test_world_box(512, 192, 10);
     for (int t = 0; t < 400; t++) {
-        Edit e = {256, 20, 256, 20, 6, EDIT_CIRCLE, ELEM_WATER, 0};
+        Edit e = {256, 20, 256, 20, 6, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
         sim_apply_edit(w, &e);
         sim_tick(w, NULL);
     }
@@ -264,7 +264,7 @@ void test_falling_stream_has_no_chunk_bulges(void) {
     static double width[512];
     int samples = 0;
     for (int t = 0; t < 320; t++) {
-        Edit e = {96, 20, 96, 20, 6, EDIT_CIRCLE, ELEM_WATER, 0};
+        Edit e = {96, 20, 96, 20, 6, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
         sim_apply_edit(w, &e);
         sim_tick(w, NULL);
         if (t >= 170) {
@@ -301,7 +301,7 @@ void test_pour_against_wall_makes_no_tower(void) {
     // average pool level near the wall.
     World *w = test_world_box(1024, 384, 12);
     for (int t = 0; t < 2400; t++) {
-        Edit e = {990, 30, 990, 30, 8, EDIT_CIRCLE, ELEM_WATER, 0};
+        Edit e = {990, 30, 990, 30, 8, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
         sim_apply_edit(w, &e);
         sim_tick(w, NULL);
     }
@@ -324,7 +324,7 @@ static World *scripted_world_threads(uint64_t seed, JobPool *pool) {
     for (int t = 0; t < 400; t++) {
         if (t % 20 == 0) {
             ElementId e = (ElementId)(ELEM_WATER + (t / 20) % 4);
-            Edit ed = {30 + t / 2, 20, 60 + t / 3, 40, 8, EDIT_CIRCLE, e, 0};
+            Edit ed = {30 + t / 2, 20, 60 + t / 3, 40, 8, EDIT_CIRCLE, e, 0, EDIT_PAINT};
             sim_apply_edit(w, &ed);
         }
         sim_tick(w, NULL);
@@ -366,7 +366,7 @@ static int surface_y(const World *w, int x0, int x1) {
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT};
         sim_apply_edit(w, &ed);
     }
 }

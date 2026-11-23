@@ -26,11 +26,11 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 ## Current status
 
-**M1 – Sandbox box**, **M2 – Performance foundation** and **M2b – Water pressure** are
-implemented: a 4096 × 2048 dirt box filled with void, a toolbar to paint water, oxygen, CO2,
-hydrogen, dirt, rock, iron and ice (or erase), a multithreaded chunked simulation, water pressure
-(levelling, communicating vessels), a camera (pan/zoom), tests and a benchmark. The next
-milestone is **M3 – Temperature**. See `docs/ROADMAP.md`, including the acceptance notes on what
+**M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure** and **M3 –
+Temperature** are implemented: a 4096 × 2048 dirt box filled with void, a toolbar to paint water,
+steam, oxygen, CO2, hydrogen, dirt, rock, iron and ice (or erase, heat, cool), a multithreaded
+chunked simulation, water pressure, heat conduction, convection and phase changes, a camera
+(pan/zoom), tests and a benchmark. The next milestone is **M4 – Gas mass and pressure**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
@@ -117,8 +117,9 @@ Details: `docs/ARCHITECTURE.md`.
 src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h, jobs (thread
               pool). SDL threads/atomics allowed
 src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
-              sim (movement rules, tick), pressure (water bodies, transfers), edit (brush
-              strokes, edit queue), scene (box, demo, bench). HEADLESS: no SDL video/render/events
+              sim (movement rules, convection, tick), pressure (water bodies, transfers), heat
+              (conduction, phase changes), edit (brush strokes, edit queue), scene (box, demo,
+              bench). HEADLESS: no SDL video/render/events
 src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)
 src/ui/       immediate-mode widgets (button, panel, text)
 src/game/     app: input, toolbar, brush strokes, camera, HUD, fixed-timestep frame
@@ -140,8 +141,9 @@ benchmark all link.
 - Read element properties from the property tables (`g_elem_density[id]`, etc.), which fit in L1.
   Do not chase pointers.
 - Movement rules use integer and comparison logic, with densities from the quantised table. Most
-  floating point belongs in the heat pass. The one planned exception is fluid buoyancy reading
-  temperature (convection, M3).
+  floating point belongs in the heat pass. The exception is fluid buoyancy and convection, which
+  read temperatures (with an integer fast path when temperatures are equal).
+- Use `elem_temp(e, t)` for any physical use of a temperature (`temp` also holds latent heat).
 - Never iterate the whole world when only dirty chunks or rects need work.
 - Never let a cell move, or a rule read, more than 32 px from the cell being updated (the
   threading invariant above). Do multi-cell moves as one swap to the destination.

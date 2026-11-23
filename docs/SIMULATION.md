@@ -211,84 +211,93 @@ with mass. This is the ONI model on a pixel grid; see `DECISIONS.md` D-005.
 
 ## Heat pass (M3)
 
-Temperature exists on every non-void cell from M1, and starts at 293.15 K. Heat starts flowing in
-M3.
+Code: `src/sim/heat.c` (conduction, phase changes), `src/sim/sim.c` (convection), tables in
+`src/sim/elements.c`. Every non-void cell has a temperature; painted cells start at their
+element's spawn temperature (20 °C; ice −10 °C, steam 110 °C).
+
+### Stored and physical temperature (latent heat)
+
+The `temp` array holds a cell's **stored temperature**, which doubles as its heat content
+(enthalpy): beyond a phase-change point, the excess is latent heat on its way to changing phase.
+Water stored at 150 °C is water *at 100 °C* that has absorbed `c·50 K` toward boiling. The
+**physical temperature** `elem_temp(e, T)` stops at the transition point; it is what conduction,
+buoyancy, glow and the inspector use. The inspector shows the progress ("boiling 9%").
 
 ### Conduction
 
-Each cell has a thermal mass `C_i = ρ_i · V_cell · c_i` (J/K). Between two neighbours i and j
-(4-neighbourhood, sharing a face of area `dx²` at distance `dx`):
+Each cell has a thermal mass `C = ρ · V_cell · c` (J/K). Between 4-neighbours i and j:
 
 ```
-k_eff  = 2·k_i·k_j / (k_i + k_j)          // harmonic mean: two half-cells in series
-G_ij   = k_eff · dx                       // conductance, W/K  (= k_eff · dx² / dx)
-Q_ij   = G_ij · (T_j − T_i) · dt · HEAT_TIME_SCALE
-T_i'   = T_i + Σ_j Q_ij / C_i
+k_eff  = 2·k_i·k_j / (k_i + k_j)                 // two half-cells in series
+a_ij   = min(k_eff · dx · dt · speed-up,          // J/K per tick
+             (C_i·C_j / (C_i + C_j)) / 4)         // stability limit
+T_i'   = T_i + Σ_j a_ij · (T_j − T_i) / C_i       // physical temperatures on the right
 ```
 
-- **Void has k = 0.** Vacuum insulates perfectly; there is no heat radiation (D-017).
-- **Jacobi double-buffering.** Read `temp[cur]` and write `temp[next]`. Every cell computes the
-  same `Q_ij` for a given pair (a symmetric function of i and j), so **energy is conserved** and
-  the result does not depend on thread scheduling.
-- **Stability.** The explicit scheme is unstable when `Σ_j G_ij·dt·S / C_i` gets close to 1. The
-  stiff case is a light gas cell (tiny C) touching iron (huge k). Each pair's flow is limited so it
-  can never push the two cells past their common equilibrium:
-  `|Q_ij| ≤ |T_j − T_i| · (C_i·C_j / (C_i + C_j)) / 4`. The divisor 4 is the neighbour count. The
-  limiter is symmetric, so energy is still conserved.
-- **Sleeping.** A chunk is heat-active while any neighbouring pair differs by more than
-  `HEAT_EPSILON_K`, or while something moved in it. Other chunks skip the heat pass. The heat pass
-  may also run every N ticks with a proportionally larger `dt`, within the stability limit.
+- `a_ij` is a precomputed symmetric table (`g_heat_coef`), so what one cell gains its neighbour
+  loses: **energy is conserved exactly** (tested), and stays so whatever the thread count.
+- The limit makes every step monotone: one tick never pushes two cells past their common
+  temperature, even with all four neighbours pushing the same way. There is no overshoot with
+  extreme contrasts, e.g. 3000 K hydrogen on 100 K iron (tested).
+- **Void has no heat capacity and exchanges nothing.** Vacuum insulates perfectly (D-017).
+- **Jacobi:** all new temperatures are computed from the old ones into `temp_next`, then written
+  back. Both passes run in parallel, one job per chunk.
 
-### Conduction alone is slow; convection does most of the work
+**Which chunks run.** A chunk is heat-active while some temperature in it changed by more than
+`HEAT_SLEEP_K` (0.001 K) in the last tick, or when an edit or a phase change touched it. Each tick
+computes the active chunks **and their neighbours**, and cells only exchange with cells in chunks
+computed the same tick, so no energy leaks at the edge of the active region. Moving cells carry
+their temperature. Each chunk keeps the range of temperatures in it, and cells moving in only
+reactivate heat if temperatures actually differ in or around the chunk. So a world at one
+temperature costs nothing, however much moves.
 
-**Pure conduction** spreads heat about `√(α·t)`. In still water (α ≈ 1.4 × 10⁻⁷ m²/s) that is
-≈ 3 mm in 1 minute, ≈ 1 cm in 10 minutes, and ≈ 2.3 cm in an hour. The time scale for a whole 5 cm
-cell to equalise (`dx²/α`) is a few hours. Through iron (α ≈ 2.3 × 10⁻⁵ m²/s) it is about 2 minutes.
-These values are correct. They match, for example, lakes that keep a warm surface layer over cold
-water for months.
+### Speed-up
 
-They do **not** match everyday experience. A pot heats in minutes, and an ice cube melts quickly in
-a drink, because of **convection**: warm fluid gets lighter, rises, and mixes. In a falling-sand
-simulation, settled liquid does not move, so without explicit convection a pool would conduct heat
-like a solid and feel absurdly slow. **Convection must therefore be simulated** (see below). It is
-not something to fake by cranking up conduction.
+Real conduction is slow at 5 cm cells: heat crosses one cell of iron in about 2 minutes, rock in
+half an hour, still water in hours. Conduction is sped up by `HEAT_TIME_SCALE` = **1000** for
+solids and liquids. With it, a 1 m iron bar heats through in about a minute and a half, rock is
+about 17× slower, and water conducts slowly (convection does the real work). Relative behaviour
+stays realistic.
 
-After convection is in place, `HEAT_TIME_SCALE` (a single global, tuned in M3) may still be needed
-to make conduction through solids playable. It speeds up all conduction equally. **Relative
-behaviour stays realistic** (heat spreads through iron ~160× faster than through water); only the
-absolute pace changes. Like every other deviation, it is documented in `ELEMENTS.md`. Tune it
-*after* convection works, because the needed value will be much smaller.
+Gases get only **10×** (`HEAT_TIME_SCALE_GAS`), and so does any contact involving a gas. In air,
+convection (which runs in real time) must beat conduction. With 1000× conduction, a pocket of hot
+air lost its heat to its surroundings before it could rise (tested: hot gas rises).
 
 ### Convection
 
-- Moving cells carry their temperature, so heat is advected by flowing water and gas.
-- **Gases:** density depends on temperature, `ρ(T) = ρ_ref · T_ref / T` (ideal gas). Hot gas
-  becomes buoyant, rises, cools and sinks. The existing gas buoyancy swaps produce convection
-  currents once they use `ρ(T)`.
-- **Liquids:** two cells of the *same* liquid stacked vertically swap with a probability that grows
-  with their density difference, when the lower one is lighter (warmer). Liquid density uses a
-  per-element thermal expansion coefficient. Water's is ≈ 2.1 × 10⁻⁴ /K at 20 °C, and water is
-  **densest at 4 °C**. A small density curve for water in the element table gives realistic
-  results for free: ponds freeze from the top, and the bottom water stays at 4 °C.
-- **Sleeping:** a chunk with a vertical temperature inversion in a fluid (warm under cold, beyond
-  `HEAT_EPSILON_K`) stays active. A stably stratified fluid sleeps.
-- **Fallback, only if profiling forces it:** give fluids an effective conductivity
-  `k_eff = Nu · k` (Nusselt-number multiplier), the standard engineering shortcut for convection.
-  It is cheaper but has no visible flow. Record it in `DECISIONS.md` if used.
+- **Moving cells carry their temperature**, including water-pressure transfers (tested with a
+  U-tube whose hot side flows into the cold side).
+- **Gases:** density follows the ideal gas law, `ρ(T) = ρ_ref · T_ref / T` (`T_ref` 0 °C, steam
+  100 °C). Buoyancy compares densities at the cells' physical temperatures, including the same gas
+  above when it is colder by more than `CONVECTION_MIN_K`. Warm air rises through cold air. When
+  temperatures are equal, the precomputed integer table is used (fast path).
+- **Liquids:** a still cell with the same still liquid above it that is denser (colder, for
+  water) swaps with it with probability `min(1, K_CONVECTION · Δρ/ρ)`; `K_CONVECTION` = 200, so
+  water 10 K warmer at 25 °C rises with p ≈ 0.5. Water uses its real density curve (Thiesen;
+  densest at 4 °C), so ponds cool to 4 °C at the bottom and freeze from the top. Other liquids get
+  a generic expansion coefficient. Such swaps do not relabel water-pressure bodies (same body).
+- Where temperatures change by more than `HEAT_WAKE_MOVEMENT_K` (0.02 K/tick), the chunk's fluids
+  are simulated so convection can start. Cells that could convect stay awake until it is done.
+- Tested: a pool 100 cells deep, warm only at the bottom, warms at the top within 20 s.
 
-### Phase changes and latent heat
+**Known limitation:** buoyant gas rises cell by cell, exchanging places with the cold gas above
+it, so a hot pocket rises while mixing rather than as a tight plume.
 
-Each element may define a lower and an upper transition, each with a threshold temperature, a
-target element, and a latent heat L (J/kg). For example, water has ice below 273.15 K (L = 334 kJ/kg)
-and steam above 373.15 K (L = 2257 kJ/kg).
+### Phase changes
 
-A cell beyond its threshold stores the excess energy as temperature in its current phase:
-`E_excess = m · c · (T − T_thr)`. Once `E_excess ≥ m · L`, the cell becomes the target element at
-`T = T_thr ± (E_excess − m·L) / (m · c_new)`. Energy is conserved, and a mixed region "holds" at the
-melting or boiling point while it changes phase, as in reality. A small hysteresis band prevents
-flicker.
+Ice ↔ water at 0 °C (L = 334 kJ/kg), water ↔ steam at 100 °C (L = 2257 kJ/kg), all at 1 atm
+(pressure-dependent boiling may come with gas pressure, M4). After each conduction step, a cell
+whose stored temperature is far enough past its transition point that the heat beyond it pays for
+the latent heat, `c · (T − T_thr) ≥ L`, changes phase. It keeps the remainder:
+`T_new = T_thr ± m·(c·|T − T_thr| − L) / C_new`. The full latent heat acts as a natural
+hysteresis (no flicker). A melted, frozen, condensed or boiled cell wakes its neighbourhood
+(movement, rendering, water pressure).
 
-Boiling points are at 1 atm until pressure exists (M4). After that they may depend on pressure.
+**Caveat until gas mass (M4):** a water cell (125 g) becomes one steam cell (0.07 g at 1 atm), and
+one steam cell condenses back into one water cell. Mass is not conserved through boiling, and a
+boiling pool does not expand into ~1700 times its volume of steam. Energy is accounted per cell. A
+freshly boiled steam cell starts at most `BOIL_EXCESS_CAP_K` (20 K) above 100 °C, because its tiny
+heat capacity would otherwise turn leftover heat into absurd temperatures.
 
 ## Randomness
 

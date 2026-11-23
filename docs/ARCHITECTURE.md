@@ -80,15 +80,20 @@ typedef struct DirtyRect { int16_t min_x, min_y, max_x, max_y; } DirtyRect;  // 
 typedef struct Chunk {
     DirtyRect cur;                   // cells to process in the running tick
     DirtyRect next;                  // cells woken for the following tick
+    float     temp_lo, temp_hi;      // range of physical temperatures in the chunk
     uint8_t   render_dirty;          // needs re-upload to the texture
-    uint8_t   pad[15];               // 32 bytes; M3 adds heat_active
+    uint8_t   head_dirty, head_dirty_next;   // relabel for water pressure (this / next tick)
+    uint8_t   heat_active, heat_active_next; // run the heat pass (this / next tick)
+    uint8_t   heat_check;            // cells moved in: compare temperatures next tick
+    uint8_t   pad[2];                // 32 bytes
 } Chunk;
 
 typedef struct World {
     int32_t   width, height;         // cells; multiples of CHUNK_SIZE
     int32_t   chunks_x, chunks_y;
     Cell     *cells;                 // width*height, row-major, 64-byte aligned
-    float    *temp;                  // Kelvin; M3 adds a second buffer for the heat pass
+    float    *temp;                  // stored temperature, K (holds latent heat; see SIMULATION.md)
+    float    *temp_next;             // heat pass scratch (Jacobi)
     Chunk    *chunks;
     uint64_t  seed;
     uint64_t  tick;
@@ -130,6 +135,9 @@ any cell's element indexes them without a bounds check. Unknown IDs, and the pse
 sim_tick(world):
     stamp = tick & 0xFF
     every chunk: cur <- next, next <- empty        (wakes from edits and the last tick)
+    heat: conduction over heat-active chunks and their neighbours (parallel, Jacobi into
+        temp_next), then write-back and phase changes (parallel); cells that changed phase are
+        added to this tick's rects
     water pressure: relabel chunks whose still liquid changed (parallel), rebuild bodies with a
         union-find (serial); chunks whose body top rose are added to this tick's rects
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
@@ -242,7 +250,11 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
   and snapped to whole screen pixels so the image does not shimmer while panning.
 - Controls: middle-drag or WASD/arrows to pan, Ctrl+wheel to zoom around the cursor, Home to fit
   the whole world (also the start view).
-- Overlays (temperature, pressure) are alternative colour mappings in the same conversion step.
+- Overlays are alternative colour mappings in the same conversion step: pressure view (`P`,
+  depth below the body's top) and temperature view (`T`). While one is on, everything visible is
+  redrawn every frame.
+- Hot matter glows: above ~480 °C the cell's colour is blended toward a blackbody colour (dull red
+  → orange → white). Chunks with glowing cells are redrawn when their temperatures change.
 - If we need shaders (glow, lighting, smooth gas rendering), move to the SDL3 GPU API. Record that
   in `DECISIONS.md`.
 
@@ -269,6 +281,5 @@ beyond toolbars and HUDs (`DECISIONS.md` D-009).
 
 All large buffers are allocated once at world creation with 64-byte alignment
 (`SDL_aligned_alloc`). Nothing is allocated per tick. Budget at 4096 × 2048 (8.4 M cells) today:
-cells 32 MB + temperature 32 MB + piece labels 8 MB + water-pressure tables ≈ 14 MB, plus the
-renderer's 32 MB staging buffer and 32 MB texture. M3 adds a second temperature buffer, M4 a
-mass buffer (32 MB each).
+cells 32 MB + temperature 2 × 32 MB + piece labels 8 MB + water-pressure tables ≈ 14 MB, plus the
+renderer's 32 MB staging buffer and 32 MB texture. M4 adds a mass buffer (32 MB).

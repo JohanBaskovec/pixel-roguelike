@@ -85,7 +85,25 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             if (!inside) {
                 continue;
             }
-            if (e->only_void && w->cells[world_index(w, x, y)].element != ELEM_VOID) {
+            size_t i = world_index(w, x, y);
+            if (e->mode != EDIT_PAINT) {
+                // Heat or cool. The stored temperature may go beyond a phase-change point (that
+                // is latent heat); the physical temperature is what is limited.
+                ElementId el = w->cells[i].element;
+                if (g_elem_cap[el] == 0.0f) {
+                    continue;
+                }
+                float t =
+                    w->temp[i] + (e->mode == EDIT_HEAT ? EDIT_HEAT_STEP_K : -EDIT_HEAT_STEP_K);
+                float tp = elem_temp(el, t);
+                if (tp < 1.0f || tp > EDIT_HEAT_MAX_K) {
+                    continue;
+                }
+                w->temp[i] = t;
+                written++;
+                continue;
+            }
+            if (e->only_void && w->cells[i].element != ELEM_VOID) {
                 continue;
             }
             world_set_cell(w, x, y, e->element, rng_next(rng));
@@ -93,6 +111,7 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
         }
     }
     world_wake_rect(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    world_wake_heat(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
     return written;
 }
 

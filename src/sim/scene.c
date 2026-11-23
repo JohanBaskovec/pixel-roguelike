@@ -14,6 +14,7 @@ static void fill_rect(World *w, int x0, int y0, int x1, int y1, ElementId e, Rng
         }
     }
     world_wake_rect(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    world_wake_heat(w, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
 }
 
 void scene_empty_box(World *w, int thickness) {
@@ -28,7 +29,7 @@ void scene_empty_box(World *w, int thickness) {
 }
 
 static void blob(World *w, int x, int y, int r, ElementId e) {
-    Edit ed = {x, y, x, y, r, EDIT_CIRCLE, e, 0};
+    Edit ed = {x, y, x, y, r, EDIT_CIRCLE, e, 0, EDIT_PAINT};
     sim_apply_edit(w, &ed);
 }
 
@@ -85,4 +86,5 @@ void scene_bench(World *w, float fill) {
         }
     }
     world_wake_rect(w, 0, 0, w->width - 1, w->height - 1);
+    world_wake_heat(w, 0, 0, w->width - 1, w->height - 1);
 }

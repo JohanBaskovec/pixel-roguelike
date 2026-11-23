@@ -61,6 +61,7 @@ World *test_world_from_ascii(const char *ascii, uint64_t seed) {
         x++;
     }
     world_wake_rect(world, 0, 0, world->width - 1, world->height - 1);
+    world_wake_heat(world, 0, 0, world->width - 1, world->height - 1);
     return world;
 }
 
@@ -76,6 +77,7 @@ World *test_world_box(int w, int h, uint64_t seed) {
         }
     }
     world_wake_rect(world, 0, 0, world->width - 1, world->height - 1);
+    world_wake_heat(world, 0, 0, world->width - 1, world->height - 1);
     return world;
 }
 

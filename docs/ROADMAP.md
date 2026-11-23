@@ -132,19 +132,25 @@ Not done (see SIMULATION.md → Liquid pressure → Known limitations): flow rat
 proportional to √depth ("a dam pushes harder"); pressure in sealed bodies; pressure between
 different liquids.
 
-## M3 – Temperature
+## M3 – Temperature ✅
 
-- [ ] Heat conduction between neighbouring cells; energy-conserving; stable (see SIMULATION.md)
-- [ ] Moving cells carry their temperature, so convection emerges from movement
-- [ ] Hot gas is less dense (ideal-gas scaling), so warm air rises
-- [ ] Liquid convection: warm liquid swaps upward through colder liquid of the same kind; water
-      is densest at 4 °C. Test: a pool heated from below warms throughout within seconds to
-      minutes, not hours
-- [ ] Phase changes with latent heat: water ↔ ice, water ↔ steam (new element: steam)
-- [ ] Temperature overlay view (`T`), and heat/cool brushes
-- [ ] Hot cells glow (blackbody tint)
-- [ ] Transfers carry temperature (already true: cells move with their temperature); test that a
-      U-tube with hot and cold arms mixes heat only through the moved water
+- [x] Heat conduction between neighbouring cells; energy-conserving (tested); stable with extreme
+      contrasts (tested); 1000× speed-up for solids and liquids, 10× for gases (D-022)
+- [x] Moving cells carry their temperature, so convection emerges from movement
+- [x] Hot gas is less dense (ideal-gas scaling), so warm air rises (tested)
+- [x] Liquid convection: warm liquid swaps upward through colder liquid of the same kind; water
+      uses its real density curve (densest at 4 °C). Test: a pool heated from below warms at
+      the top within 20 s
+- [x] Phase changes with latent heat: water ↔ ice, water ↔ steam (new element: steam), via the
+      stored/physical temperature (D-021). Tests: melting in warm water, all four transitions
+- [x] Temperature view (`T`), Heat and Cool brushes (`H`, `C`), Steam tool (`5`)
+- [x] Hot cells glow (blackbody tint)
+- [x] Transfers carry temperature: test with a U-tube whose hot water flows into the cold side
+- [x] Heat sleeps where temperatures are uniform, even when cells move (D-023);
+      `pr-bench --temp-spread K` exercises it everywhere
+
+Known limitations: boiling does not conserve mass until gas mass (M4); hot gas rises while
+mixing rather than as a tight plume (see SIMULATION.md).
 
 ## M4 – Gas mass and pressure
 

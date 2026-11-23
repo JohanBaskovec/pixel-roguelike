@@ -233,3 +233,41 @@ to watch).
 - **Consequences:** Off-screen activity costs no rendering. The texture needs 32 MB of GPU memory
   at 4096 × 2048, and 4096 px textures are supported by all current GPUs. Worlds beyond the GPU's
   maximum texture size (often 16384) will need tiling (M6, world streaming).
+
+## D-021 — Latent heat via stored (enthalpy) temperature
+
+- **Status:** Accepted (M3)
+- **Context:** Phase changes need latent heat: water at 100 °C absorbs 2257 kJ/kg before boiling.
+  Options were a separate per-cell "phase progress" buffer, or folding it into the temperature.
+- **Decision:** The stored temperature doubles as heat content. Past a transition point the excess
+  is latent heat; `elem_temp()` gives the physical temperature, clamped at the transition point,
+  for conduction, buoyancy and display. A cell changes phase once `c·|T − T_thr| ≥ L` and keeps the
+  remainder.
+- **Consequences:** No extra memory, energy is conserved, and mixtures hold at 0 °C / 100 °C while
+  changing phase, as in reality. Stored temperatures can look odd (boiling water stored at
+  ~900 K, condensing steam stored below 0 K), so code must use `elem_temp()` for physics and
+  display.
+
+## D-022 — Smaller heat speed-up for gases
+
+- **Status:** Accepted (M3); refines D-008
+- **Context:** With conduction sped up 1000× everywhere, hot air diffused away before buoyancy
+  (which runs in real time) could lift it.
+- **Decision:** `HEAT_TIME_SCALE` = 1000 for solids and liquids, `HEAT_TIME_SCALE_GAS` = 10 for
+  any contact involving a gas.
+- **Consequences:** Hot gas rises; solids heat at a playable pace. Air heats more slowly from hot
+  surfaces, which convection and moving air make up for. Both are tunable constants, listed as
+  deviations in `ELEMENTS.md`.
+
+## D-023 — Heat runs only where temperatures differ
+
+- **Status:** Accepted (M3)
+- **Context:** Waking the heat pass wherever cells moved cost +80% on the movement benchmark, even
+  with the whole world at one temperature.
+- **Decision:** Chunks keep a temperature range, widened by arriving cells (in the movement pass
+  and transfers) and recomputed by the heat pass. Arrivals reactivate heat only if the range of
+  the chunk and its neighbours is wider than `HEAT_UNIFORM_K`. Edits and phase changes activate
+  heat directly.
+- **Consequences:** A uniform-temperature world costs almost nothing (+8% on the benchmarks, from
+  convection and buoyancy checks). The range is conservative: it only shrinks when the heat pass
+  recomputes the chunk.

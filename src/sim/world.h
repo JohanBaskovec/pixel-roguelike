@@ -28,24 +28,33 @@ typedef struct DirtyRect {
 typedef struct Chunk {
     DirtyRect cur;  // cells to process in the running tick
     DirtyRect next; // cells woken for the following tick
+    // Range of physical temperatures of the chunk's cells (lo > hi: none). Widened when cells
+    // arrive, recomputed by the heat pass. Lets moving cells skip the heat pass when nothing
+    // around differs in temperature.
+    float temp_lo, temp_hi;
     uint8_t render_dirty;
-    uint8_t head_dirty;      // relabel this chunk's still liquid for water pressure this tick
-    uint8_t head_dirty_next; // ... next tick
-    uint8_t pad[13]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
+    uint8_t head_dirty;       // relabel this chunk's still liquid for water pressure this tick
+    uint8_t head_dirty_next;  // ... next tick
+    uint8_t heat_active;      // compute heat conduction this tick
+    uint8_t heat_active_next; // ... next tick
+    uint8_t heat_check;       // cells arrived: check next tick whether temperatures differ
+    uint8_t pad[2]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
 } Chunk;
 
 typedef struct World {
     int32_t width, height; // cells; multiples of CHUNK_SIZE
     int32_t chunks_x, chunks_y;
-    Cell *cells;    // width * height, row-major
-    float *temp;    // Kelvin, per cell (heat flow arrives in M3, with a second buffer)
-    uint8_t *piece; // water pressure: body piece id of still liquid within its chunk (pressure.h)
+    Cell *cells;      // width * height, row-major
+    float *temp;      // per cell, K; for phase-changing cells it also holds latent heat (elem_temp)
+    float *temp_next; // heat pass scratch (Jacobi)
+    uint8_t *piece;   // water pressure: body piece id of still liquid within its chunk (pressure.h)
     Chunk *chunks;
     uint64_t seed;
     uint64_t tick;
     JobPool *jobs;                  // not owned; NULL runs everything on the calling thread
     void *sim_scratch;              // owned; per-phase job state, allocated by the first sim_tick
     struct PressureState *pressure; // owned; water-pressure bodies (pressure.c)
+    void *heat_scratch;             // owned; heat pass job state (heat.c)
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.
@@ -113,8 +122,16 @@ static inline void dirty_rect_add(DirtyRect *r, int x0, int y0, int x1, int y1) 
 }
 
 // Wake every cell in the world-space rect (inclusive, clamped) for the next tick, and mark the
-// chunks it touches for re-render.
+// chunks it touches for re-render and water-pressure relabelling.
 void world_wake_rect(World *w, int x0, int y0, int x1, int y1);
+
+// Temperatures or materials changed in the rect (edits, scenes): run the heat pass there next
+// tick.
+void world_wake_heat(World *w, int x0, int y0, int x1, int y1);
+
+// A cell was moved to (x, y) outside the movement pass (water-pressure transfers): record its
+// temperature so the heat pass runs next tick if it differs from its surroundings.
+void world_note_moved(World *w, int x, int y);
 
 static inline bool liquid_surface_free(const World *w, int x, int y, ElementId e) {
     if (y <= 0) {

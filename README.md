@@ -3,10 +3,11 @@
 A 2D side-view game where every pixel is simulated: gases, liquids and solids, each with its own
 temperature, density and behaviour. It draws on *Oxygen Not Included* and *Noita*.
 
-**Status:** milestones M1 (sandbox box), M2 (multithreading, big world, camera) and M2b (water
-pressure) are done. You can paint water, gases (oxygen, CO2, hydrogen) and solids (dirt, rock,
-iron, ice) into a 4096 × 2048 box with dirt walls and watch them behave: water levels out, fills
-communicating vessels and pushes out through openings.
+**Status:** milestones M1 (sandbox box), M2 (multithreading, big world, camera), M2b (water
+pressure) and M3 (temperature) are done. You can paint water, steam, gases (oxygen, CO2,
+hydrogen) and solids (dirt, rock, iron, ice) into a 4096 × 2048 box with dirt walls, heat and
+cool them, and watch them behave: water levels out, fills communicating vessels, convects, freezes
+and boils; hot air rises; hot iron glows.
 See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Tech
@@ -64,15 +65,18 @@ ctest --test-dir build/release --output-on-failure
 | `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×) |
 | `Home` | Show the whole world |
 | `P` | Pressure view: water coloured by depth below its surface |
-| `1`–`9` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Dirt, Rock, Iron, Ice, Eraser |
+| `T` | Temperature view |
+| `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Steam, Dirt, Rock, Iron, Ice, Eraser |
+| `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
 | `R` | Reset to the empty box |
 | `Esc` | Quit |
 
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells
-were updated, water moved by pressure, active chunks, zoom, and the element, temperature and
-(for water) depth and pressure under the cursor.
+were updated, water moved by pressure, chunks conducting heat, active chunks, zoom, and the
+element, temperature (with melting/boiling progress) and (for water) depth and pressure under
+the cursor.
 
 ## Documentation
 

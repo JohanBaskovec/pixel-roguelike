@@ -92,6 +92,7 @@ add_library(pr_sim STATIC
   src/sim/world.c
   src/sim/sim.c
   src/sim/pressure.c
+  src/sim/heat.c
   src/sim/edit.c
   src/sim/scene.c
 )
@@ -130,6 +131,7 @@ if(PR_BUILD_TESTS)
     tests/test_util.c
     tests/test_sim.c
     tests/test_edit.c
+    tests/test_heat.c
   )
   target_link_libraries(pr-tests PRIVATE pr_sim)
   pr_configure_target(pr-tests)

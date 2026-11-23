@@ -361,6 +361,8 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         w->piece[iq] = 0;
         world_wake_rect(w, sx - 1, sy - 1, sx + 1, sy + 1);
         world_wake_rect(w, qx - 1, qy - 1, qx + 1, qy + 1);
+        world_note_moved(w, qx, qy);
+        world_note_moved(w, sx, sy);
         moved++;
     }
     return moved;

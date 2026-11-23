@@ -100,6 +100,47 @@ static uint32_t pressure_color(const World *w, const WorldRenderer *r, int x, in
     return 0xFF000000u | ((base >> 2) & 0x3F3F3F);
 }
 
+// Temperature view: deep blue (-50 degC and below), cyan (0), dark grey-green (20), orange
+// (100), red (500), yellow (1000), white (2000+). Void is black.
+static uint32_t temperature_color(float t) {
+    float c = t - 273.15f;
+    if (c < -50.0f) {
+        return 0xFF1830A0;
+    }
+    if (c < 0.0f) {
+        return mix(0x1830A0, 0x40C8E0, (int)(c + 50.0f), 50);
+    }
+    if (c < 20.0f) {
+        return mix(0x40C8E0, 0x3A4A40, (int)c, 20);
+    }
+    if (c < 100.0f) {
+        return mix(0x3A4A40, 0xF08020, (int)(c - 20.0f), 80);
+    }
+    if (c < 500.0f) {
+        return mix(0xF08020, 0xE02010, (int)(c - 100.0f), 400);
+    }
+    if (c < 1000.0f) {
+        return mix(0xE02010, 0xFFE040, (int)(c - 500.0f), 500);
+    }
+    return mix(0xFFE040, 0xFFFFFF, (int)PR_MIN(c - 1000.0f, 1000.0f), 1000);
+}
+
+// Hot matter glows (roughly blackbody): from a dull red around 500 degC to white-hot.
+static uint32_t glow(uint32_t base, float t) {
+    float c = t - 273.15f;
+    uint32_t hot;
+    if (c < 900.0f) {
+        hot = mix(0x801000, 0xFF5010, (int)(c - 480.0f), 420);
+    } else if (c < 1500.0f) {
+        hot = mix(0xFF5010, 0xFFB050, (int)(c - 900.0f), 600);
+    } else {
+        hot = mix(0xFFB050, 0xFFF4E0, (int)PR_MIN(c - 1500.0f, 1500.0f), 1500);
+    }
+    return mix(base, hot, (int)PR_MIN(c - 480.0f, 400.0f), 400);
+}
+
+#define GLOW_MIN_K (480.0f + 273.15f)
+
 static void convert_chunk(void *user, int index) {
     ConvertJob *job = user;
     WorldRenderer *r = job->r;
@@ -107,6 +148,19 @@ static void convert_chunk(void *user, int index) {
     int chunk = r->dirty_list[index];
     int x0 = (chunk % w->chunks_x) << CHUNK_SHIFT;
     int y0 = (chunk / w->chunks_x) << CHUNK_SHIFT;
+    if (r->temperature_view) {
+        for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
+            for (int i = 0; i < CHUNK_SIZE; i++) {
+                size_t ci = world_index(w, x0 + i, y);
+                Cell c = w->cells[ci];
+                r->pixels[(size_t)y * r->width + x0 + i] =
+                    g_elem_cap[c.element] > 0.0f
+                        ? temperature_color(elem_temp(c.element, w->temp[ci]))
+                        : 0xFF000000u;
+            }
+        }
+        return;
+    }
     if (r->pressure_view) {
         for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
             for (int i = 0; i < CHUNK_SIZE; i++) {
@@ -117,10 +171,19 @@ static void convert_chunk(void *user, int index) {
         return;
     }
     for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
-        const Cell *src = &w->cells[world_index(w, x0, y)];
+        size_t row = world_index(w, x0, y);
+        const Cell *src = &w->cells[row];
+        const float *temp = &w->temp[row];
         uint32_t *dst = &r->pixels[(size_t)y * r->width + x0];
         for (int i = 0; i < CHUNK_SIZE; i++) {
-            dst[i] = r->lut[src[i].element][src[i].shade];
+            uint32_t color = r->lut[src[i].element][src[i].shade];
+            if (temp[i] > GLOW_MIN_K) {
+                float tp = elem_temp(src[i].element, temp[i]);
+                if (tp > GLOW_MIN_K && g_elem_cap[src[i].element] > 0.0f) {
+                    color = glow(color, tp);
+                }
+            }
+            dst[i] = color;
         }
     }
 }

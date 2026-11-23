@@ -1,6 +1,7 @@
 #include "sim/world.h"
 
 #include "core/log.h"
+#include "sim/heat.h"
 #include "sim/pressure.h"
 
 #include <stdlib.h>
@@ -25,10 +26,11 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     size_t n = (size_t)width * (size_t)height;
     w->cells = pr_aligned_alloc_zero(64, n * sizeof(Cell));
     w->temp = pr_aligned_alloc_zero(64, n * sizeof(float));
+    w->temp_next = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->piece = pr_aligned_alloc_zero(64, n * sizeof(uint8_t));
     w->chunks = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(Chunk));
     w->pressure = w->chunks ? pressure_create(w) : NULL;
-    if (!w->cells || !w->temp || !w->piece || !w->chunks || !w->pressure) {
+    if (!w->cells || !w->temp || !w->temp_next || !w->piece || !w->chunks || !w->pressure) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
         return NULL;
@@ -43,6 +45,8 @@ void world_destroy(World *w) {
     }
     pr_aligned_free(w->cells);
     pr_aligned_free(w->temp);
+    pr_aligned_free(w->temp_next);
+    heat_free(w);
     pr_aligned_free(w->piece);
     pressure_destroy(w->pressure);
     pr_aligned_free(w->chunks);
@@ -60,8 +64,35 @@ void world_clear(World *w) {
     for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
         dirty_rect_clear(&w->chunks[i].cur);
         dirty_rect_clear(&w->chunks[i].next);
+        w->chunks[i].temp_lo = 1e30f;
+        w->chunks[i].temp_hi = -1e30f;
     }
     world_wake_rect(w, 0, 0, w->width - 1, w->height - 1);
+    world_wake_heat(w, 0, 0, w->width - 1, w->height - 1);
+}
+
+void world_wake_heat(World *w, int x0, int y0, int x1, int y1) {
+    x0 = PR_MAX(x0, 0);
+    y0 = PR_MAX(y0, 0);
+    x1 = PR_MIN(x1, w->width - 1);
+    y1 = PR_MIN(y1, w->height - 1);
+    for (int cy = y0 >> CHUNK_SHIFT; cy <= y1 >> CHUNK_SHIFT && x0 <= x1; cy++) {
+        for (int cx = x0 >> CHUNK_SHIFT; cx <= x1 >> CHUNK_SHIFT; cx++) {
+            world_chunk(w, cx, cy)->heat_active_next = 1;
+        }
+    }
+}
+
+void world_note_moved(World *w, int x, int y) {
+    Cell c = w->cells[world_index(w, x, y)];
+    if (g_elem_cap[c.element] == 0.0f) {
+        return;
+    }
+    Chunk *ch = world_chunk(w, x >> CHUNK_SHIFT, y >> CHUNK_SHIFT);
+    float t = elem_temp(c.element, w->temp[world_index(w, x, y)]);
+    ch->temp_lo = PR_MIN(ch->temp_lo, t);
+    ch->temp_hi = PR_MAX(ch->temp_hi, t);
+    ch->heat_check = 1;
 }
 
 void world_wake_rect(World *w, int x0, int y0, int x1, int y1) {
