@@ -8,6 +8,9 @@ void test_sand_piles_up(void);
 void test_sand_sinks_in_water(void);
 void test_digging_makes_rubble(void);
 void test_creature_stands_on_sand(void);
+void test_rock_and_iron_melt_and_freeze(void);
+void test_lava_boils_water(void);
+void test_oil_floats_on_water(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -91,5 +94,56 @@ void test_creature_stands_on_sand(void) {
     sim_run_ticks(w, 300);
     EXPECT_EQ(w->creatures[id].y + CREATURE_H - 1, 109); // on top of the sand
     EXPECT(w->creatures[id].grounded);
+    world_destroy(w);
+}
+
+// ---- Molten matter and more liquids (M5) ----
+
+void test_rock_and_iron_melt_and_freeze(void) {
+    // Single cells held past their melting point by more than the latent heat change phase:
+    // rock -> lava (1500 K, 400 kJ/kg), iron -> molten iron (1811 K, 247 kJ/kg), and back.
+    World *w = test_world_box(64, 64, 85);
+    fill(w, 10, 62, 10, 62, ELEM_ROCK);
+    fill(w, 20, 62, 20, 62, ELEM_IRON);
+    fill(w, 30, 62, 30, 62, ELEM_LAVA);
+    fill(w, 40, 62, 40, 62, ELEM_MOLTEN_IRON);
+    w->temp[world_index(w, 10, 62)] = 1500.0f + 400e3f / 790.0f + 5.0f;
+    w->temp[world_index(w, 20, 62)] = 1811.0f + 247e3f / 449.0f + 5.0f;
+    w->temp[world_index(w, 30, 62)] = 1500.0f - 400e3f / 1100.0f - 5.0f;
+    w->temp[world_index(w, 40, 62)] = 1811.0f - 247e3f / 820.0f - 5.0f;
+    world_wake_heat(w, 0, 0, 63, 63);
+    world_wake_rect(w, 0, 0, 63, 63);
+    sim_tick(w, NULL);
+    EXPECT_EQ(test_count(w, ELEM_LAVA), 1);        // from the rock
+    EXPECT_EQ(test_count(w, ELEM_MOLTEN_IRON), 1); // from the iron
+    EXPECT_EQ(test_count(w, ELEM_ROCK), 1);        // from the lava
+    EXPECT_EQ(test_count(w, ELEM_IRON), 1);        // from the molten iron
+    world_destroy(w);
+}
+
+void test_lava_boils_water(void) {
+    // Lava poured onto a shallow layer of water boils some of it into steam, and freezes into
+    // rock. (Into a deep pool, the same lava only warms the water: its heat spreads too far.)
+    World *w = test_world_box(128, 128, 86);
+    fill(w, 1, 120, 126, 126, ELEM_WATER);
+    fill(w, 40, 60, 87, 79, ELEM_LAVA);
+    int64_t lava = test_count(w, ELEM_LAVA);
+    sim_run_ticks(w, 1200);
+    EXPECT(test_count(w, ELEM_STEAM) > 0 || test_mass(w, ELEM_STEAM) > 0.0);
+    EXPECT(test_count(w, ELEM_ROCK) > lava / 4); // much of it froze
+    EXPECT_EQ(test_count(w, ELEM_LAVA) + test_count(w, ELEM_ROCK), lava);
+    world_destroy(w);
+}
+
+void test_oil_floats_on_water(void) {
+    // Oil (870 kg/m^3) under water rises through it and ends on top.
+    World *w = test_world_box(64, 128, 87);
+    fill(w, 1, 100, 62, 126, ELEM_OIL);
+    fill(w, 1, 60, 62, 99, ELEM_WATER);
+    int64_t oil = test_count(w, ELEM_OIL), water = test_count(w, ELEM_WATER);
+    sim_run_ticks(w, 2400);
+    EXPECT_EQ(test_count(w, ELEM_OIL), oil);
+    EXPECT_EQ(test_count(w, ELEM_WATER), water);
+    EXPECT(test_mean_y(w, ELEM_OIL) + 20.0 < test_mean_y(w, ELEM_WATER));
     world_destroy(w);
 }

@@ -12,8 +12,8 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 |---|---|---|---|---|---|---|---|---|
 | 0 | Void | NONE | 0 | — | 0 | — | `#0B0B10` | 1 |
 | 1 | Dirt | STATIC | 1500 | 800 | 0.5 | — (later: dries or bakes) | `#6B4A2E` | 1 |
-| 2 | Rock (granite) | STATIC | 2700 | 790 | 2.8 | melts ≈ 1500 K → magma (M5) | `#6E6E73` | 1 |
-| 3 | Iron | STATIC | 7874 | 449 | 80 | melts 1811 K → molten iron (M5) | `#8A8F96` | 1 |
+| 2 | Rock (granite) | STATIC | 2700 | 790 | 2.8 | melts 1500 K → lava, L = 400 kJ/kg | `#6E6E73` | 1 |
+| 3 | Iron | STATIC | 7874 | 449 | 80 | melts 1811 K → molten iron, L = 247 kJ/kg | `#8A8F96` | 1 |
 | 4 | Ice | STATIC | 917 | 2100 | 2.2 | melts 273.15 K → water, L = 334 kJ/kg | `#BFE6F5` | 1 |
 | 5 | Water | LIQUID | 1000 | 4186 | 0.6 | freezes 273.15 K → ice; boils 373.15 K → steam, L = 2257 kJ/kg | `#2A5DB0` α 0.85 | 1 |
 | 6 | Oxygen (O₂) | GAS | 1.429 | 918 | 0.026 | condenses 90.2 K (liquid O₂, later) | `#9CC8F0` α 0.43 | 1 |
@@ -25,6 +25,9 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 12 | Sand | POWDER | 1600 (bulk, dry) | 830 | 0.25 | (melts ≈ 1990 K, later) | `#C2B280` | 5 |
 | 13 | Loose soil (dug dirt) | POWDER | 1200 (bulk) | 800 | 0.3 | none | `#7E5A3A` | 5 |
 | 14 | Rubble (dug rock) | POWDER | 1700 (bulk, broken rock) | 790 | 0.5 | none | `#85858B` | 5 |
+| 15 | Lava (molten rock) | LIQUID | 2600 | 1100 | 1.5 | freezes 1500 K → rock; painted at 1600 K | `#C8461E`, glows | 5 |
+| 16 | Molten iron | LIQUID | 6980 | 820 | 35 | freezes 1811 K → iron; painted at 1900 K | `#D07830`, glows | 5 |
+| 17 | Oil (crude) | LIQUID | 870 | 2000 | 0.15 | none yet (flammable later) | `#3C2A12` α 0.92 | 5 |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -151,7 +154,10 @@ Keep this list complete.
 7. For buoyancy, oxygen and nitrogen have the same density (air, `AIR_DENSITY_0C`), so painted
    air does not unmix. Real O₂ is 14% denser than N₂, but air stays mixed because it is mixed
    molecule by molecule, which one-gas-per-cell cannot represent.
-8. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
+8. Lava and molten iron flow like water under water pressure; only their sideways spread is
+   smaller (viscosity is not modelled). Rock melts at a single temperature (real rock melts over
+   a range, about 1300–1500 K for granite).
+9. Creatures (M4c): each breath also stirs the air around a person, swapping 2 L worth of gas cells
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
    currents, which one-gas-per-cell diffusion cannot do. Body heat is held at 37 °C with up to
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a

@@ -21,6 +21,9 @@ enum {
     ELEM_SAND = 12,
     ELEM_SOIL = 13,   // loose soil: dug dirt
     ELEM_RUBBLE = 14, // dug rock
+    ELEM_LAVA = 15,   // molten rock
+    ELEM_MOLTEN_IRON = 16,
+    ELEM_OIL = 17,
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.

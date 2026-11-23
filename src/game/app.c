@@ -10,7 +10,7 @@
 
 #define TICK_DT             (1.0 / 60.0)
 #define MAX_TICKS_PER_FRAME 4
-#define PANEL_W             200.0f
+#define PANEL_W             240.0f
 #define BRUSH_MAX           256
 #define WINDOW_W            1440
 #define WINDOW_H            900
@@ -50,6 +50,8 @@ static const Tool k_tools[] = {
     {ELEM_IRON, NULL, EDIT_PAINT, SDLK_8, 0},
     {ELEM_ICE, NULL, EDIT_PAINT, SDLK_9, 0},
     {ELEM_SAND, NULL, EDIT_PAINT, SDLK_J, 0},
+    {ELEM_LAVA, NULL, EDIT_PAINT, SDLK_L, 0},
+    {ELEM_OIL, NULL, EDIT_PAINT, SDLK_O, 0x6A5030},
     {ELEM_VOID, "Dig", EDIT_DIG, SDLK_X, 0xA07850},
     {ELEM_VOID, "Eraser", EDIT_PAINT, SDLK_0, UI_NO_SWATCH},
     {ELEM_VOID, "Heat", EDIT_HEAT, SDLK_H, 0xFF5020},
@@ -394,10 +396,14 @@ static void draw_panel(App *app) {
         SDL_snprintf(label, sizeof(label), "%s %s", SDL_GetKeyName(t->key),
                      t->label ? t->label : elem_name(t->element));
         uint32_t swatch = t->swatch ? t->swatch : g_elem_defs[t->element].color;
-        if (ui_button(ui, (SDL_FRect){x, y, w, 19.0f}, label, swatch, app->tool == i)) {
+        // Two columns.
+        float bw = (w - 4.0f) * 0.5f, bx = x + (float)(i % 2) * (bw + 4.0f);
+        if (ui_button(ui, (SDL_FRect){bx, y, bw, 19.0f}, label, swatch, app->tool == i)) {
             app->tool = i;
         }
-        y += 21.0f;
+        if (i % 2 == 1 || i == TOOL_COUNT - 1) {
+            y += 21.0f;
+        }
     }
 
     y += 8.0f;

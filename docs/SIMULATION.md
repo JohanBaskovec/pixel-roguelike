@@ -454,7 +454,8 @@ it, so a hot pocket rises while mixing rather than as a tight plume.
 
 ### Phase changes
 
-Ice ↔ water at 0 °C (L = 334 kJ/kg), water ↔ steam at 100 °C (L = 2257 kJ/kg), all at 1 atm
+Ice ↔ water at 0 °C (L = 334 kJ/kg), water ↔ steam at 100 °C (L = 2257 kJ/kg), rock ↔ lava at
+1500 K (L = 400 kJ/kg) and iron ↔ molten iron at 1811 K (L = 247 kJ/kg; M5), all at 1 atm
 (the boiling point does not depend on pressure yet). After each conduction step, a cell
 whose stored temperature is far enough past its transition point that the heat beyond it pays for
 the latent heat, `c · (T − T_thr) ≥ L`, changes phase. It keeps the remainder:

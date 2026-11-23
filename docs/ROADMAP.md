@@ -222,8 +222,8 @@ from the oxygen use within 4%. Breathing also stirs the air around a person (D-0
 - [x] Powders (sand, rubble). Digging solids produces rubble or debris (Dig tool: dirt → loose
       soil, rock → rubble)
 - [ ] Reactions table, e.g. H2 + O2 + ignition → steam + heat (combustion); more as design asks
-- [ ] Melting rock or iron into liquids at high temperatures
-- [ ] More liquids (molten metal, lava, maybe oil) with real densities
+- [x] Melting rock or iron into liquids at high temperatures
+- [x] More liquids (molten metal, lava, maybe oil) with real densities
 - [ ] **Liquids push each other:** water pressure compares pressures instead of levels; a body's
       effective surface includes the weight of the lighter liquids stacked on it (their height ×
       their density ÷ its density), and openings get the same correction. Test: a U-tube with oil

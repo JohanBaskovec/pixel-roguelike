@@ -19,17 +19,24 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_SAND]     = {"Sand",           BEHAVIOR_POWDER, 1600.0f,  830.0f,   0.25f,   293.15f, 0xC2B280, 255, 16,  0},
     [ELEM_SOIL]     = {"Loose soil",     BEHAVIOR_POWDER, 1200.0f,  800.0f,   0.3f,    293.15f, 0x7E5A3A, 255, 20,  0},
     [ELEM_RUBBLE]   = {"Rubble",         BEHAVIOR_POWDER, 1700.0f,  790.0f,   0.5f,    293.15f, 0x85858B, 255, 22,  0},
+    [ELEM_LAVA]     = {"Lava",           BEHAVIOR_LIQUID, 2600.0f,  1100.0f,  1.5f,    1600.0f, 0xC8461E, 255, 14,  1},
+    [ELEM_MOLTEN_IRON] = {"Molten iron",  BEHAVIOR_LIQUID, 6980.0f,  820.0f,   35.0f,   1900.0f, 0xD07830, 255, 10,  3},
+    [ELEM_OIL]      = {"Oil",            BEHAVIOR_LIQUID, 870.0f,   2000.0f,  0.15f,   293.15f, 0x3C2A12, 235, 10,  3},
 };
 // clang-format on
 
 // clang-format off
 const PhaseChange g_elem_below[ELEM_COUNT] = {
-    [ELEM_WATER] = {273.15f, ELEM_ICE,   334e3f},  // freezing
-    [ELEM_STEAM] = {373.15f, ELEM_WATER, 2257e3f}, // condensing
+    [ELEM_WATER]       = {273.15f, ELEM_ICE,   334e3f},  // freezing
+    [ELEM_STEAM]       = {373.15f, ELEM_WATER, 2257e3f}, // condensing
+    [ELEM_LAVA]        = {1500.0f, ELEM_ROCK,  400e3f},  // solidifying
+    [ELEM_MOLTEN_IRON] = {1811.0f, ELEM_IRON,  247e3f},  // solidifying
 };
 const PhaseChange g_elem_above[ELEM_COUNT] = {
-    [ELEM_ICE]   = {273.15f, ELEM_WATER, 334e3f},  // melting
-    [ELEM_WATER] = {373.15f, ELEM_STEAM, 2257e3f}, // boiling
+    [ELEM_ICE]   = {273.15f, ELEM_WATER,       334e3f},  // melting
+    [ELEM_WATER] = {373.15f, ELEM_STEAM,       2257e3f}, // boiling
+    [ELEM_ROCK]  = {1500.0f, ELEM_LAVA,        400e3f},  // melting
+    [ELEM_IRON]  = {1811.0f, ELEM_MOLTEN_IRON, 247e3f},  // melting
 };
 // clang-format on
 
