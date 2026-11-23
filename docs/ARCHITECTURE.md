@@ -130,6 +130,11 @@ extern uint16_t g_buoy_p[ELEM_COUNT][ELEM_COUNT];  // buoyancy swap probability,
 any cell's element indexes them without a bounds check. Unknown IDs, and the pseudo element
 `ELEM_OUT` (returned for coordinates outside the world), behave as static walls.
 
+**Free particles (M4b).** `World.particles` is a list of up to `PARTICLE_MAX` (131072)
+`Particle`s: position and velocity in floating point (cells, cells per tick), the `Cell` it
+carries and its stored temperature (24 bytes; 3 MB). A flying particle is not on the grid: the
+cell it left is empty. See `SIMULATION.md` → Free particles.
+
 ## Simulation tick
 
 ```
@@ -143,9 +148,11 @@ sim_tick(world):
         union-find (serial); chunks whose body top rose are added to this tick's rects
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
         the first phase rotates with the tick; the chunks of a phase run in parallel;
-        after each phase, the phase's water-pressure transfer requests are applied (serial)
-    heat pass over heat-active chunks              (M3)
-    phase changes                                  (M3; part of the heat pass)
+        after each phase, the phase's water-pressure transfer requests are applied (serial;
+        deep side openings launch jets of free particles), then the particles the phase's jobs
+        launched (splashes) are added to the particle list, in job order
+    free particles: gravity and one tick of flight each, in list order (serial); landed ones go
+        back onto the grid                         (M4b)
     tick++
 ```
 
@@ -203,6 +210,8 @@ whatever the thread count. This requires:
 - A cell is updated only by the job that owns its chunk in that phase, in a fixed scan order.
 - Floating-point code (heat) is written so that per-cell results do not depend on scheduling
   (Jacobi double-buffering, no reductions whose order depends on threads).
+- Free particles are launched in job order and updated serially in list order (removal swaps
+  the last particle in, deterministically). Tested with jets on 1 and 4 threads.
 
 ## Player edits
 
@@ -238,6 +247,9 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
   the job pool) and uploaded. Dirty chunks outside the view keep their flag until they come into
   view. Uploads are one `SDL_UpdateTexture` per chunk row, spanning that row's dirty chunks: a few
   large uploads are much cheaper than many small ones (D-020).
+- Free particles (M4b) are drawn over the grid: after converting, each particle in view writes
+  its cell's colour into the staging buffer. The chunks particles are on are converted and
+  uploaded every frame, and so are the chunks they were on the frame before (erasing them).
 - The visible part of the texture is drawn into the view (the window right of the toolbar).
   Zoomed in (zoom ≥ 1), sampling is nearest-neighbour, so pixels stay sharp. Zoomed out, it is
   linear, which reduces flicker from skipped pixels.

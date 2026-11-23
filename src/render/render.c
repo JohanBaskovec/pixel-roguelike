@@ -1,6 +1,7 @@
 #include "render/render.h"
 
 #include "core/log.h"
+#include "sim/particle.h"
 #include "sim/sim.h"
 
 #include <math.h>
@@ -52,7 +53,8 @@ bool render_init(WorldRenderer *r, SDL_Renderer *sdl, World *w) {
     SDL_SetTextureScaleMode(r->texture, SDL_SCALEMODE_NEAREST);
     r->pixels = pr_aligned_alloc_zero(64, (size_t)w->width * w->height * sizeof(uint32_t));
     r->dirty_list = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(int));
-    if (!r->pixels || !r->dirty_list) {
+    r->had_particles = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y);
+    if (!r->pixels || !r->dirty_list || !r->had_particles) {
         pr_log_error("render_init: out of memory");
         return false;
     }
@@ -67,6 +69,7 @@ void render_shutdown(WorldRenderer *r) {
     }
     pr_aligned_free(r->pixels);
     pr_aligned_free(r->dirty_list);
+    pr_aligned_free(r->had_particles);
     *r = (WorldRenderer){0};
 }
 
@@ -233,6 +236,23 @@ void render_upload(WorldRenderer *r, World *w, int cx0, int cy0, int cx1, int cy
     cy0 = PR_MAX(cy0, 0);
     cx1 = PR_MIN(cx1, w->chunks_x - 1);
     cy1 = PR_MIN(cy1, w->chunks_y - 1);
+    // Free particles are drawn over the grid. Chunks they were drawn on last frame are redrawn
+    // (erasing them), and so are the chunks they are on now (then drawn on).
+    int n_chunks = w->chunks_x * w->chunks_y;
+    for (int i = 0; i < n_chunks; i++) {
+        if (r->had_particles[i]) {
+            r->had_particles[i] = 0;
+            w->chunks[i].render_dirty = 1;
+        }
+    }
+    for (int i = 0; i < w->particle_count; i++) {
+        int px = (int)w->particles[i].x, py = (int)w->particles[i].y;
+        if (world_in_bounds(w, px, py)) {
+            int ch = (py >> CHUNK_SHIFT) * w->chunks_x + (px >> CHUNK_SHIFT);
+            r->had_particles[ch] = 1;
+            w->chunks[ch].render_dirty = 1;
+        }
+    }
     int count = 0;
     for (int cy = cy0; cy <= cy1; cy++) {
         for (int cx = cx0; cx <= cx1; cx++) {
@@ -249,6 +269,16 @@ void render_upload(WorldRenderer *r, World *w, int cx0, int cy0, int cx1, int cy
     }
     ConvertJob job = {r, w};
     jobs_run(w->jobs, count, convert_chunk, &job);
+    if (!r->temperature_view && !r->pressure_view) {
+        for (int i = 0; i < w->particle_count; i++) {
+            const Particle *p = &w->particles[i];
+            int px = (int)p->x, py = (int)p->y;
+            if (px >> CHUNK_SHIFT >= cx0 && px >> CHUNK_SHIFT <= cx1 && py >> CHUNK_SHIFT >= cy0 &&
+                py >> CHUNK_SHIFT <= cy1 && world_in_bounds(w, px, py)) {
+                r->pixels[(size_t)py * r->width + px] = r->lut[p->cell.element][p->cell.shade];
+            }
+        }
+    }
 
     // One upload per chunk row, spanning its dirty chunks (the list is in row order). Chunks in
     // between that were not dirty are re-sent unchanged; that is cheaper than many small uploads.

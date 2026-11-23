@@ -56,6 +56,9 @@ typedef struct World {
     void *sim_scratch;              // owned; per-phase job state, allocated by the first sim_tick
     struct PressureState *pressure; // owned; water-pressure bodies (pressure.c)
     void *heat_scratch;             // owned; heat pass job state (heat.c)
+    struct Particle *particles;     // owned; free particles in flight (particle.h)
+    int32_t particle_count;
+    uint32_t launched_by_pressure; // jets launched this tick (for SimStats)
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.

@@ -1,5 +1,7 @@
 #include "test.h"
 
+#include "sim/particle.h"
+
 #include <string.h>
 
 static ElementId elem_from_char(char ch) {
@@ -90,6 +92,9 @@ int64_t test_count(const World *w, ElementId e) {
     size_t total = (size_t)w->width * w->height;
     for (size_t i = 0; i < total; i++) {
         n += w->cells[i].element == e;
+    }
+    for (int i = 0; i < w->particle_count; i++) { // in flight
+        n += w->particles[i].cell.element == e;
     }
     return n;
 }

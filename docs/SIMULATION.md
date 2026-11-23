@@ -96,7 +96,9 @@ Why each part exists:
   probability 0.87 per tick, which is ≈ 9.8 m/s² at 5 cm/px. The cell falls `1 + speed/16` cells
   per tick, up to ~8 px/tick. A falling cell always has a speed of at least 1, and the speed is
   reset on landing, so "speed 0" means **still**. On landing, the speed is added to the sideways
-  spread for that tick (a splash).
+  spread for that tick. Landing at `SPLASH_MIN_SPEED` (2 cells/tick, 6 m/s, a fall of about
+  1.8 m) or faster, the cell **splashes** with probability 1/4: it leaves the grid as a free
+  particle thrown sideways with 25–60% of its speed, and up to 25% of it upward (M4b).
 - **Still vs falling.** Only still liquid forms bodies and carries pressure. Falling water (a
   stream pouring into a pool) is not part of the pool, and water on top of a still cell only
   counts as "covering" it if it is still too.
@@ -152,6 +154,17 @@ to Q. So:
   sealed at the top (a barometer); water flowing into a sealed room of air compresses the air
   until its pressure balances the water (all tested).
 
+**Jets (Torricelli, M4b).** A transfer through an opening **beside** P, where P is covered
+(liquid or a wall above it: a hole below the surface, not the surface itself) and the cell beyond
+the opening is open (or holds falling liquid), at a depth `d` (cells of head) whose outflow speed
+`√(2·g·d)` is at least `JET_MIN_SPEED` (1 cell/tick, about 9 cells deep), launches the liquid as a
+jet of free particles instead of placing it: about `speed` cells per tick (the volume a jet of
+that speed carries through a one-cell opening; at most `JET_MAX_PER_REQUEST` = 8), each taken from
+the body's top, starting staggered along the first tick's path, with ±3% of spread across the
+jet. Measured: 150 cells deep, 3.95 cells/tick through a one-cell hole (theory 4.1); 25 deep,
+1.58 (1.65); the deep jet reaches nearly twice as far. Openings at a free surface only level
+(cell by cell): a surface does not spout.
+
 **Moving gas out of the way.** When water moves into a gas cell Q, and the gas there is at about
 the pressure of the gas above the source (within `GAS_SAME_REGION`, 5%: one region, e.g. one room
 of air), the gas simply takes the source's place. Otherwise the gas at Q is **compressed** into
@@ -187,9 +200,10 @@ for many seconds, a large one made big pools imprecise. Labelling bodies exactly
 problem altogether, and is also cheaper (no gradient traces).
 
 **Known limitations** (and where they are planned in ROADMAP.md):
-- The flow rate through an opening is not physical: it is limited by how many cells request
-  transfers per tick (up to 128 per chunk), not proportional to the square root of the depth.
-  Planned in M4b (free particles, Torricelli outflow, jets).
+- Flow through an opening follows Torricelli only while the liquid leaves freely (a jet, below).
+  Once the liquid outside reaches the opening, both sides are one body, and transfers move liquid
+  from the body's top to any open cell of its surface, however narrow the passage between them:
+  the flow is not limited by the size of the opening.
 - Different liquids do not push each other (only one liquid exists so far). Planned in M5.
 - Gas pressure is resolved to one cell of liquid (490 Pa for water). Under mixed air, the oxygen
   and nitrogen cells' pressures can stay up to ~3% apart (see Gases), and a pool there may keep
@@ -272,6 +286,36 @@ pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not
 
 All constants live at the top of the gas section of `src/sim/sim.c` and in `src/sim/elements.h`.
 Their current values are in `ELEMENTS.md`.
+
+### Free particles (M4b; D-026)
+
+Code: `src/sim/particle.c`. Fast-moving matter leaves the grid while it flies, as in Noita, and
+lands back into it.
+
+- A particle holds a position and velocity in floating point (cells, cells per tick), the `Cell`
+  it carries and its stored temperature. While it flies, it is not on the grid (the cell it left
+  is empty) and exchanges no heat. Only liquids fly so far.
+- **Launched by** jets (Liquid pressure → Jets) and splashes (Liquids → fall speed).
+- **Each tick, after the movement pass**, serially in list order: gravity
+  (`PARTICLE_GRAVITY` = 9.81 m/s² = 0.0545 cells/tick²), speed limited to
+  `PARTICLE_MAX_SPEED` (24 cells/tick), then the move in half-cell sub-steps. It flies through
+  void, gas and falling liquid (a jet crosses a thin falling stream), and not diagonally between
+  two blocked cells. When the next cell blocks it, it **lands** in the cell it is in.
+- **Landing** puts its cell back on the grid. Gas there is squeezed into the gas of its kind
+  around (spread out, `world_gas_region`). If something has settled into that cell, it lands in
+  the nearest free cell (void or gas): straight up first, then rings up to `LAND_SEARCH` (8)
+  away, then as a last resort up through liquid to its surface. If it still cannot land, it
+  waits there and tries again next tick. Landing while moving down with nothing below (it hit
+  something sideways), it keeps falling as a grid cell with its fall speed.
+- The list holds `PARTICLE_MAX` (131072). When it is full, jets fall back to placing cells, and
+  splashes are skipped (they are allowed only while it is under half full).
+- **Falling streams stay on the grid** (D-014 still applies): turning every falling cell into a
+  particle would cost far more for little gain. Particles carry jets and splashes.
+
+**Known limitations.** A jet through a hole a few cells wide comes out in pulses rather than a
+steady stream (the cells at the opening do not all ask every tick). Water painted in mid-air is
+still for a tick before it starts falling, and a round blob can briefly jet sideways from its own
+sides. A particle crossing a falling stream does not mix with it.
 
 ## Heat pass (M3)
 

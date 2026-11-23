@@ -321,3 +321,19 @@ to watch).
   per balance (cost: +12% on the gas-soup benchmark, almost all from balancing). Gas-driven flow
   is slower than real (rate limit), and pressures are resolved to one cell of liquid.
 
+## D-026 — Free particles for jets and splashes; falling streams stay on the grid
+
+- **Status:** Accepted (M4b)
+- **Context:** Water leaving a hole should jet out at √(2·g·depth) and arc; falling water that
+  hits something should splash. Grid cells move at most 32 cells per tick and only along the
+  automaton's rules.
+- **Decision:** A bounded list of free particles (position and velocity in floating point),
+  updated serially in list order at the end of each tick, landing back into the grid when they
+  hit something. Water pressure launches jets from deep, covered side openings (about `speed`
+  cells per tick); fast landings splash with probability 1/4. Falling streams keep the grid rules
+  (D-014); jobs in the parallel pass only queue splashes, added in job order after each phase.
+- **Consequences:** Torricelli outflow (measured within 5%) and ballistic arcs; results identical
+  for any thread count. The serial particle update is cheap at the counts seen (hundreds). The
+  gas-soup benchmark got 13% slower, mostly from splashes leaving holes that wake neighbours.
+  Flow through a submerged opening is still not limited by its size (the body is joined).
+

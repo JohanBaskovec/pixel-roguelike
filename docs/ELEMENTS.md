@@ -95,6 +95,14 @@ All are clamped to `MAX_MOVE` = 32.
 | `GAS_REGION_CELLS` | 256 | `sim/world.h` | Cells of gas a compression or expansion by a liquid is spread over (within `GAS_REGION_RADIUS` = 16) |
 | `GAS_SAME_REGION` | 5% | `sim/pressure.c` | Gas at an opening this close to the gas above the source just trades places with the liquid |
 | `GAS_LIQUID_INTERVAL` | 2 ticks | `sim/pressure.c` | A body may compress or expand gas at most once per this many ticks |
+| `PARTICLE_GRAVITY` | 0.0545 cells/tick² | `sim/particle.h` | Free particles' gravity (9.81 m/s²) |
+| `PARTICLE_MAX_SPEED` | 24 cells/tick | `sim/particle.h` | Speed limit of free particles (about 30 m/s) |
+| `JET_MIN_SPEED` | 1 cell/tick | `sim/pressure.c` | Outflow speed (about 9 cells of depth) from which a side opening jets |
+| `JET_MAX_PER_REQUEST` | 8 | `sim/pressure.c` | Most cells one opening cell launches per tick |
+| `JET_SPREAD` | 6% | `sim/pressure.c` | Spread across a jet (±3% of its speed) |
+| `SPLASH_MIN_SPEED` | 2 cells/tick | `sim/sim.c` | Landing speed from which falling liquid may splash |
+| `SPLASH_P16` | 1/4 | `sim/sim.c` | Chance that such a landing splashes |
+| `SPLASH_KEEP_MIN/MAX`, `SPLASH_UP` | 25–60%, 25% | `sim/sim.c` | Share of its speed a splash keeps, sideways and upward |
 | `GRAVITY` | 9.81 m/s² | `sim/elements.h` | Gas pressure as a liquid height: P / (ρ·g·Δx); 1 atm = 207 cells of water |
 | `GRAVITY_INC_P16` | 0.87 | `sim/sim.c` | Chance per tick a falling liquid gains 1/16 px/tick of speed (≈ 9.8 m/s² at 5 cm/px) |
 | `FALL_SPEED_MAX` | 127/16 px/tick | `sim/sim.c` | Terminal fall speed, about 8 px/tick (24 m/s) |

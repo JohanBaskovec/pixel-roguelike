@@ -415,6 +415,8 @@ static void draw_panel(App *app) {
     y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Gas      %7u", app->last_stats.gas_transfers);
     y += 12.0f;
+    ui_text(ui, x, y, 0xE8E8E8, "Flying   %7u", app->last_stats.particles);
+    y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Heat     %4u ch", app->last_stats.heat_chunks);
     y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Chunks   %4u/%d", app->last_stats.chunks_active,

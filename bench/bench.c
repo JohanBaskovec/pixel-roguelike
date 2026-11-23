@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
     sim_run_ticks(w, warmup);
 
     double *ms = malloc(sizeof(double) * (size_t)ticks);
-    uint64_t visited = 0, moved = 0, heat_chunks = 0, gas_transfers = 0;
+    uint64_t visited = 0, moved = 0, heat_chunks = 0, gas_transfers = 0, particles = 0;
     double total = 0.0;
     for (int t = 0; t < ticks; t++) {
         SimStats s;
@@ -98,6 +98,7 @@ int main(int argc, char **argv) {
         moved += s.cells_moved;
         heat_chunks += s.heat_chunks;
         gas_transfers += s.gas_transfers;
+        particles += s.particles;
     }
     qsort(ms, (size_t)ticks, sizeof(double), cmp_double);
 
@@ -112,6 +113,7 @@ int main(int argc, char **argv) {
            (double)moved / ticks);
     printf("  heat       %.0f chunks/tick\n", (double)heat_chunks / ticks);
     printf("  gas        %.0f transfers/tick\n", (double)gas_transfers / ticks);
+    printf("  particles  %.0f in flight\n", (double)particles / ticks);
     printf("  ns/cell    %.2f (wall time / updated cells; lower with more threads)\n",
            visited ? total * 1e9 / (double)visited : 0.0);
     printf("  ms/tick    p50 %.3f  p99 %.3f  max %.3f  mean %.3f\n", ms[ticks / 2],

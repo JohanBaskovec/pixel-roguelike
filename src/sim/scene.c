@@ -49,6 +49,13 @@ void scene_demo(World *w) {
     fill_rect(w, x0 + 8, y1 - 48, x1 - 8, y1 - 8, ELEM_VOID, &rng); // channel
     fill_rect(w, x0 + 8, y0 + (y1 - y0) / 6, xm - 6, y1 - 8, ELEM_WATER, &rng);
     fill_rect(w, xm - 6, y1 - 48, x1 - 8, y1 - 8, ELEM_WATER, &rng);
+    // A tall rock tank on the floor with a hole near its foot: the water leaves as a jet (M4b),
+    // fast at first, slowing as the tank empties.
+    int tx0 = W / 32, tx1 = tx0 + W / 16;
+    int ty0 = H / 2 + 60, ty1 = H - 17;
+    fill_rect(w, tx0, ty0, tx1, ty1, ELEM_ROCK, &rng);
+    fill_rect(w, tx0 + 6, ty0 - 1, tx1 - 6, ty1 - 6, ELEM_WATER, &rng);
+    fill_rect(w, tx1 - 5, ty1 - 30, tx1, ty1 - 28, ELEM_VOID, &rng); // the hole
     // Water on the ledge, gases at mixed heights.
     blob(w, W / 4, H / 2 - 60, 50, ELEM_WATER);
     blob(w, W * 3 / 4, H / 4, 60, ELEM_CO2);

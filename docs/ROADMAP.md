@@ -173,16 +173,18 @@ mixing rather than as a tight plume (see SIMULATION.md).
 
 Fast-moving matter leaves the grid while it flies, as in Noita, and lands back into it.
 
-- [ ] Free particles: position and velocity (x and y) in floating point, drawn over the grid;
+- [x] Free particles: position and velocity (x and y) in floating point, drawn over the grid;
       created when a cell is launched, turned back into a cell where it lands. Deterministic
       (fixed update order), bounded count
-- [ ] **Outflow speed from depth** (Torricelli): water leaves an opening at √(2·g·depth), as a
+- [x] **Outflow speed from depth** (Torricelli): water leaves an opening at √(2·g·depth), as a
       jet; the number of cells per opening cell per tick follows from the speed (about 1.5 at
       1 m depth, 5 at 10 m). Test: a deep reservoir drains faster than a shallow one, and the
-      jet reaches further
-- [ ] Better streams, splashes and spray: falling water that hits something keeps part of its
+      jet reaches further. Done for free outflow (measured within 5%); once the water outside
+      reaches the opening, flow is again not limited by the opening's size (see SIMULATION.md)
+- [x] Better streams, splashes and spray: falling water that hits something keeps part of its
       momentum sideways; drops and jets arc
-- [ ] Revisit the falling-stream rules (D-014) once particles carry falling water
+- [x] Revisit the falling-stream rules (D-014) once particles carry falling water: falling
+      streams stay on the grid (D-026)
 
 ## M4c – Creatures
 

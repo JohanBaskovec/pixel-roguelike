@@ -14,12 +14,26 @@
 #include "core/jobs.h"
 #include "core/rng.h"
 #include "sim/heat.h"
+#include "sim/particle.h"
 #include "sim/pressure.h"
 
 #include <math.h>
 #include <string.h>
 
 #define TICK_MAX_REQUESTS 128 // water-pressure requests per chunk per tick; more retry next tick
+#define TICK_MAX_SPAWNS   8   // particles a chunk may launch per tick (splashes)
+
+// Splashes (M4b): falling liquid that lands at least this fast (1/16 cells per tick; 32 = 2 cells
+// per tick, 6 m/s, a fall of about 1.8 m) is thrown off as a particle with this probability
+// (x/65536), keeping part of its speed: sideways SPLASH_KEEP_MIN..MAX of it, upward up to
+// SPLASH_UP of it.
+#define SPLASH_MIN_SPEED 32
+#define SPLASH_P16       16384u
+#define SPLASH_KEEP_MIN  0.25f
+#define SPLASH_KEEP_MAX  0.6f
+#define SPLASH_UP        0.25f
+// Splashes are allowed only while the particle list is below this fill.
+#define SPLASH_LIST_LIMIT (PARTICLE_MAX / 2)
 
 // Convection: swap probability per unit of relative density difference (a liquid 0.25% lighter
 // than the same liquid above it, e.g. water 10 K warmer at 25 degC, rises with p = 0.5).
@@ -43,6 +57,9 @@ typedef struct TickCtx {
     SimStats stats;
     int nreq; // water-pressure requests, carried out after the phase
     PressureRequest req[TICK_MAX_REQUESTS];
+    bool splash_ok; // the particle list has room for splashes this tick
+    int nspawn;     // particles launched by this job, added to the list after the phase
+    Particle spawn[TICK_MAX_SPAWNS];
 } TickCtx;
 
 // Mark a world-space rect, which must lie in the 3x3 chunks around the job's chunk.
@@ -256,6 +273,31 @@ static void update_liquid(TickCtx *c, int x, int y) {
 
     // Landing: fall speed turns into extra sideways spread this tick, and is reset, so a resting
     // cell never counts as "in transit". A landed cell joins a body of still water.
+    //    Landing fast, it may splash: thrown off the grid as a particle that keeps part of its
+    //    speed, sideways and a little upward.
+    if (speed >= SPLASH_MIN_SPEED && c->splash_ok && c->nspawn < TICK_MAX_SPAWNS &&
+        rng_chance16(&c->rng, SPLASH_P16)) {
+        float s = (float)speed / 16.0f;
+        float u = (float)(rng_next(&c->rng) >> 8) * (1.0f / 16777216.0f);
+        float v = (float)(rng_next(&c->rng) >> 8) * (1.0f / 16777216.0f);
+        float side = rng_bit(&c->rng) ? 1.0f : -1.0f;
+        size_t i = world_index(w, x, y);
+        Cell flying = *cell;
+        flying.aux = 0;
+        c->spawn[c->nspawn++] = (Particle){
+            (float)x + 0.5f,
+            (float)y + 0.5f,
+            side * s * (SPLASH_KEEP_MIN + (SPLASH_KEEP_MAX - SPLASH_KEEP_MIN) * u),
+            -s * SPLASH_UP * v,
+            flying,
+            w->temp[i],
+        };
+        *cell = (Cell){ELEM_VOID, c->stamp, cell->shade, 0};
+        w->temp[i] = 0.0f;
+        w->mass[i] = 0.0f;
+        ctx_wake(c, x - 1, y - 1, x + 1, y + 1, true, false);
+        return;
+    }
     int spread = g_elem_spread[cell->element] + (speed >> 4);
     spread = PR_MIN(spread, MAX_MOVE);
     cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
@@ -965,6 +1007,9 @@ void sim_tick(World *w, SimStats *stats) {
 
     pressure_update(w);
 
+    // Splashes only while the particle list has plenty of room.
+    bool splash_ok = w->particle_count < SPLASH_LIST_LIMIT;
+
     // 4-phase checkerboard. Chunks of one phase are two chunks apart, so their jobs (each
     // reaching MAX_MOVE = half a chunk beyond its chunk) never touch the same cells. The phase
     // that goes first rotates every tick, so no group of chunks always moves first.
@@ -980,6 +1025,7 @@ void sim_tick(World *w, SimStats *stats) {
                 TickCtx *c = &scratch->ctx[jobs++];
                 memset(c, 0, sizeof(*c));
                 c->w = w;
+                c->splash_ok = splash_ok;
                 c->stamp = stamp;
                 c->cx = cx;
                 c->cy = cy;
@@ -1029,7 +1075,24 @@ void sim_tick(World *w, SimStats *stats) {
             total.requests += (uint32_t)c->nreq;
             total.transfers += (uint32_t)pressure_apply(w, c->req, c->nreq);
         }
+        // Particles launched in this phase (splashes), in job order. If the list is full, the
+        // cell goes straight back onto the grid.
+        for (int j = 0; j < jobs; j++) {
+            TickCtx *c = &scratch->ctx[j];
+            for (int k = 0; k < c->nspawn; k++) {
+                if (!particle_add(w, &c->spawn[k])) {
+                    particle_land_now(w, &c->spawn[k]);
+                }
+            }
+            total.launched += (uint32_t)c->nspawn;
+        }
     }
+
+    // Free particles fly, and land back into the grid (serial, in list order).
+    total.launched += w->launched_by_pressure;
+    w->launched_by_pressure = 0;
+    particles_update(w);
+    total.particles = (uint32_t)w->particle_count;
 
     w->tick++;
     if (stats) {

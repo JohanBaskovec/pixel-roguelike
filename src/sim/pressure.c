@@ -1,6 +1,8 @@
 #include "sim/pressure.h"
 
 #include "core/jobs.h"
+#include "core/rng.h"
+#include "sim/particle.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -355,6 +357,13 @@ static bool find_source(const World *w, int32_t node, int top, ElementId e, int 
 // the rest of the room catches up, and the liquid would then chase those local differences.
 #define GAS_LIQUID_INTERVAL 2
 
+// Jets (M4b): from this outflow speed (cells per tick; about 9 cells of depth) water leaves an
+// opening as free particles, at most JET_MAX_PER_REQUEST per opening cell per tick, with a spread
+// across the jet of +-JET_SPREAD/2 of its speed.
+#define JET_MIN_SPEED       1.0f
+#define JET_MAX_PER_REQUEST 8
+#define JET_SPREAD          0.06f
+
 // Liquid arrives at (qx, qy), which holds gas: squeeze that gas into the gas of its kind around
 // it (not (sx, sy)). Returns false if there is none (then it trades places).
 static bool squeeze_gas(World *w, int qx, int qy, int sx, int sy) {
@@ -404,6 +413,89 @@ static void refill_with_gas(World *w, int sx, int sy) {
                     sy + GAS_REGION_RADIUS);
 }
 
+// Takes the next free-surface cell of body `root` as a source: from its top; once those are used
+// up, from the rows just below it, as long as their head stays at least one cell above q_head.
+// Returns false if there is none.
+static bool take_source(World *w, int32_t root, ElementId e, int32_t q_head, int *sx, int *sy) {
+    PressureState *ps = w->pressure;
+    int32_t top = ps->top[root];
+    int k_max = (int)PR_MIN((int64_t)SOURCE_ROWS, (int64_t)q_head - 1 - top);
+    int k = ps->used[root];
+    for (; k <= k_max; k++) {
+        int tries = 0;
+        for (int32_t node = ps->src_head[root]; node >= 0 && tries < MAX_SOURCES;
+             node = ps->src_next[node], tries++) {
+            const Piece *pp = &ps->cp[node >> NODE_SHIFT].piece[node & ((1 << NODE_SHIFT) - 1)];
+            *sy = pp->top_row + k;
+            if (find_source(w, node, *sy, e, sx)) {
+                ps->used[root] = (int16_t)k; // rows above are used up: later requests start here
+                return true;
+            }
+        }
+    }
+    if (k > SOURCE_ROWS) {
+        ps->top[root] = PRESSURE_NO_TOP; // used up for this tick: stop until relabelled
+    }
+    return false;
+}
+
+// Liquid leaves the source (sx, sy): the cell becomes void, and gas above it (if any) flows in.
+static void vacate_source(World *w, int sx, int sy) {
+    size_t is = world_index(w, sx, sy);
+    w->cells[is] = (Cell){ELEM_VOID, (uint8_t)w->tick, w->cells[is].shade, 0};
+    w->temp[is] = 0.0f;
+    w->mass[is] = 0.0f;
+    w->piece[is] = 0;
+    refill_with_gas(w, sx, sy);
+    world_wake_rect(w, sx - 1, sy - 1, sx + 1, sy + 1);
+    world_note_moved(w, sx, sy);
+}
+
+// Torricelli: liquid at depth d (cells of head above the opening) leaves at sqrt(2 g d). From
+// JET_MIN_SPEED it leaves as a jet of free particles: about `speed` cells per tick through the
+// opening (the volume a jet of that speed carries), at most JET_MAX_PER_REQUEST.
+static float outflow_speed(int32_t depth) {
+    float v = sqrtf(2.0f * GRAVITY * CELL_SIZE_M * (float)depth); // m/s
+    return v / CELL_SIZE_M * TICK_SECONDS;                        // cells per tick
+}
+
+// Launches up to n cells of the body as a jet from Q in direction (dx, dy) at `speed`; the k-th of
+// n starts k/n of a tick further along, so they leave as a stream. The first source is given.
+// Returns how many left.
+static int launch_jet(World *w, int32_t root, ElementId e, int32_t q_head, int qx, int qy, int dx,
+                      int dy, float speed, int n, int sx, int sy) {
+    int launched = 0;
+    for (int j = 0; j < n; j++) {
+        if (j > 0 && !take_source(w, root, e, q_head, &sx, &sy)) {
+            break;
+        }
+        if (w->particle_count >= PARTICLE_MAX) {
+            break;
+        }
+        size_t is = world_index(w, sx, sy);
+        Cell flying = w->cells[is];
+        flying.aux = 0;
+        // A slight spread across the jet, from a hash (deterministic, order-independent).
+        uint64_t h = pr_splitmix64(w->seed ^ (w->tick << 20) ^ ((uint64_t)is << 3) ^ (uint64_t)j);
+        float jitter = ((float)(h >> 40) * (1.0f / 16777216.0f) - 0.5f) * JET_SPREAD * speed;
+        Particle p = {(float)qx + 0.5f,
+                      (float)qy + 0.5f,
+                      speed * (float)dx - jitter * (float)dy,
+                      speed * (float)dy + jitter * (float)dx,
+                      flying,
+                      w->temp[is]};
+        vacate_source(w, sx, sy);
+        particle_add(w, &p);
+        if (particle_step(w, &w->particles[w->particle_count - 1], (float)j / (float)n)) {
+            w->particle_count--; // landed already (a wall right in front)
+        }
+        launched++;
+    }
+    world_wake_rect(w, qx - 1, qy - 1, qx + 1, qy + 1); // keeps the cells at the opening going
+    w->launched_by_pressure += (uint32_t)launched;
+    return launched;
+}
+
 int pressure_apply(World *w, const PressureRequest *req, int count) {
     PressureState *ps = w->pressure;
     int moved = 0;
@@ -423,29 +515,9 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         if (top == PRESSURE_NO_TOP || top + ps->used[root] > q_head - 1) {
             continue;
         }
-        // Take a free-surface cell from the body's top; once those are used up, from the rows
-        // just below it, as long as their head stays at least one cell above Q's.
+        int used0 = ps->used[root];
         int sx = -1, sy = 0;
-        int k_max = (int)PR_MIN((int64_t)SOURCE_ROWS, (int64_t)q_head - 1 - top);
-        int k = ps->used[root];
-        for (; k <= k_max && sx < 0; k++) {
-            int tries = 0;
-            for (int32_t node = ps->src_head[root]; node >= 0 && tries < MAX_SOURCES;
-                 node = ps->src_next[node], tries++) {
-                const Piece *pp = &ps->cp[node >> NODE_SHIFT].piece[node & ((1 << NODE_SHIFT) - 1)];
-                sy = pp->top_row + k;
-                if (find_source(w, node, sy, pc.element, &sx)) {
-                    break;
-                }
-            }
-            if (sx >= 0) {
-                break;
-            }
-        }
-        if (sx < 0) {
-            if (k > SOURCE_ROWS) {
-                ps->top[root] = PRESSURE_NO_TOP; // used up for this tick: stop until relabelled
-            }
+        if (!take_source(w, root, pc.element, q_head, &sx, &sy)) {
             world_wake_rect(w, px, py, px, py);
             continue;
         }
@@ -460,12 +532,37 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
                            fabsf(pq - ps_above) <= GAS_SAME_REGION * PR_MAX(pq, ps_above);
         if ((q_gas || ps_above > 0.0f) && !same_region) {
             if (w->tick < ps->gas_tick[root] + GAS_LIQUID_INTERVAL) {
+                ps->used[root] = (int16_t)used0;    // the source was not taken
                 world_wake_rect(w, px, py, px, py); // retry later
                 continue;
             }
             ps->gas_tick[root] = w->tick;
         }
-        ps->used[root] = (int16_t)k; // rows above are used up: later requests start here
+        // A hole in a side wall, below the surface (P is covered: liquid or a wall above it),
+        // deep enough: the liquid leaves as a jet of free particles. Openings at a free surface
+        // (above P, or beside a surface cell) only level the liquid, cell by cell: a surface
+        // does not spout.
+        float speed = outflow_speed(q_head - (top + used0));
+        // The jet also needs somewhere to go: the cell beyond Q must be open too, or hold falling
+        // liquid (moving away), not be part of a bubble of void inside the liquid (which is
+        // simply filled).
+        bool submerged = !liquid_surface_free(w, px, py, pc.element);
+        int bx = qx + (qx - px);
+        Cell beyond = w->cells[world_index(w, PR_CLAMP(bx, 0, w->width - 1), qy)];
+        bool room = particle_passes(w, bx, qy) ||
+                    (world_in_bounds(w, bx, qy) &&
+                     g_elem_behavior[beyond.element] == BEHAVIOR_LIQUID && (beyond.aux & 0x7F));
+        if (qy == py && submerged && room && speed >= JET_MIN_SPEED &&
+            w->particle_count < PARTICLE_MAX) {
+            uint64_t h = pr_splitmix64(w->seed ^ (w->tick * 0x9E3779B97F4A7C15ull) ^
+                                       (uint64_t)world_index(w, qx, qy));
+            float frac = speed - floorf(speed);
+            int n = (int)speed + ((float)(h >> 40) * (1.0f / 16777216.0f) < frac ? 1 : 0);
+            n = PR_CLAMP(n, 1, JET_MAX_PER_REQUEST);
+            moved +=
+                launch_jet(w, root, pc.element, q_head, qx, qy, qx - px, qy - py, speed, n, sx, sy);
+            continue;
+        }
         Cell moving = w->cells[is];
         Cell replaced = w->cells[iq];
         moving.aux &= 0x80; // arrives at rest

@@ -10,6 +10,7 @@ typedef struct WorldRenderer {
     uint32_t *pixels; // world-sized XRGB8888 staging buffer
     int width, height;
     int *dirty_list;                     // scratch: chunk indices to convert this frame
+    uint8_t *had_particles;              // per chunk: particles were drawn there last frame
     uint32_t lut[ELEM_COUNT][256];       // final colour per (element, shade)
     uint32_t lut_solid[ELEM_COUNT][256]; // gases: unblended colour; opacity follows density
     uint32_t chunks_uploaded;            // last frame, for the HUD

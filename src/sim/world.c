@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "sim/heat.h"
+#include "sim/particle.h"
 #include "sim/pressure.h"
 
 #include <stdlib.h>
@@ -31,9 +32,10 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->mass = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->piece = pr_aligned_alloc_zero(64, n * sizeof(uint8_t));
     w->chunks = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(Chunk));
+    w->particles = pr_aligned_alloc_zero(64, PARTICLE_MAX * sizeof(Particle));
     w->pressure = w->chunks ? pressure_create(w) : NULL;
-    if (!w->cells || !w->temp || !w->temp_next || !w->mass || !w->piece || !w->chunks ||
-        !w->pressure) {
+    if (!w->cells || !w->temp || !w->temp_next || !w->mass || !w->particles || !w->piece ||
+        !w->chunks || !w->pressure) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
         return NULL;
@@ -54,6 +56,7 @@ void world_destroy(World *w) {
     pr_aligned_free(w->piece);
     pressure_destroy(w->pressure);
     pr_aligned_free(w->chunks);
+    pr_aligned_free(w->particles);
     pr_aligned_free(w->sim_scratch);
     free(w);
 }
@@ -66,6 +69,7 @@ void world_clear(World *w) {
         w->mass[i] = 0.0f;
         w->piece[i] = 0;
     }
+    w->particle_count = 0;
     for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
         dirty_rect_clear(&w->chunks[i].cur);
         dirty_rect_clear(&w->chunks[i].next);

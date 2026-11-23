@@ -38,6 +38,7 @@ World *test_world_from_ascii(const char *ascii, uint64_t seed);
 World *test_world_box(int w, int h, uint64_t seed);
 
 bool test_cell_is(const World *w, int x, int y, ElementId e);
+// Cells of element e, including free particles in flight.
 int64_t test_count(const World *w, ElementId e);
 // Mean y of all cells of element e (+y is down), weighted by mass for gases. -1 if none.
 double test_mean_y(const World *w, ElementId e);
