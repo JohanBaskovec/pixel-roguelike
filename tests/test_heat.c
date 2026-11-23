@@ -11,6 +11,7 @@ void test_iron_conducts_faster_than_rock(void);
 void test_ice_melts_in_warm_water(void);
 void test_phase_changes_need_latent_heat(void);
 void test_hot_gas_rises(void);
+void test_heater_makes_plume(void);
 void test_pool_heated_from_below_convects(void);
 void test_moved_water_carries_heat(void);
 
@@ -31,11 +32,16 @@ static void set_temp(World *w, int x0, int y0, int x1, int y1, float t) {
     world_wake_heat(w, x0, y0, x1, y1);
 }
 
-// Total thermal energy, sum of C * T over all cells (no cell is mid phase change here).
+// Total thermal energy, sum of C * T over all cells (no cell is mid phase change here). A gas
+// cell's C is its mass times its specific heat.
 static double energy(const World *w) {
     double e = 0.0;
     for (int i = 0; i < w->width * w->height; i++) {
-        e += (double)g_elem_cap[w->cells[i].element] * (double)w->temp[i];
+        ElementId el = w->cells[i].element;
+        double cap = g_elem_behavior[el] == BEHAVIOR_GAS
+                         ? (double)w->mass[i] * (double)g_elem_cp[el]
+                         : (double)g_elem_cap[el];
+        e += cap * (double)w->temp[i];
     }
     return e;
 }
@@ -132,7 +138,8 @@ void test_phase_changes_need_latent_heat(void) {
     paint(w, 10, 62, 10, 62, ELEM_WATER);
     paint(w, 20, 62, 20, 62, ELEM_WATER);
     paint(w, 30, 62, 30, 62, ELEM_ICE);
-    paint(w, 40, 62, 40, 62, ELEM_STEAM);
+    // Steam holding a full water cell's mass (as boiling makes it): it condenses into one cell.
+    world_set_gas(w, 40, 62, ELEM_STEAM, g_elem_mass[ELEM_WATER], 0);
     // Water at an (enthalpy) temperature just short of freezing: it stays water, at 0 degC.
     set_temp(w, 10, 62, 10, 62, 273.15f - 70.0f);
     // Water holding enough latent heat to boil, ice enough to melt, steam cooled enough to
@@ -153,37 +160,62 @@ void test_phase_changes_need_latent_heat(void) {
     world_destroy(w);
 }
 
+// Heat above `base` held by gas in the rect (inclusive): sum of m * cp * (T - base), J.
+static double gas_heat_in(const World *w, int x0, int y0, int x1, int y1, float base) {
+    double q = 0.0;
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            size_t i = world_index(w, x, y);
+            ElementId e = w->cells[i].element;
+            if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+                q += (double)w->mass[i] * (double)g_elem_cp[e] *
+                     (double)PR_MAX(elem_temp(e, w->temp[i]) - base, 0.0f);
+            }
+        }
+    }
+    return q;
+}
+
+// Mean height (y, +y down) of the heat above `base` held by gas, weighted by m * cp * (T - base).
+static double hot_gas_height(const World *w, float base) {
+    double sum = 0.0, wsum = 0.0;
+    for (int y = 0; y < w->height; y++) {
+        double q = gas_heat_in(w, 0, y, w->width - 1, y, base);
+        sum += q * y;
+        wsum += q;
+    }
+    return wsum > 0.0 ? sum / wsum : -1.0;
+}
+
 void test_hot_gas_rises(void) {
-    // A room of oxygen with a hot patch near the floor: the hot gas must rise.
+    // A room of oxygen with a patch near the floor suddenly heated to 700 K: it expands (pushing
+    // the cold gas aside) and its heat rises. Slowly: expanding by trading mass with cooler
+    // neighbours mixes part of its heat into them (docs/SIMULATION.md -> Gases, limitations).
     World *w = test_world_box(128, 128, 26);
     paint(w, 1, 1, 126, 126, ELEM_OXYGEN);
     set_temp(w, 1, 1, 126, 126, 293.15f);
     set_temp(w, 44, 100, 84, 120, 700.0f);
-    double y0 = 0.0;
-    int n0 = 0;
-    for (int y = 0; y < 128; y++) {
-        for (int x = 0; x < 128; x++) {
-            if (w->cells[world_index(w, x, y)].element == ELEM_OXYGEN &&
-                temp_at(w, x, y) > 400.0f) {
-                y0 += y;
-                n0++;
-            }
-        }
-    }
+    double y0 = hot_gas_height(w, 293.15f);
     sim_run_ticks(w, 400);
-    double y1 = 0.0;
-    int n1 = 0;
-    for (int y = 0; y < 128; y++) {
-        for (int x = 0; x < 128; x++) {
-            if (w->cells[world_index(w, x, y)].element == ELEM_OXYGEN &&
-                temp_at(w, x, y) > 400.0f) {
-                y1 += y;
-                n1++;
-            }
-        }
+    double y1 = hot_gas_height(w, 293.15f);
+    EXPECT(y1 < y0 - 3.0); // the heat's mean height rose by more than 3 cells
+    world_destroy(w);
+}
+
+void test_heater_makes_plume(void) {
+    // A room of oxygen over a hot iron plate: the gas it heats rises, so more heat ends up above
+    // the plate than beside it.
+    World *w = test_world_box(128, 128, 28);
+    paint(w, 1, 1, 126, 126, ELEM_OXYGEN);
+    paint(w, 54, 122, 74, 126, ELEM_IRON);
+    for (int t = 0; t < 600; t++) {
+        set_temp(w, 54, 122, 74, 126, 700.0f); // a heater held at 700 K
+        sim_tick(w, NULL);
     }
-    EXPECT(n0 > 0 && n1 > 0);
-    EXPECT(y1 / n1 < y0 / n0 - 15.0); // mean height of the hot gas rose by more than 15 cells
+    double above = gas_heat_in(w, 50, 60, 78, 115, 293.15f);
+    double beside =
+        gas_heat_in(w, 1, 100, 45, 126, 293.15f) + gas_heat_in(w, 83, 100, 126, 126, 293.15f);
+    EXPECT(above > 3.0 * beside);
     world_destroy(w);
 }
 

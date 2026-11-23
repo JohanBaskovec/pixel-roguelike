@@ -20,6 +20,14 @@ static const float k_zoom[] = {0.25f, 1.0f / 3.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f,
 #define ZOOM_COUNT ((int)PR_ARRAY_COUNT(k_zoom))
 #define ZOOM_ONE   3
 
+// Inspector: partial pressures are averaged over a (2r+1)^2 window around the cursor.
+#define INSPECT_RADIUS 7
+
+static const char *const k_gas_short[ELEM_COUNT] = {
+    [ELEM_OXYGEN] = "O2", [ELEM_CO2] = "CO2",     [ELEM_HYDROGEN] = "H2",
+    [ELEM_STEAM] = "H2O", [ELEM_NITROGEN] = "N2",
+};
+
 typedef struct Tool {
     ElementId element;
     const char *label; // NULL: use the element name
@@ -34,6 +42,8 @@ static const Tool k_tools[] = {
     {ELEM_CO2, "CO2", EDIT_PAINT, SDLK_3, 0},
     {ELEM_HYDROGEN, NULL, EDIT_PAINT, SDLK_4, 0},
     {ELEM_STEAM, NULL, EDIT_PAINT, SDLK_5, 0},
+    {ELEM_NITROGEN, NULL, EDIT_PAINT, SDLK_N, 0},
+    {EDIT_AIR, "Air", EDIT_PAINT, SDLK_G, 0x8FA4C8},
     {ELEM_DIRT, NULL, EDIT_PAINT, SDLK_6, 0},
     {ELEM_ROCK, NULL, EDIT_PAINT, SDLK_7, 0},
     {ELEM_IRON, NULL, EDIT_PAINT, SDLK_8, 0},
@@ -315,6 +325,48 @@ static void draw_brush_outline(App *app) {
     SDL_RenderLines(app->renderer, pts, SEGMENTS + 1);
 }
 
+// Partial pressures of the gases around (wx, wy): each gas's share of the gas-filled cells in a
+// window around the cursor, times their pressure (Dalton: the partial pressures add up to the
+// total). Two per line, in kPa.
+static float draw_partial_pressures(App *app, Ui *ui, float x, float y, int wx, int wy) {
+    const int r = INSPECT_RADIUS;
+    double p[ELEM_COUNT] = {0};
+    int cells = 0;
+    for (int yy = wy - r; yy <= wy + r; yy++) {
+        for (int xx = wx - r; xx <= wx + r; xx++) {
+            ElementId e = world_elem(app->world, xx, yy);
+            if (e != ELEM_OUT && g_elem_behavior[e] != BEHAVIOR_STATIC) {
+                cells++; // void and fluids: the space gas could fill
+            }
+            if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+                p[e] += (double)world_gas_pressure(app->world, xx, yy);
+            }
+        }
+    }
+    if (cells == 0) {
+        return y;
+    }
+    char line[64];
+    int len = 0, on_line = 0;
+    for (int e = 0; e < ELEM_COUNT; e++) {
+        if (p[e] <= 0.0) {
+            continue;
+        }
+        len += SDL_snprintf(line + len, sizeof(line) - (size_t)len, "%s%s %.1f",
+                            on_line ? "  " : "", k_gas_short[e], p[e] / cells / 1000.0);
+        if (++on_line == 2) {
+            ui_text(ui, x, y, 0x9FC8E8, "%s", line);
+            y += 12.0f;
+            len = on_line = 0;
+        }
+    }
+    if (on_line) {
+        ui_text(ui, x, y, 0x9FC8E8, "%s", line);
+        y += 12.0f;
+    }
+    return y;
+}
+
 static void draw_panel(App *app) {
     Ui *ui = &app->ui;
     ui_begin(ui, app->renderer, app->mouse_x, app->mouse_y, app->ui_click);
@@ -331,10 +383,10 @@ static void draw_panel(App *app) {
         SDL_snprintf(label, sizeof(label), "%s %s", SDL_GetKeyName(t->key),
                      t->label ? t->label : elem_name(t->element));
         uint32_t swatch = t->swatch ? t->swatch : g_elem_defs[t->element].color;
-        if (ui_button(ui, (SDL_FRect){x, y, w, 21.0f}, label, swatch, app->tool == i)) {
+        if (ui_button(ui, (SDL_FRect){x, y, w, 19.0f}, label, swatch, app->tool == i)) {
             app->tool = i;
         }
-        y += 24.0f;
+        y += 21.0f;
     }
 
     y += 8.0f;
@@ -359,7 +411,9 @@ static void draw_panel(App *app) {
     ui_text(ui, x, y, 0xE8E8E8, "Updated  %7llu",
             (unsigned long long)app->last_stats.cells_visited);
     y += 12.0f;
-    ui_text(ui, x, y, 0xE8E8E8, "Pressure %7u", app->last_stats.transfers);
+    ui_text(ui, x, y, 0xE8E8E8, "Water    %7u", app->last_stats.transfers);
+    y += 12.0f;
+    ui_text(ui, x, y, 0xE8E8E8, "Gas      %7u", app->last_stats.gas_transfers);
     y += 12.0f;
     ui_text(ui, x, y, 0xE8E8E8, "Heat     %4u ch", app->last_stats.heat_chunks);
     y += 12.0f;
@@ -407,8 +461,16 @@ static void draw_panel(App *app) {
                 // 1000 kg/m^3 * 9.81 m/s^2 * depth * 5 cm, in kPa above the surface's pressure.
                 ui_text(ui, x, y, 0xE8E8E8, "Depth %d (%.1f kPa)", depth,
                         (double)depth * 0.05 * 9.81 * (double)g_elem_defs[e].density / 1000.0);
+                y += 12.0f;
+            }
+            if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+                float m = app->world->mass[world_index(app->world, wx, wy)];
+                ui_text(ui, x, y, 0xE8E8E8, "%.1f kPa  %.3g mg",
+                        (double)world_gas_pressure(app->world, wx, wy) / 1000.0, (double)m * 1e6);
+                y += 12.0f;
             }
         }
+        y = draw_partial_pressures(app, ui, x, y, wx, wy);
     }
 
     const char *help[] = {

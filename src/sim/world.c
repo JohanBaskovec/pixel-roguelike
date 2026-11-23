@@ -27,10 +27,12 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->cells = pr_aligned_alloc_zero(64, n * sizeof(Cell));
     w->temp = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->temp_next = pr_aligned_alloc_zero(64, n * sizeof(float));
+    w->mass = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->piece = pr_aligned_alloc_zero(64, n * sizeof(uint8_t));
     w->chunks = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(Chunk));
     w->pressure = w->chunks ? pressure_create(w) : NULL;
-    if (!w->cells || !w->temp || !w->temp_next || !w->piece || !w->chunks || !w->pressure) {
+    if (!w->cells || !w->temp || !w->temp_next || !w->mass || !w->piece || !w->chunks ||
+        !w->pressure) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
         return NULL;
@@ -46,6 +48,7 @@ void world_destroy(World *w) {
     pr_aligned_free(w->cells);
     pr_aligned_free(w->temp);
     pr_aligned_free(w->temp_next);
+    pr_aligned_free(w->mass);
     heat_free(w);
     pr_aligned_free(w->piece);
     pressure_destroy(w->pressure);
@@ -59,6 +62,7 @@ void world_clear(World *w) {
     for (size_t i = 0; i < n; i++) {
         w->cells[i] = (Cell){0};
         w->temp[i] = 0.0f;
+        w->mass[i] = 0.0f;
         w->piece[i] = 0;
     }
     for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
@@ -133,4 +137,23 @@ void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits) {
     c.aux = (uint8_t)((random_bits >> 8) & 0x80); // random initial flow direction, zero speed
     w->cells[i] = c;
     w->temp[i] = g_elem_defs[e].spawn_temp;
+    w->mass[i] = g_elem_behavior[e] == BEHAVIOR_GAS ? gas_mass_at(e, P_ATM, w->temp[i]) : 0.0f;
+}
+
+void world_set_gas(World *w, int x, int y, ElementId e, float m, uint32_t random_bits) {
+    PR_ASSERT(g_elem_behavior[e] == BEHAVIOR_GAS && m > 0.0f);
+    world_set_cell(w, x, y, e, random_bits);
+    w->mass[world_index(w, x, y)] = m;
+}
+
+float world_gas_pressure(const World *w, int x, int y) {
+    if (!world_in_bounds(w, x, y)) {
+        return 0.0f;
+    }
+    size_t i = world_index(w, x, y);
+    ElementId e = w->cells[i].element;
+    if (g_elem_behavior[e] != BEHAVIOR_GAS) {
+        return 0.0f;
+    }
+    return gas_pressure(e, w->mass[i], elem_temp(e, w->temp[i]));
 }

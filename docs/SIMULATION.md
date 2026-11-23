@@ -57,7 +57,7 @@ A moving cell **A** may move into target cell **B**, going down or sideways, if:
 
 1. B is **void** → move (B's position becomes void), or
 2. B is a **fluid** (liquid or gas) that is **lighter** than A → **swap** A and B, together with
-   their temperatures (and masses from M4).
+   their temperatures and masses.
 
 Moving **up** is the gas buoyancy rule below. Static cells are never displaced. Cells beyond the
 world edge read as the pseudo element `ELEM_OUT`, which behaves as static.
@@ -166,48 +166,83 @@ problem altogether, and is also cheaper (no gradient traces).
   transfers per tick (up to 128 per chunk), not proportional to the square root of the depth.
   Planned in M4b (free particles, Torricelli outflow, jets).
 - Different liquids do not push each other (only one liquid exists so far). Planned in M5.
-- A body's surface pressure is taken as zero: trapped or pressurised gas does not push on water,
-  and heating does not pressurise sealed containers. Planned in M4 (gas pressure acting on
-  liquids). Note that a body completely full of liquid in rigid walls has nothing to push against
+- A body's surface pressure is taken as zero: trapped or pressurised gas does not push on water.
+  Gas has pressure since M4 (heating a sealed room raises it), but it does not act on liquids yet;
+  see the M4 roadmap entry. Note that a body completely full of liquid in rigid walls has nothing to push against
   in reality either; pipes connected to an open tank already work (they are one body).
 - Transfers move a cell from the top of the body to the opening in one step. Visually this reads
   as the surface lowering and the water flowing out, but water does not travel through the body.
 
-### Gases (M1 particle model)
+### Gases (M4): mass and pressure
 
-One gas particle per pixel. A gas cell tries the following, in order:
+Each gas cell holds one gas with a **mass** (`World.mass`, kg). Its pressure follows the ideal gas
+law, `P = (m / M) · R · T / V_cell`, with M the molar mass and T the physical temperature. A cell
+painted with the brush holds the mass of 1 atm at its spawn temperature (0.15 g of air). Mass is
+conserved by every rule below (tested to 1e-4).
 
-1. **Buoyancy against other fluids.** If the cell above is a fluid that is denser than this gas →
-   swap with probability `p_buoy = K_BUOY * (ρ_above - ρ_self) / (ρ_above + ρ_self)`, from the
-   precomputed table `g_buoy_p`.
-2. **Random walk.** Pick one of the 8 neighbours using the chunk RNG.
-   - If it is **void** → keep stepping in that direction through void for up to `SPREAD` cells
-     (per gas; lighter gases spread further), then move there in one swap. This is expansion.
-     There is **no gravity bias against void**: with one particle per pixel, a gas that "fell"
-     into vacuum would look like powder. Physically this is right too: over the height of a room,
-     gravity barely changes a gas's density.
-   - If it is **another gas** → swap with mixing probability `P_GAS_MIX`, or `P_GAS_MIX / 4` when
-     the swap would move the denser gas up. This gives partial mixing on top of stratification.
-   - If it is the same gas → nothing.
-3. **Did not move.** Stay awake only if a move is still possible: a neighbour is void or a
-   different gas, or a denser fluid sits above. A region filled with a single gas sleeps.
+A gas cell does the following each tick, in order:
 
-Gases never displace liquids sideways or downward; liquids sink through gas by their own update.
+1. **Buoyancy.** If the cell above is a denser fluid → swap with probability
+   `p = K_BUOY · (ρ_above − ρ_self) / (ρ_above + ρ_self)`. Gas densities are taken **at 1 atm**
+   for the cell's temperature (`elem_fluid_density`), whatever its actual pressure: a parcel at
+   another pressure would be squeezed or expanded to its surroundings' pressure long before it rose
+   or sank. So hot gas rises through cold gas, CO2 sinks, H2 rises, but thin gas does not shoot up.
+   **Oxygen and nitrogen count as air** (`AIR_DENSITY_0C`, the same density): air painted as
+   separate O2 and N2 cells would otherwise unmix in seconds; real air needs kilometres of height
+   to separate.
+2. **One random direction** (4-neighbourhood) per tick. The neighbour there decides:
+   - **Void:** a dense cell (at least `2 · GAS_MIN_FRAC` = 2% of its 1-atm mass) **splits**: half
+     its mass goes 1..`SPREAD` cells into the void. Gas fills a vacuum and thins out. A thinner
+     cell moves whole, as a particle (up to `SPREAD` cells), so a little gas in a big vacuum is a
+     few drifting particles, not ever-thinner cells.
+   - **Any gas at less than 1/`GAS_PUSH_RATIO` (1/2.1) of this pressure:** **push**. The
+     neighbour's gas moves on into its own neighbour (straight on, else either side) where that is
+     the same gas (it merges) or void, and this cell expands into the freed cell, half its mass
+     each. Below a ratio of 2 the push would leave both halves below the gas it squeezed, which
+     would push back next tick. Boiling water (one steam cell at ~1700 atm) clears the air this
+     way, and suddenly heated gas pushes cold gas aside instead of mixing its heat into it.
+   - **The same gas,** both thin (sum under 2% of 1 atm): the two **merge**.
+   - **A different gas:** the two **mix** (trade places, probability `P_GAS_MIX`) only if that
+     lowers the number of same-gas contacts around the two cells, and never if it moves the denser
+     gas up. Gases spread into each other at their interface and then stop: the number of
+     same-gas contacts only ever drops, so a mixed region goes to sleep instead of shuffling
+     forever. Mixing stays a thin layer, which is realistic for still air: molecular diffusion
+     covers about `√(2Dt)` = 4.5 cm (one cell) in 50 s. Real rooms mix by convection.
+   - Then, for any gas there: **pressure equalisation.** Walk a random 1..`GAS_REACH` (16) cells
+     in that direction through gas of any kind, to the last cell of the same gas. If its
+     temperature is within `GAS_JUMP_MAX_DT` (2 K), trade mass with it, otherwise with the
+     adjacent cell (if it is the same gas). The amount leaves both at the same pressure:
+     `dm = (m·T − m'·T') / (2·T_sender)`, because the moved gas keeps the sender's temperature
+     and its heat mixes into the receiver (energy-conserving). Pressures within `GAS_EQ_TOL`
+     (0.1%) count as equal; above the push ratio the push handles it.
+3. **Did not move:** stay awake only if something is still possible: void beside it, a pressure
+   difference or a merge with the same gas, a push, a mixing move, or buoyancy. A room of gas at one
+   pressure (including mixed air) sleeps.
 
-Expected emergent results: CO2 (1.98 kg/m³) pools under O2 (1.43 kg/m³), H2 (0.09 kg/m³) rises
-above both, and water rains down through all of them. Gas painted into vacuum spreads out as a
-thinning cloud of particles and never "fills" the box. That is the particle-model limitation
-that M4 removes. All constants live at the top of `src/sim/sim.c` and in `src/sim/elements.h`.
+Pressure spreads by diffusion, sped up by the long jumps: a 2:1 pressure step across a 128-cell
+room (6 m) evens out to 1% in about 5 s. Gas released into vacuum spreads at a few metres per
+second, not at the speed of sound.
+
+**Phase changes with mass.** Boiling water keeps its 125 g: one steam cell at very high pressure,
+which then pushes and splits until it fills about 1700 cells at 1 atm. Steam condensing becomes a
+full water cell (125 g) with probability `m / m_water`, otherwise nothing (deterministic hash of
+seed, tick and cell), so mass is conserved on average. The condensation point does not depend on
+pressure (a deviation: real steam at 1% of an atmosphere condenses at 7 °C, not 100 °C).
+
+**Known limitations.**
+
+- Different gases never share a cell, so total pressure does not even out across two gases unless
+  one is at more than 2.1× the other's pressure (then it pushes). A room of N2 at 1.5 atm next to
+  one of O2 at 1 atm stays that way, apart from the mixed layer. Each gas does even out with
+  itself, including through other gases (partial pressure).
+- A gas cell suddenly heated far above its neighbours expands partly by trading mass with them,
+  which mixes some of its heat into them. Gradual heating (a hot plate) is barely affected, since
+  the mass moved is proportional to the temperature step.
+- Gas pressure does not act on liquids yet: a liquid body's surface pressure is taken as zero, and
+  water flowing into a gas cell swaps it to the body's top instead of compressing it.
+
+All constants live at the top of the gas section of `src/sim/sim.c` and in `src/sim/elements.h`.
 Their current values are in `ELEMENTS.md`.
-
-### Gases from M4: mass and pressure
-
-Gas cells will carry `mass` (kg). Pressure follows the ideal gas law,
-`P = (m / M) · R · T / V_cell`, where M is the molar mass. Each tick, gas flows between
-neighbouring cells of the **same** gas in proportion to the pressure difference. Gas expands into
-void by splitting off mass. A cell whose mass drops below a minimum disappears into void.
-Different gases still never share a cell; they swap by density as above. Rendering alpha scales
-with mass. This is the ONI model on a pixel grid; see `DECISIONS.md` D-005.
 
 ## Heat pass (M3)
 
@@ -236,6 +271,9 @@ T_i'   = T_i + Σ_j a_ij · (T_j − T_i) / C_i       // physical temperatures o
 
 - `a_ij` is a precomputed symmetric table (`g_heat_coef`), so what one cell gains its neighbour
   loses: **energy is conserved exactly** (tested), and stays so whatever the thread count.
+- **Gases:** a gas cell's thermal mass is its actual mass times c (`m · c`), so thin gas holds
+  little heat. Any pair involving a gas uses `min(raw coefficient, C_min / 8)` computed per pair
+  (`g_heat_coef_raw`); `C_min / 8` never exceeds the table's limit and keeps the step monotone.
 - The limit makes every step monotone: one tick never pushes two cells past their common
   temperature, even with all four neighbours pushing the same way. There is no overshoot with
   extreme contrasts, e.g. 3000 K hydrogen on 100 K iron (tested).
@@ -286,18 +324,13 @@ it, so a hot pocket rises while mixing rather than as a tight plume.
 ### Phase changes
 
 Ice ↔ water at 0 °C (L = 334 kJ/kg), water ↔ steam at 100 °C (L = 2257 kJ/kg), all at 1 atm
-(pressure-dependent boiling may come with gas pressure, M4). After each conduction step, a cell
+(the boiling point does not depend on pressure yet). After each conduction step, a cell
 whose stored temperature is far enough past its transition point that the heat beyond it pays for
 the latent heat, `c · (T − T_thr) ≥ L`, changes phase. It keeps the remainder:
-`T_new = T_thr ± m·(c·|T − T_thr| − L) / C_new`. The full latent heat acts as a natural
+`T_new = T_thr ± m·(c·|T − T_thr| − L) / C_new`, where m is the cell's mass (a gas cell's own;
+see Gases for boiling and condensing). The full latent heat acts as a natural
 hysteresis (no flicker). A melted, frozen, condensed or boiled cell wakes its neighbourhood
 (movement, rendering, water pressure).
-
-**Caveat until gas mass (M4):** a water cell (125 g) becomes one steam cell (0.07 g at 1 atm), and
-one steam cell condenses back into one water cell. Mass is not conserved through boiling, and a
-boiling pool does not expand into ~1700 times its volume of steam. Energy is accounted per cell. A
-freshly boiled steam cell starts at most `BOIL_EXCESS_CAP_K` (20 K) above 100 °C, because its tiny
-heat capacity would otherwise turn leftover heat into absurd temperatures.
 
 ## Randomness
 
@@ -311,8 +344,8 @@ heat capacity would otherwise turn leftover heat into absurd temperatures.
 
 ## Conservation checks (tests)
 
-- Movement never creates or destroys cells: per-element counts stay constant without edits or
-  phase changes.
+- Movement never creates or destroys liquid or solid cells: their per-element counts stay
+  constant without edits or phase changes.
+- Gas mass is conserved per gas (gas cells split and merge, so their count changes).
 - Without boundary losses, total thermal energy `Σ C_i·T_i` stays constant within float tolerance
-  (M3).
-- Gas mass is conserved (M4).
+  (M3); a gas cell's C is its mass times its specific heat.

@@ -1,6 +1,7 @@
 #include "sim/heat.h"
 
 #include "core/jobs.h"
+#include "core/rng.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -11,9 +12,6 @@
 #define HEAT_WAKE_MOVEMENT_K 0.02f
 // Hottest cell above which a chunk glows (and must be redrawn when temperatures change).
 #define GLOW_START_K 750.0f
-// When liquid boils, the new gas cell is far lighter (no gas mass until M4), so leftover heat
-// would make it absurdly hot: cap how far above the boiling point it starts.
-#define BOIL_EXCESS_CAP_K 20.0f
 
 typedef struct HeatJob {
     World *w;
@@ -33,6 +31,15 @@ typedef struct HeatScratch {
 
 #define HALO (CHUNK_SIZE + 2)
 
+// Heat flowing into a cell (element a, thermal mass ca, temperature ta) from a neighbour, when
+// either may be a gas: a gas cell's thermal mass follows its mass, so the stability limit is
+// computed here, not taken from g_heat_coef. 0.125 * min(ca, cb) is at most the table's limit
+// (0.25 * ca * cb / (ca + cb)) and keeps a cell's four exchanges from overshooting. Symmetric.
+static inline float gas_flux(ElementId a, float ca, float ta, ElementId b, float cb, float tb) {
+    float k = PR_MIN(g_heat_coef_raw[a][b], 0.125f * PR_MIN(ca, cb));
+    return k * (tb - ta);
+}
+
 static void compute_chunk(void *user, int index) {
     HeatJob *job = &((HeatJob *)user)[index];
     World *w = job->w;
@@ -45,20 +52,23 @@ static void compute_chunk(void *user, int index) {
     // only pairs computed on both sides exchange heat, so energy cannot leak).
     ElementId el[HALO][HALO];
     float tp[HALO][HALO];
+    float cap[HALO][HALO]; // thermal mass, J/K (gases: their actual mass times cp)
     for (int ly = -1; ly <= CHUNK_SIZE; ly++) {
         for (int lx = -1; lx <= CHUNK_SIZE; lx++) {
             int x = bx + lx, y = by + ly;
             ElementId e = ELEM_VOID;
-            float t = 0.0f;
+            float t = 0.0f, k = 0.0f;
             bool inside = lx >= 0 && ly >= 0 && lx < CHUNK_SIZE && ly < CHUNK_SIZE;
             if (world_in_bounds(w, x, y) &&
                 (inside || marked[(y >> CHUNK_SHIFT) * w->chunks_x + (x >> CHUNK_SHIFT)])) {
                 size_t i = world_index(w, x, y);
                 e = w->cells[i].element;
                 t = elem_temp(e, w->temp[i]);
+                k = g_elem_behavior[e] == BEHAVIOR_GAS ? w->mass[i] * g_elem_cp[e] : g_elem_cap[e];
             }
             el[ly + 1][lx + 1] = e;
             tp[ly + 1][lx + 1] = t;
+            cap[ly + 1][lx + 1] = k;
         }
     }
 
@@ -70,7 +80,8 @@ static void compute_chunk(void *user, int index) {
             int hy = ly + 1, hx = lx + 1;
             ElementId e = el[hy][hx];
             size_t i = row + (size_t)lx;
-            if (g_elem_cap[e] == 0.0f) {
+            float ci = cap[hy][hx];
+            if (ci == 0.0f) {
                 w->temp_next[i] = w->temp[i];
                 continue;
             }
@@ -78,13 +89,26 @@ static void compute_chunk(void *user, int index) {
             // Flux from each neighbour, using physical temperatures. Each pair computes the same
             // coefficient and opposite differences, so whatever one cell gains its neighbour
             // loses: energy is conserved exactly.
-            const float *coef = g_heat_coef[e];
             float ti = tp[hy][hx];
-            float sum = coef[el[hy][hx - 1]] * (tp[hy][hx - 1] - ti) +
-                        coef[el[hy][hx + 1]] * (tp[hy][hx + 1] - ti) +
-                        coef[el[hy - 1][hx]] * (tp[hy - 1][hx] - ti) +
-                        coef[el[hy + 1][hx]] * (tp[hy + 1][hx] - ti);
-            float change = sum * g_elem_inv_cap[e];
+            float sum;
+            bool gas = g_elem_behavior[e] == BEHAVIOR_GAS ||
+                       g_elem_behavior[el[hy][hx - 1]] == BEHAVIOR_GAS ||
+                       g_elem_behavior[el[hy][hx + 1]] == BEHAVIOR_GAS ||
+                       g_elem_behavior[el[hy - 1][hx]] == BEHAVIOR_GAS ||
+                       g_elem_behavior[el[hy + 1][hx]] == BEHAVIOR_GAS;
+            if (PR_LIKELY(!gas)) {
+                const float *coef = g_heat_coef[e];
+                sum = coef[el[hy][hx - 1]] * (tp[hy][hx - 1] - ti) +
+                      coef[el[hy][hx + 1]] * (tp[hy][hx + 1] - ti) +
+                      coef[el[hy - 1][hx]] * (tp[hy - 1][hx] - ti) +
+                      coef[el[hy + 1][hx]] * (tp[hy + 1][hx] - ti);
+            } else {
+                sum = gas_flux(e, ci, ti, el[hy][hx - 1], cap[hy][hx - 1], tp[hy][hx - 1]) +
+                      gas_flux(e, ci, ti, el[hy][hx + 1], cap[hy][hx + 1], tp[hy][hx + 1]) +
+                      gas_flux(e, ci, ti, el[hy - 1][hx], cap[hy - 1][hx], tp[hy - 1][hx]) +
+                      gas_flux(e, ci, ti, el[hy + 1][hx], cap[hy + 1][hx], tp[hy + 1][hx]);
+            }
+            float change = sum / ci;
             w->temp_next[i] = w->temp[i] + change;
             max_change = PR_MAX(max_change, fabsf(change));
             max_temp = PR_MAX(max_temp, ti + change);
@@ -117,30 +141,49 @@ static void apply_chunk(void *user, int index) {
             float cp = g_elem_defs[e < ELEM_COUNT ? e : 0].heat_cap;
             ElementId to = e;
             float t_new = t;
+            // Mass of the cell before and after (gases carry theirs; others are fixed).
+            float m = g_elem_behavior[e] == BEHAVIOR_GAS ? w->mass[i] : g_elem_mass[e];
+            float m_new = m;
             if (up->temp > 0.0f && t > up->temp && cp * (t - up->temp) >= up->latent) {
+                // Melting or boiling. Boiling water keeps its mass: one cell of steam at very
+                // high pressure, which then expands (about 1700 cells at 1 atm).
                 to = up->to;
-                float rest = g_elem_mass[e] * (cp * (t - up->temp) - up->latent); // J
-                t_new = up->temp + rest * g_elem_inv_cap[to];
-                if (g_elem_behavior[to] == BEHAVIOR_GAS && g_elem_behavior[e] != BEHAVIOR_GAS) {
-                    t_new = PR_MIN(t_new, up->temp + BOIL_EXCESS_CAP_K);
+                float rest = m * (cp * (t - up->temp) - up->latent); // J
+                if (g_elem_behavior[to] != BEHAVIOR_GAS) {
+                    m_new = g_elem_mass[to];
                 }
+                t_new = up->temp + rest / (m_new * g_elem_cp[to]);
             } else if (down->temp > 0.0f && t < down->temp &&
                        cp * (down->temp - t) >= down->latent) {
                 to = down->to;
-                float rest = g_elem_mass[e] * (cp * (down->temp - t) - down->latent);
-                t_new = down->temp - rest * g_elem_inv_cap[to];
+                float rest = m * (cp * (down->temp - t) - down->latent);
+                if (g_elem_behavior[e] == BEHAVIOR_GAS && g_elem_behavior[to] != BEHAVIOR_GAS) {
+                    // Condensing: a liquid cell has a fixed mass, more than a gas cell usually
+                    // holds. Become a full cell with probability m / m_liquid, else nothing:
+                    // mass is conserved on average (docs/SIMULATION.md -> Phase changes).
+                    m_new = g_elem_mass[to];
+                    uint64_t h = pr_splitmix64(w->seed ^ (w->tick * 0x9E3779B97F4A7C15ull) ^ i);
+                    float u = (float)(h >> 40) * (1.0f / 16777216.0f);
+                    if (u >= m / m_new) {
+                        to = ELEM_VOID;
+                    }
+                }
+                if (to != ELEM_VOID) {
+                    t_new = down->temp - rest / (m_new * g_elem_cp[to]);
+                }
             }
             if (to != e) {
                 c.element = to;
                 c.aux &= 0x80; // at rest (a new liquid or gas cell starts still)
                 c.stamp = (uint8_t)(w->tick - 1);
                 w->cells[i] = c;
-                w->temp[i] = t_new;
+                w->temp[i] = to == ELEM_VOID ? 0.0f : t_new;
+                w->mass[i] = g_elem_behavior[to] == BEHAVIOR_GAS ? m_new : 0.0f;
                 job->phase++;
                 int lx = x - bx, ly = y - by;
                 dirty_rect_add(&job->changed, lx, ly, lx, ly);
             }
-            if (g_elem_cap[c.element] > 0.0f) {
+            if (c.element != ELEM_VOID) {
                 float tp = elem_temp(c.element, w->temp[i]);
                 lo = PR_MIN(lo, tp);
                 hi = PR_MAX(hi, tp);

@@ -10,6 +10,7 @@ typedef struct SimStats {
     uint32_t requests;      // water-pressure requests (cells pushed toward an opening)
     uint32_t heat_chunks;   // chunks whose temperatures were computed (M3)
     uint32_t phase_changes; // cells that melted, froze, boiled or condensed
+    uint32_t gas_transfers; // gas pressure equalisations between two cells (M4)
 } SimStats;
 
 // Advances the world by one fixed tick (1/60 s). Fills `stats` if non-NULL.

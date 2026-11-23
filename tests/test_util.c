@@ -95,15 +95,27 @@ int64_t test_count(const World *w, ElementId e) {
 }
 
 double test_mean_y(const World *w, ElementId e) {
-    double sum = 0.0;
-    int64_t n = 0;
+    bool gas = g_elem_behavior[e] == BEHAVIOR_GAS;
+    double sum = 0.0, n = 0.0;
     for (int y = 0; y < w->height; y++) {
         for (int x = 0; x < w->width; x++) {
-            if (w->cells[world_index(w, x, y)].element == e) {
-                sum += y;
-                n++;
+            size_t i = world_index(w, x, y);
+            if (w->cells[i].element == e) {
+                double weight = gas ? (double)w->mass[i] : 1.0;
+                sum += y * weight;
+                n += weight;
             }
         }
     }
-    return n ? sum / (double)n : -1.0;
+    return n > 0.0 ? sum / n : -1.0;
+}
+
+double test_mass(const World *w, ElementId e) {
+    double m = 0.0;
+    for (int i = 0; i < w->width * w->height; i++) {
+        if (w->cells[i].element == e) {
+            m += (double)w->mass[i];
+        }
+    }
+    return m;
 }

@@ -47,6 +47,7 @@ typedef struct World {
     Cell *cells;      // width * height, row-major
     float *temp;      // per cell, K; for phase-changing cells it also holds latent heat (elem_temp)
     float *temp_next; // heat pass scratch (Jacobi)
+    float *mass;      // per cell, kg; gases only (0 elsewhere). Pressure: gas_pressure()
     uint8_t *piece;   // water pressure: body piece id of still liquid within its chunk (pressure.h)
     Chunk *chunks;
     uint64_t seed;
@@ -148,5 +149,12 @@ static inline bool liquid_surface_free(const World *w, int x, int y, ElementId e
     return a.element == e && !cell_is_still_liquid(a);
 }
 
-// Puts a fresh cell of `e` at (x, y), with spawn temperature and random shade. Does not wake.
+// Puts a fresh cell of `e` at (x, y), with spawn temperature and random shade (a gas at 1 atm).
+// Does not wake.
 void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits);
+
+// Same, for a gas cell holding mass m (kg).
+void world_set_gas(World *w, int x, int y, ElementId e, float m, uint32_t random_bits);
+
+// Pressure (Pa) of the gas at (x, y); 0 if it is not a gas.
+float world_gas_pressure(const World *w, int x, int y);

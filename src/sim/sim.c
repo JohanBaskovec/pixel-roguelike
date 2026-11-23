@@ -115,17 +115,13 @@ static inline bool in_reach(const TickCtx *c, int x, int y) {
 // read and write within MAX_MOVE of the cell (threading invariant).
 #define LIQUID_LOOKAHEAD MAX_MOVE
 
-static const int8_t k_dir8[8][2] = {
-    {-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1},
-};
-
 static inline Cell *cell_ptr(World *w, int x, int y) {
     return &w->cells[world_index(w, x, y)];
 }
 
-// Swaps two cells (and their temperatures) up to MAX_MOVE apart. Multi-cell moves are done as one
-// swap from start to destination: the cells passed over are void (unchanged by the move) or a
-// lighter fluid that simply trades places with the mover.
+// Swaps two cells (with their temperatures and masses) up to MAX_MOVE apart. Multi-cell moves are
+// done as one swap from start to destination: the cells passed over are void (unchanged by the
+// move) or a lighter fluid that simply trades places with the mover.
 static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     World *w = c->w;
     PR_ASSERT(world_in_bounds(w, x0, y0) && world_in_bounds(w, x1, y1));
@@ -143,6 +139,9 @@ static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     float t = w->temp[i0];
     w->temp[i0] = w->temp[i1];
     w->temp[i1] = t;
+    float m = w->mass[i0];
+    w->mass[i0] = w->mass[i1];
+    w->mass[i1] = m;
     ctx_arrive(c, x1, y1, a, t);           // a moved to (x1, y1)
     ctx_arrive(c, x0, y0, b, w->temp[i0]); // b moved to (x0, y0)
     // Both cells changed: wake their 3x3 neighbourhoods (as one rect) and re-render.
@@ -367,11 +366,10 @@ static void update_liquid(TickCtx *c, int x, int y) {
     cell->aux = (uint8_t)(dir > 0 ? 0x80 : 0);
 }
 
-// True if the gas at (x, y) could still move: a neighbour is void or a different gas, or a
-// denser fluid sits above it.
 // Probability (x/65536) that the fluid at (x, y) rises through the fluid directly above it:
 // K_BUOY * (rho_above - rho_self) / (rho_above + rho_self), with densities at the cells' physical
 // temperatures (so hot gas rises through the same gas when it is cold). 0 if it is not lighter.
+// Gas densities are taken at 1 atm (elem_fluid_density): pressure does not make a gas sink.
 static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, ElementId up) {
     if (!elem_is_fluid(up)) {
         return 0;
@@ -389,61 +387,383 @@ static uint32_t buoyancy_p(const World *w, int x, int y, ElementId self, Element
     return (uint32_t)((float)K_BUOY_16 * (du - ds) / (du + ds));
 }
 
-static bool gas_is_mobile(const World *w, int x, int y, ElementId self) {
-    for (int i = 0; i < 8; i++) {
-        ElementId t = world_elem(w, x + k_dir8[i][0], y + k_dir8[i][1]);
-        if (t == ELEM_VOID || (t != self && g_elem_behavior[t] == BEHAVIOR_GAS)) {
+// ---- Gases (M4): mass and pressure. docs/SIMULATION.md -> Gases ----
+
+// Farthest cell of the same gas that a gas cell equalises its pressure with in one tick. Pressure
+// spreads by diffusion; long jumps make it spread over a room in seconds instead of minutes.
+#define GAS_REACH 16
+// ... but only with a cell within this temperature difference (K); otherwise its neighbour.
+#define GAS_JUMP_MAX_DT 2.0f
+// Neighbouring gas cells whose pressures differ by less than this fraction count as equal: no
+// transfer, and the cells may sleep.
+#define GAS_EQ_TOL 1e-3f
+// A gas pushes a neighbouring gas cell out of the way only if its pressure is more than this many
+// times higher. Below 2 the push would leave the two cells it shares at a lower pressure than the
+// gas it pushed (now squeezed into its neighbour), and the next tick would push back.
+#define GAS_PUSH_RATIO 2.1f
+
+static const int8_t k_dir4[4][2] = {{0, -1}, {-1, 0}, {1, 0}, {0, 1}};
+
+// Proportional to pressure (P = pv * R / V): moles times temperature.
+static inline float gas_pv(const World *w, size_t i, ElementId e) {
+    return w->mass[i] * elem_temp(e, w->temp[i]) * g_gas_inv_molar[e];
+}
+
+static inline bool gas_differs(float a, float b) {
+    return fabsf(a - b) > GAS_EQ_TOL * PR_MAX(a, b);
+}
+
+// Adds mass dm of the same gas, at stored temperature ts, to cell r. Same gas, same heat
+// capacity: the stored temperatures (enthalpies) mix by mass, conserving energy.
+static inline void gas_add(World *w, size_t r, float dm, float ts) {
+    float mr = w->mass[r];
+    w->temp[r] = (mr * w->temp[r] + dm * ts) / (mr + dm);
+    w->mass[r] = mr + dm;
+}
+
+// Wakes and re-renders the cells around two cells that exchanged gas (which may be up to
+// GAS_REACH apart: the cells between did not change).
+static inline void gas_wake(TickCtx *c, int x0, int y0, int x1, int y1) {
+    ctx_wake(c, x0 - 1, y0 - 1, x0 + 1, y0 + 1, true, false);
+    ctx_wake(c, x1 - 1, y1 - 1, x1 + 1, y1 + 1, true, false);
+}
+
+// Puts a new gas cell like `like`, holding m kg at stored temperature ts, at (x, y). It counts as
+// updated this tick.
+static inline void gas_spawn(TickCtx *c, int x, int y, Cell like, float m, float ts) {
+    World *w = c->w;
+    PR_ASSERT(in_reach(c, x, y));
+    size_t i = world_index(w, x, y);
+    like.stamp = c->stamp;
+    like.shade = (uint8_t)rng_next(&c->rng);
+    like.aux = 0;
+    w->cells[i] = like;
+    w->mass[i] = m;
+    w->temp[i] = ts;
+    ctx_arrive(c, x, y, like, ts);
+}
+
+static inline void gas_clear(World *w, size_t i) {
+    w->cells[i].element = ELEM_VOID;
+    w->cells[i].aux = 0;
+    w->mass[i] = 0.0f;
+    w->temp[i] = 0.0f;
+}
+
+// The cells within 2 steps (Manhattan) of (x, y): nb[2 + dy][2 + dx]; corners unused.
+typedef struct GasNeighbourhood {
+    ElementId e[5][5];
+} GasNeighbourhood;
+
+static inline void gas_load_neighbourhood(const World *w, int x, int y, GasNeighbourhood *nb) {
+    if (PR_LIKELY(x >= 2 && y >= 2 && x + 2 < w->width && y + 2 < w->height)) {
+        for (int dy = -2; dy <= 2; dy++) {
+            int span = 2 - (dy < 0 ? -dy : dy);
+            const Cell *row = &w->cells[world_index(w, x, y + dy)];
+            for (int dx = -span; dx <= span; dx++) {
+                nb->e[2 + dy][2 + dx] = row[dx].element;
+            }
+        }
+        return;
+    }
+    for (int dy = -2; dy <= 2; dy++) {
+        int span = 2 - (dy < 0 ? -dy : dy);
+        for (int dx = -span; dx <= span; dx++) {
+            nb->e[2 + dy][2 + dx] = world_elem(w, x + dx, y + dy);
+        }
+    }
+}
+
+// Does trading places with the neighbour in direction k lower the number of same-gas contacts
+// around the two cells? (The cell itself is nb->e[2][2].)
+static inline bool gas_mix_gain(const GasNeighbourhood *nb, int k) {
+    int dx = k_dir4[k][0], dy = k_dir4[k][1];
+    ElementId a = nb->e[2][2], b = nb->e[2 + dy][2 + dx];
+    int before = 0, after = 0;
+    for (int j = 0; j < 4; j++) { // around the cell, except the neighbour
+        if (j != k) {
+            ElementId r = nb->e[2 + k_dir4[j][1]][2 + k_dir4[j][0]];
+            before += r == a;
+            after += r == b;
+        }
+    }
+    // Around the neighbour, except the cell: straight on, and both sides.
+    const int q[3][2] = {{2 * dx, 2 * dy}, {dx - dy, dy + dx}, {dx + dy, dy - dx}};
+    for (int j = 0; j < 3; j++) {
+        ElementId r = nb->e[2 + q[j][1]][2 + q[j][0]];
+        before += r == b;
+        after += r == a;
+    }
+    return after < before;
+}
+
+// ... and is that move not against buoyancy (the denser gas never moves up)?
+static bool gas_mix_buoyant(const World *w, int x, int y, int dx, int dy) {
+    if (dy == 0) {
+        return true;
+    }
+    int nx = x + dx, ny = y + dy;
+    ElementId a = world_elem(w, x, y), b = world_elem(w, nx, ny);
+    // After the swap the upper cell holds `a` if dy < 0 (else `b`): it must not be denser than
+    // the lower one, i.e. the lower one must not then rise through it.
+    ElementId up = dy < 0 ? a : b, low = dy < 0 ? b : a;
+    float tu = elem_temp(up, w->temp[world_index(w, dy < 0 ? x : nx, dy < 0 ? y : ny)]);
+    float tl = elem_temp(low, w->temp[world_index(w, dy < 0 ? nx : x, dy < 0 ? ny : y)]);
+    if (fabsf(tu - tl) < CONVECTION_MIN_K) {
+        return g_buoy_p[up][low] == 0;
+    }
+    return elem_fluid_density(up, tu) <= elem_fluid_density(low, tl);
+}
+
+// May the gases at (x, y) and its neighbour in direction k, of different kinds, trade places to
+// mix? Only if it lowers the number of same-gas contacts around the two cells (so gases spread
+// into each other, and stop once mixed: a mixed region sleeps), and never against buoyancy (the
+// denser gas does not move up).
+static bool gas_mix_ok(const World *w, int x, int y, int k) {
+    GasNeighbourhood nb;
+    gas_load_neighbourhood(w, x, y, &nb);
+    return gas_mix_gain(&nb, k) && gas_mix_buoyant(w, x, y, k_dir4[k][0], k_dir4[k][1]);
+}
+
+// Where can the gas at (nx, ny), pushed from the direction (dx, dy), go? Straight on, then to
+// either side: a cell of the same gas (it merges into it) or void (it moves there). Returns false
+// if neither.
+static bool gas_push_target(const World *w, int nx, int ny, int dx, int dy, int side, int *kx,
+                            int *ky) {
+    ElementId other = world_elem(w, nx, ny);
+    const int d[3][2] = {{dx, dy}, {-dy * side, dx * side}, {dy * side, -dx * side}};
+    for (int j = 0; j < 3; j++) {
+        int qx = nx + d[j][0], qy = ny + d[j][1];
+        ElementId q = world_elem(w, qx, qy);
+        if (q == other || q == ELEM_VOID) {
+            *kx = qx;
+            *ky = qy;
             return true;
         }
     }
-    return buoyancy_p(w, x, y, self, world_elem(w, x, y - 1)) > 0;
+    return false;
+}
+
+// The gas at (x, y), at more than GAS_PUSH_RATIO times the pressure of the gas next to it (of any
+// kind), pushes that gas into its own neighbour and expands into the freed cell (half its mass
+// each).
+static bool gas_push(TickCtx *c, int x, int y, int dx, int dy) {
+    World *w = c->w;
+    int nx = x + dx, ny = y + dy, kx, ky;
+    if (!gas_push_target(w, nx, ny, dx, dy, rng_bit(&c->rng) ? 1 : -1, &kx, &ky)) {
+        return false;
+    }
+    PR_ASSERT(in_reach(c, kx, ky));
+    size_t i = world_index(w, x, y), ni = world_index(w, nx, ny), ki = world_index(w, kx, ky);
+    Cell other = w->cells[ni];
+    if (w->cells[ki].element == ELEM_VOID) {
+        other.stamp = c->stamp;
+        w->cells[ki] = other;
+        w->mass[ki] = w->mass[ni];
+        w->temp[ki] = w->temp[ni];
+    } else {
+        gas_add(w, ki, w->mass[ni], w->temp[ni]);
+    }
+    ctx_arrive(c, kx, ky, other, w->temp[ki]);
+    float half = w->mass[i] * 0.5f;
+    w->mass[i] = half;
+    gas_spawn(c, nx, ny, w->cells[i], half, w->temp[i]);
+    gas_wake(c, x, y, kx, ky);
+    c->stats.cells_moved++;
+    return true;
+}
+
+// Pressure equalisation: the cell trades mass with a cell of the same gas so that both end at the
+// same pressure. The partner is the last cell of the same gas met walking a random 1..GAS_REACH
+// cells from (x, y) in direction (dx, dy) through gas of any kind, if it has nearly the same
+// temperature; otherwise the adjacent cell. The moved gas carries its heat, which mixes into the
+// receiver: long jumps between cells at different temperatures would smear heat across the room
+// and smother convection. Returns true if mass moved.
+static bool gas_equalize(TickCtx *c, int x, int y, int dx, int dy) {
+    World *w = c->w;
+    size_t i = world_index(w, x, y);
+    ElementId e = w->cells[i].element;
+    float t = elem_temp(e, w->temp[i]);
+    int reach = 1 + (int)rng_range(&c->rng, GAS_REACH);
+    int px = x, py = y;
+    for (int s = 1, qx = x, qy = y; s <= reach; s++) {
+        qx += dx;
+        qy += dy;
+        ElementId q = world_elem(w, qx, qy);
+        if (g_elem_behavior[q] != BEHAVIOR_GAS) {
+            break;
+        }
+        if (q == e) {
+            px = qx;
+            py = qy;
+        }
+    }
+    if (px == x && py == y) {
+        return false;
+    }
+    if (fabsf(elem_temp(e, w->temp[world_index(w, px, py)]) - t) > GAS_JUMP_MAX_DT) {
+        px = x + dx;
+        py = y + dy;
+        if (world_elem(w, px, py) != e) {
+            return false;
+        }
+    }
+    PR_ASSERT(in_reach(c, px, py));
+    size_t pi = world_index(w, px, py);
+    float m = w->mass[i], mp = w->mass[pi];
+    float tp = elem_temp(e, w->temp[pi]);
+    float a = m * t, b = mp * tp;
+    if (!gas_differs(a, b)) {
+        return false;
+    }
+    // Beyond the push ratio the denser side pushes instead (2b), unless it is thin gas (in
+    // vacuum-like conditions any transfer is fine).
+    if ((a > GAS_PUSH_RATIO * b && m >= g_gas_split_mass[e]) ||
+        (b > GAS_PUSH_RATIO * a && mp >= g_gas_split_mass[e])) {
+        return false;
+    }
+    // Equal pressure afterwards (same gas). The moved gas keeps the sender's temperature, so the
+    // receiver's m * T grows by dm * t_sender: (m - dm) * t == mp * tp + dm * t when i sends.
+    float dm = a > b ? (a - b) / (2.0f * t) : (a - b) / (2.0f * tp);
+    if (dm > 0.0f) {
+        gas_add(w, pi, dm, w->temp[i]);
+        w->mass[i] = m - dm;
+        ctx_arrive(c, px, py, w->cells[pi], w->temp[pi]);
+    } else {
+        gas_add(w, i, -dm, w->temp[pi]);
+        w->mass[pi] = mp + dm;
+        ctx_arrive(c, x, y, w->cells[i], w->temp[i]);
+    }
+    gas_wake(c, x, y, px, py);
+    c->stats.gas_transfers++;
+    return true;
+}
+
+// Could the gas at (x, y) still do something? Stay awake if so. Cheap checks first: in a mixed
+// region (air) the mixing check runs for most cells.
+static bool gas_is_mobile(const World *w, int x, int y, ElementId e, uint32_t p_up) {
+    size_t i = world_index(w, x, y);
+    float m = w->mass[i];
+    float pv = gas_pv(w, i, e);
+    bool dense = m >= g_gas_split_mass[e];
+    uint8_t other = 0; // directions with a different gas
+    for (int k = 0; k < 4; k++) {
+        int dx = k_dir4[k][0], dy = k_dir4[k][1];
+        int nx = x + dx, ny = y + dy, kx, ky;
+        ElementId n = world_elem(w, nx, ny);
+        if (n == ELEM_VOID) {
+            return true; // expand into it (split, or move as a particle)
+        }
+        if (g_elem_behavior[n] != BEHAVIOR_GAS) {
+            continue;
+        }
+        size_t ni = world_index(w, nx, ny);
+        float pvn = gas_pv(w, ni, n);
+        if (dense && pv > GAS_PUSH_RATIO * pvn && gas_push_target(w, nx, ny, dx, dy, 1, &kx, &ky)) {
+            return true;
+        }
+        if (n == e) {
+            if (gas_differs(pv, pvn) || m + w->mass[ni] < g_gas_split_mass[e]) {
+                return true;
+            }
+        } else {
+            other |= (uint8_t)(1u << k);
+        }
+    }
+    if (p_up > 0) {
+        return true;
+    }
+    if (other) {
+        GasNeighbourhood nb;
+        gas_load_neighbourhood(w, x, y, &nb);
+        for (int k = 0; k < 4; k++) {
+            if (((other >> k) & 1u) && gas_mix_gain(&nb, k) &&
+                gas_mix_buoyant(w, x, y, k_dir4[k][0], k_dir4[k][1])) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 static void update_gas(TickCtx *c, int x, int y) {
     World *w = c->w;
-    ElementId self = cell_ptr(w, x, y)->element;
-    uint32_t d = g_elem_density_q[self];
+    size_t i = world_index(w, x, y);
+    Cell self = w->cells[i];
+    ElementId e = self.element;
 
     // 1. Buoyancy: rise through a denser fluid above (including colder gas of the same kind:
-    //    warm air rises).
-    uint32_t p_up = buoyancy_p(w, x, y, self, world_elem(w, x, y - 1));
+    //    warm air rises). Densities at 1 atm: pressure is handled below.
+    uint32_t p_up = buoyancy_p(w, x, y, e, world_elem(w, x, y - 1));
     if (p_up > 0 && rng_chance16(&c->rng, p_up)) {
         swap_cells(c, x, y, x, y - 1);
         return;
     }
 
-    // 2. Random walk. Into void: expansion, several cells at once. Into another gas: mixing.
-    int r = (int)rng_range(&c->rng, 8);
-    int dx = k_dir8[r][0], dy = k_dir8[r][1];
-    ElementId t = world_elem(w, x + dx, y + dy);
-    if (t == ELEM_VOID) {
-        int cx = x, cy = y;
-        int steps = g_elem_spread[self];
-        while (steps-- > 0 && world_elem(w, cx + dx, cy + dy) == ELEM_VOID &&
-               (dx == 0 || dy == 0 || diagonal_open(w, cx, cy, dx, dy))) {
-            cx += dx;
-            cy += dy;
+    // 2. One random direction per tick.
+    float m = w->mass[i];
+    bool dense = m >= g_gas_split_mass[e];
+    int r = (int)rng_range(&c->rng, 4);
+    int dx = k_dir4[r][0], dy = k_dir4[r][1];
+    int nx = x + dx, ny = y + dy;
+    ElementId n = world_elem(w, nx, ny);
+
+    if (n == ELEM_VOID) {
+        // 2a. Expansion into vacuum. Dense gas splits: half its mass goes 1..spread cells into
+        //     the void, so the gas fills the space and thins out. Thin gas moves as a particle.
+        int steps = dense ? 1 + (int)rng_range(&c->rng, g_elem_spread[e]) : g_elem_spread[e];
+        int tx = x, ty = y;
+        while (steps-- > 0 && world_elem(w, tx + dx, ty + dy) == ELEM_VOID) {
+            tx += dx;
+            ty += dy;
         }
-        if (cx != x || cy != y) {
-            swap_cells(c, x, y, cx, cy);
+        if (dense) {
+            w->mass[i] = m * 0.5f;
+            gas_spawn(c, tx, ty, self, m * 0.5f, w->temp[i]);
+            gas_wake(c, x, y, tx, ty);
+            c->stats.cells_moved++;
+        } else {
+            swap_cells(c, x, y, tx, ty);
+        }
+        return;
+    }
+
+    if (g_elem_behavior[n] == BEHAVIOR_GAS) {
+        size_t ni = world_index(w, nx, ny);
+        // 2b. Much higher pressure than the neighbour (of any gas): push it aside and expand
+        //     into its cell. Hot gas expanding pushes the cold gas away rather than mixing its
+        //     heat into it (which equalising alone would do).
+        if (dense && gas_pv(w, i, e) > GAS_PUSH_RATIO * gas_pv(w, ni, n) &&
+            gas_push(c, x, y, dx, dy)) {
             return;
         }
-    } else if (t != self && g_elem_behavior[t] == BEHAVIOR_GAS &&
-               (dx == 0 || dy == 0 || diagonal_open(w, x, y, dx, dy))) {
-        uint32_t p = P_GAS_MIX_16;
-        uint32_t dt = g_elem_density_q[t];
-        // Mixing against stratification (denser gas moving up, lighter moving down) is rarer.
-        if ((d > dt && dy < 0) || (d < dt && dy > 0)) {
-            p /= 4;
+        if (n == e) {
+            // 2c. Two thin cells of the same gas merge (thin gas stays a few particles rather
+            //     than many ever-thinner ones).
+            if (m + w->mass[ni] < g_gas_split_mass[e]) {
+                gas_add(w, ni, m, w->temp[i]);
+                ctx_arrive(c, nx, ny, w->cells[ni], w->temp[ni]);
+                gas_clear(w, i);
+                gas_wake(c, x, y, nx, ny);
+                c->stats.cells_moved++;
+                return;
+            }
+        } else {
+            // 2d. A different gas: mix (trade places) where that spreads the gases into each
+            //     other.
+            if (gas_mix_ok(w, x, y, r) && rng_chance16(&c->rng, P_GAS_MIX_16)) {
+                swap_cells(c, x, y, nx, ny);
+                return;
+            }
         }
-        if (rng_chance16(&c->rng, p)) {
-            swap_cells(c, x, y, x + dx, y + dy);
+        // 2e. Equalise pressure with the same gas in that direction (through other gases).
+        if (gas_equalize(c, x, y, dx, dy)) {
             return;
         }
     }
 
-    // 3. Did not move. Stay awake only if a move is still possible.
-    if (gas_is_mobile(w, x, y, self)) {
+    // 3. Did not move. Stay awake only if something is still possible.
+    if (gas_is_mobile(w, x, y, e, p_up)) {
         keep_alive(c, x, y);
     }
 }
@@ -620,6 +940,7 @@ void sim_tick(World *w, SimStats *stats) {
             }
             total.cells_visited += c->stats.cells_visited;
             total.cells_moved += c->stats.cells_moved;
+            total.gas_transfers += c->stats.gas_transfers;
             total.chunks_active += c->stats.chunks_active;
         }
         // Water-pressure transfers asked for in this phase, serially, in job order.

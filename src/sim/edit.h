@@ -13,6 +13,10 @@ typedef enum EditMode {
     EDIT_COOL = 2,  // remove EDIT_HEAT_STEP_K
 } EditMode;
 
+// Paint element meaning "air": each cell becomes oxygen with probability AIR_O2_FRAC, else
+// nitrogen (one element per cell), at 1 atm.
+#define EDIT_AIR 0xFE
+
 #define EDIT_HEAT_STEP_K 8.0f
 #define EDIT_HEAT_MAX_K  5000.0f
 
@@ -22,7 +26,7 @@ typedef struct Edit {
     int32_t x0, y0, x1, y1;
     int32_t radius;
     uint8_t shape;     // EditShape
-    ElementId element; // EDIT_PAINT: ELEM_VOID erases
+    ElementId element; // EDIT_PAINT: ELEM_VOID erases; EDIT_AIR paints air
     uint8_t only_void; // EDIT_PAINT: only replace void cells
     uint8_t mode;      // EditMode
 } Edit;

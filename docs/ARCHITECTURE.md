@@ -101,13 +101,14 @@ typedef struct World {
     JobPool  *jobs;                  // not owned; NULL runs single-threaded
     void     *sim_scratch;           // owned; per-phase job contexts
     struct PressureState *pressure;  // owned; water-pressure pieces, union-find, body tops
-} World;                             // M4 adds float *mass (kg per cell) for gases
+    float    *mass;                  // kg per cell, gases only (M4); pressure = gas_pressure()
+} World;
 ```
 
 **Why a hybrid SoA.** The movement pass mostly reads `element` and `flags`, so a 4-byte `Cell`
 puts 16 cells in a cache line. The heat pass reads `element` (to look up properties) and the
 temperature. Keeping temperature in its own array lets it be double-buffered and streamed. When a
-cell moves, the code swaps its `Cell` *and* its `temp[cur]` entry (and `mass` from M4). See
+cell moves, the code swaps its `Cell`, its `temp` entry and its `mass`. See
 `DECISIONS.md` D-011.
 
 **Row-major, not chunk-major (for now).** A flat row-major array keeps indexing trivial
@@ -281,5 +282,5 @@ beyond toolbars and HUDs (`DECISIONS.md` D-009).
 
 All large buffers are allocated once at world creation with 64-byte alignment
 (`SDL_aligned_alloc`). Nothing is allocated per tick. Budget at 4096 × 2048 (8.4 M cells) today:
-cells 32 MB + temperature 2 × 32 MB + piece labels 8 MB + water-pressure tables ≈ 14 MB, plus the
-renderer's 32 MB staging buffer and 32 MB texture. M4 adds a mass buffer (32 MB).
+cells 32 MB + temperature 2 × 32 MB + gas mass 32 MB + piece labels 8 MB + water-pressure tables
+≈ 14 MB, plus the renderer's 32 MB staging buffer and 32 MB texture.

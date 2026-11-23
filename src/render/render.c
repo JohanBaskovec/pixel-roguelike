@@ -3,6 +3,8 @@
 #include "core/log.h"
 #include "sim/sim.h"
 
+#include <math.h>
+
 static uint32_t channel(uint32_t c, int shift) {
     return (c >> shift) & 0xFF;
 }
@@ -27,6 +29,11 @@ static void build_lut(WorldRenderer *r) {
                 out |= (uint32_t)clamp255(v) << shift;
             }
             r->lut[e][s] = 0xFF000000u | out;
+            uint32_t solid = 0;
+            for (int shift = 0; shift <= 16; shift += 8) {
+                solid |= (uint32_t)clamp255((int)channel(d->color, shift) + var) << shift;
+            }
+            r->lut_solid[e][s] = solid;
         }
     }
 }
@@ -83,9 +90,40 @@ static uint32_t mix(uint32_t a, uint32_t b, int t, int span) {
     return out;
 }
 
+// Gas opacity follows density: the element's alpha at 1 atm, times sqrt(mass / mass at 1 atm),
+// between GAS_ALPHA_MIN (thin gas stays faintly visible) and GAS_ALPHA_MAX times.
+#define GAS_ALPHA_MIN 0.3f
+#define GAS_ALPHA_MAX 2.5f
+
+static uint32_t gas_color(const WorldRenderer *r, const World *w, size_t i, Cell c) {
+    float ratio = w->mass[i] / g_gas_mass_atm[c.element];
+    float f = PR_CLAMP(sqrtf(ratio), GAS_ALPHA_MIN, GAS_ALPHA_MAX);
+    int a = (int)PR_MIN((float)g_elem_defs[c.element].alpha * f, 235.0f);
+    uint32_t fg = r->lut_solid[c.element][c.shade], bg = g_elem_defs[ELEM_VOID].color;
+    uint32_t out = 0xFF000000u;
+    for (int shift = 0; shift <= 16; shift += 8) {
+        int v = ((int)channel(fg, shift) * a + (int)channel(bg, shift) * (255 - a)) / 255;
+        out |= (uint32_t)v << shift;
+    }
+    return out;
+}
+
+// Pressure view, gases: log scale from 0.01 atm (dark blue) through 1 atm (green), 10 atm
+// (yellow), 100 atm (red) to 1000 atm and above (white).
+static uint32_t gas_pressure_color(float p) {
+    static const uint32_t stops[6] = {0x102040, 0x2858B0, 0x30A060, 0xE0C030, 0xE04020, 0xFFFFFF};
+    float l = log10f(PR_MAX(p, 1.0f) / P_ATM) + 2.0f; // 0 at 0.01 atm, 5 at 1000 atm
+    l = PR_CLAMP(l, 0.0f, 4.999f);
+    int k = (int)l;
+    return mix(stops[k], stops[k + 1], (int)((l - (float)k) * 256.0f), 256);
+}
+
 // Pressure view: still liquid coloured by depth below its body's top (light cyan at the surface,
-// blue, then purple and red deep down); everything else dimmed.
+// blue, then purple and red deep down); gases by pressure; everything else dimmed.
 static uint32_t pressure_color(const World *w, const WorldRenderer *r, int x, int y, Cell c) {
+    if (g_elem_behavior[c.element] == BEHAVIOR_GAS) {
+        return gas_pressure_color(world_gas_pressure(w, x, y));
+    }
     int depth = sim_pressure_depth(w, x, y);
     if (depth >= 0) {
         if (depth < 64) {
@@ -176,7 +214,9 @@ static void convert_chunk(void *user, int index) {
         const float *temp = &w->temp[row];
         uint32_t *dst = &r->pixels[(size_t)y * r->width + x0];
         for (int i = 0; i < CHUNK_SIZE; i++) {
-            uint32_t color = r->lut[src[i].element][src[i].shade];
+            uint32_t color = g_elem_behavior[src[i].element] == BEHAVIOR_GAS
+                                 ? gas_color(r, w, row + (size_t)i, src[i])
+                                 : r->lut[src[i].element][src[i].shade];
             if (temp[i] > GLOW_MIN_K) {
                 float tp = elem_temp(src[i].element, temp[i]);
                 if (tp > GLOW_MIN_K && g_elem_cap[src[i].element] > 0.0f) {

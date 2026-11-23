@@ -9,12 +9,13 @@ typedef struct WorldRenderer {
     SDL_Texture *texture;
     uint32_t *pixels; // world-sized XRGB8888 staging buffer
     int width, height;
-    int *dirty_list;               // scratch: chunk indices to convert this frame
-    uint32_t lut[ELEM_COUNT][256]; // final colour per (element, shade)
-    uint32_t chunks_uploaded;      // last frame, for the HUD
-    bool smooth;                   // current texture scale mode
-    bool pressure_view;            // colour still liquid by water pressure (depth below its top)
-    bool temperature_view;         // colour cells by temperature
+    int *dirty_list;                     // scratch: chunk indices to convert this frame
+    uint32_t lut[ELEM_COUNT][256];       // final colour per (element, shade)
+    uint32_t lut_solid[ELEM_COUNT][256]; // gases: unblended colour; opacity follows density
+    uint32_t chunks_uploaded;            // last frame, for the HUD
+    bool smooth;                         // current texture scale mode
+    bool pressure_view;                  // water pressure (depth below its top) and gas pressure
+    bool temperature_view;               // colour cells by temperature
 } WorldRenderer;
 
 bool render_init(WorldRenderer *r, SDL_Renderer *sdl, World *w);

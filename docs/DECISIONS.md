@@ -49,7 +49,8 @@ to watch).
 
 ## D-005 — One element per cell; particle gases first, mass and pressure later
 
-- **Status:** Accepted for M1–M3; revisit at M4
+- **Status:** Accepted for M1–M3; revisited at M4: one element per cell kept, gases got mass
+  (D-024)
 - **Context:** Noita uses one particle per pixel. ONI uses a mass per cell plus pressure. Particles
   are simpler and fast. Mass and pressure are more realistic: gas fills a vacuum and thins out, and
   pressure exists.
@@ -57,6 +58,13 @@ to watch).
   reserves a per-cell `mass` array, so M4 can add mass and pressure without a re-layout.
 - **Consequences:** Until M4, a little gas painted into a large vacuum spreads as sparse dots
   instead of a thin uniform gas. This is accepted for now.
+- **M4 outcome:** Kept one element per cell, and added the `mass` array as planned. Mixture cells
+  (several gases per cell) would make partial pressures, breathing and total-pressure balance
+  exact, but cost memory per cell and complicate every rule and the renderer. The price of
+  keeping it: total pressure only evens out across two gases when one pushes the other, mixing is
+  a thin interface layer, and O2/N2 must share a buoyancy density so painted air stays mixed
+  (see `SIMULATION.md` → Gases, limitations). Revisit if breathing (M4c) needs exact partial
+  pressures everywhere.
 
 ## D-006 — Chunks of 64×64, dirty rects, 4-phase checkerboard
 
@@ -271,3 +279,23 @@ to watch).
 - **Consequences:** A uniform-temperature world costs almost nothing (+8% on the benchmarks, from
   convection and buoyancy checks). The range is conservative: it only shrinks when the heat pass
   recomputes the chunk.
+
+## D-024 — Gas mass: split, push, equalise, mix by fewer contacts
+
+- **Status:** Accepted (M4); outcome of D-005
+- **Context:** Gases need mass and pressure (fill a vacuum and thin out, P ∝ T in a sealed room,
+  boiling keeps its mass) on a grid where each cell holds one gas, within the 32 px reach, in
+  parallel, and able to sleep.
+- **Decision:** Each gas cell holds a mass; pressure from the ideal gas law. Per tick, one random
+  direction: dense gas splits half its mass into void (thin gas, under 2% of 1 atm, moves as a
+  particle and merges with thin gas of its kind); a gas at more than 2.1× a neighbouring gas
+  cell's pressure pushes it into the next cell and expands into its place; cells of the same gas
+  trade mass to equal pressure, with a partner up to 16 cells away through any gas when their
+  temperatures are within 2 K (else the adjacent cell); different gases trade places only when
+  that lowers their number of same-gas contacts and does not lift the denser one. Buoyancy uses
+  densities at 1 atm. O2 and N2 share the density of air for buoyancy.
+- **Consequences:** Mass is conserved exactly; P ∝ T holds; vacuum fills in seconds; a room of
+  gas at one pressure, mixed air included, sleeps. Pressure spreads by diffusion (seconds per
+  room, not the speed of sound). Moving gas between cells at different temperatures mixes their
+  heat, so suddenly heated gas rises less sharply. The benchmark's random gas soup got ~2.6×
+  slower (more gas cells after filling the vacuum, and heavier rules; `PERFORMANCE.md`).

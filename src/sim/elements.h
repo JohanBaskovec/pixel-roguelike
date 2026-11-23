@@ -16,6 +16,7 @@ enum {
     ELEM_CO2 = 7,
     ELEM_HYDROGEN = 8,
     ELEM_STEAM = 9,
+    ELEM_NITROGEN = 10,
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.
@@ -57,6 +58,12 @@ typedef struct ElementDef {
 #define HEAT_TIME_SCALE     1000.0f
 #define HEAT_TIME_SCALE_GAS 10.0f
 
+// Gases (M4): each gas cell holds a mass; pressure follows the ideal gas law.
+#define GAS_R       8.314462f // J/(mol*K)
+#define P_ATM       101325.0f // Pa
+#define T_ROOM      293.15f   // K
+#define AIR_O2_FRAC 0.21f     // the Air tool: 21% oxygen, the rest nitrogen (argon counted as N2)
+
 // A phase change: when a cell passes `temp` (K), it becomes `to`, absorbing or releasing
 // `latent` J/kg. temp == 0: none.
 typedef struct PhaseChange {
@@ -70,7 +77,7 @@ extern const PhaseChange g_elem_above[ELEM_COUNT]; // heated above: melting, boi
 
 // Buoyancy scale K_BUOY and gas mixing probability P_GAS_MIX (docs/SIMULATION.md), x/65536.
 #define K_BUOY_16    65536u
-#define P_GAS_MIX_16 4096u
+#define P_GAS_MIX_16 32768u
 
 extern const ElementDef g_elem_defs[ELEM_COUNT];
 
@@ -83,15 +90,31 @@ extern uint8_t g_elem_spread[256];
 // K_BUOY * (rho_above - rho_self) / (rho_above + rho_self).
 extern uint16_t g_buoy_p[ELEM_COUNT][ELEM_COUNT];
 
+// Gas tables (generated). Indexed by any ElementId; 0 for non-gases.
+extern float g_elem_molar_mass[256]; // kg/mol
+extern float g_gas_inv_molar[256];   // 1 / molar mass
+extern float g_gas_mass_atm[256];    // mass of one cell at 1 atm and 20 degC, kg
+// A gas cell splits into vacuum only if it holds at least this mass (twice the smallest cell
+// a split may leave: GAS_MIN_FRAC of the 1-atm mass). Thinner gas moves as single particles.
+extern float g_gas_split_mass[256];
+#define GAS_MIN_FRAC 0.01f
+// Buoyancy treats oxygen and nitrogen as air: same density at the same temperature
+// (docs/SIMULATION.md -> Gases). Otherwise air, painted as separate N2 and O2 cells, would unmix
+// in seconds; real air takes kilometres of height to separate.
+#define AIR_DENSITY_0C 1.2922f // kg/m^3 at 0 degC, 1 atm
+
 // Heat tables (generated).
 extern float g_elem_cap[256];     // thermal mass of one cell, J/K (0 for void)
 extern float g_elem_inv_cap[256]; // 1 / g_elem_cap, 0 for void
-extern float g_elem_mass[256];    // mass of one cell, kg
+extern float g_elem_mass[256];    // mass of one cell, kg (gases: nominal, at 1 atm 20 degC)
+extern float g_elem_cp[256];      // specific heat capacity, J/(kg*K)
 extern float g_elem_low_t[256];   // temperature of the "below" phase change, 0 if none
 extern float g_elem_high_t[256];  // temperature of the "above" phase change, 0 if none
 // Heat exchanged per tick between two neighbouring cells, per kelvin of difference (J/K):
 // min(conductance * dt * HEAT_TIME_SCALE, stability limit). Symmetric, so energy is conserved.
+// For gases the limit uses the nominal (1 atm) mass; the heat pass applies the actual one.
 extern float g_heat_coef[ELEM_COUNT][ELEM_COUNT];
+extern float g_heat_coef_raw[ELEM_COUNT][ELEM_COUNT]; // without the stability limit
 
 // Builds the lookup tables. Idempotent; must run before any simulation (world_create calls it).
 void elements_init(void);
@@ -123,5 +146,17 @@ static inline float elem_temp(ElementId e, float t) {
 float elem_phase_progress(ElementId e, float t, bool *heating);
 
 // Density of a fluid at physical temperature t (K), for buoyancy and convection. Gases follow the
-// ideal gas law; water uses its real density curve (densest at 4 °C).
+// ideal gas law at 1 atm whatever their pressure (a parcel at another pressure would be squeezed
+// or expanded to its surroundings' pressure long before it rose or sank), with oxygen and
+// nitrogen counted as air; water uses its real density curve (densest at 4 °C).
 float elem_fluid_density(ElementId e, float t);
+
+// Pressure (Pa) of a gas cell holding mass m (kg) at physical temperature t (K).
+static inline float gas_pressure(ElementId e, float m, float t) {
+    return m * g_gas_inv_molar[e] * GAS_R * t * (1.0f / CELL_VOLUME_M3);
+}
+
+// Mass (kg) of a gas cell at pressure p (Pa) and temperature t (K).
+static inline float gas_mass_at(ElementId e, float p, float t) {
+    return p * CELL_VOLUME_M3 * g_elem_molar_mass[e] / (GAS_R * t);
+}

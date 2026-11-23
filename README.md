@@ -64,9 +64,10 @@ ctest --test-dir build/release --output-on-failure
 | Middle mouse drag, `WASD` / arrows | Pan the view |
 | `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×) |
 | `Home` | Show the whole world |
-| `P` | Pressure view: water coloured by depth below its surface |
+| `P` | Pressure view: water coloured by depth below its surface, gas by pressure (log scale, green = 1 atm) |
 | `T` | Temperature view |
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Steam, Dirt, Rock, Iron, Ice, Eraser |
+| `N` / `G` | Nitrogen / Air (each cell 21% chance oxygen, else nitrogen), at 1 atm |
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
@@ -74,9 +75,10 @@ ctest --test-dir build/release --output-on-failure
 | `Esc` | Quit |
 
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells
-were updated, water moved by pressure, chunks conducting heat, active chunks, zoom, and the
-element, temperature (with melting/boiling progress) and (for water) depth and pressure under
-the cursor.
+were updated, water moved by pressure, gas pressure equalisations, chunks conducting heat, active
+chunks, zoom, and the element, temperature (with melting/boiling progress), (for water) depth and
+pressure, (for gas) pressure and mass under the cursor, plus the partial pressure of each gas in a
+15 × 15 window around it.
 
 ## Documentation
 

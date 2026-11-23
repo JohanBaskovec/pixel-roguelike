@@ -26,11 +26,12 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 
 ## Current status
 
-**M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure** and **M3 –
-Temperature** are implemented: a 4096 × 2048 dirt box filled with void, a toolbar to paint water,
-steam, oxygen, CO2, hydrogen, dirt, rock, iron and ice (or erase, heat, cool), a multithreaded
-chunked simulation, water pressure, heat conduction, convection and phase changes, a camera
-(pan/zoom), tests and a benchmark. The next milestone is **M4 – Gas mass and pressure**. See `docs/ROADMAP.md`, including the acceptance notes on what
+**M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure**, **M3 –
+Temperature** and most of **M4 – Gas mass and pressure** are implemented: a 4096 × 2048 dirt box
+filled with void, a toolbar to paint water, steam, oxygen, CO2, hydrogen, nitrogen, air, dirt,
+rock, iron and ice (or erase, heat, cool), a multithreaded chunked simulation, water pressure,
+heat conduction, convection and phase changes, gases with mass and pressure, a camera
+(pan/zoom), tests and a benchmark. What remains of M4 is gas pressure acting on liquids. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
@@ -102,8 +103,8 @@ On Linux, building SDL3 from source needs the X11/Wayland development packages l
   may write up to 32 px into its neighbours. That is why **a cell may never move more than
   `CHUNK_SIZE/2` = 32 px in one tick**.
 - **Data layout** is a hybrid structure-of-arrays: a 4-byte `Cell` (element, flags, shade, aux) plus
-  separate `float` temperature buffers. Element properties live in a lookup table indexed by
-  element ID.
+  separate `float` temperature buffers and a `float` gas mass buffer. Element properties live in a
+  lookup table indexed by element ID.
 - **Rendering**: dirty chunks are converted to RGBA and uploaded to an SDL streaming texture, which
   is scaled to the window. The toolbar and HUD are a small hand-rolled immediate-mode UI.
 - **Player edits** (brush strokes) are queued and applied on the main thread *between* ticks, never
@@ -117,9 +118,9 @@ Details: `docs/ARCHITECTURE.md`.
 src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h, jobs (thread
               pool). SDL threads/atomics allowed
 src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
-              sim (movement rules, convection, tick), pressure (water bodies, transfers), heat
-              (conduction, phase changes), edit (brush strokes, edit queue), scene (box, demo,
-              bench). HEADLESS: no SDL video/render/events
+              sim (movement rules, gas mass and pressure, convection, tick), pressure (water
+              bodies, transfers), heat (conduction, phase changes), edit (brush strokes, edit
+              queue), scene (box, demo, bench). HEADLESS: no SDL video/render/events
 src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)
 src/ui/       immediate-mode widgets (button, panel, text)
 src/game/     app: input, toolbar, brush strokes, camera, HUD, fixed-timestep frame

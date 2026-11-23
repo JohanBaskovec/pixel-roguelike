@@ -357,6 +357,9 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         float t = w->temp[is];
         w->temp[is] = w->temp[iq];
         w->temp[iq] = t;
+        float m = w->mass[is];
+        w->mass[is] = w->mass[iq];
+        w->mass[iq] = m;
         w->piece[is] = 0; // no longer a source this tick
         w->piece[iq] = 0;
         world_wake_rect(w, sx - 1, sy - 1, sx + 1, sy + 1);

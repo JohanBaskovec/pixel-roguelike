@@ -39,5 +39,7 @@ World *test_world_box(int w, int h, uint64_t seed);
 
 bool test_cell_is(const World *w, int x, int y, ElementId e);
 int64_t test_count(const World *w, ElementId e);
-// Mean y of all cells of element e (+y is down). Returns -1 if none.
+// Mean y of all cells of element e (+y is down), weighted by mass for gases. -1 if none.
 double test_mean_y(const World *w, ElementId e);
+// Total mass of gas e, kg.
+double test_mass(const World *w, ElementId e);

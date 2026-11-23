@@ -4,6 +4,7 @@
 #include "sim/edit.h"
 #include "sim/sim.h"
 
+#include <math.h>
 #include <string.h>
 
 void test_solids_never_move(void);
@@ -135,13 +136,20 @@ void test_counts_conserved(void) {
         Edit e = {20 + i * 20, 30, 30 + i * 18, 90, 6, EDIT_CIRCLE, els[i], 0, EDIT_PAINT};
         sim_apply_edit(w, &e);
     }
+    // Liquids and solids keep their cell counts; gases split and merge cells but keep their mass.
     int64_t before[ELEM_COUNT];
+    double mass[ELEM_COUNT];
     for (int e = 0; e < ELEM_COUNT; e++) {
         before[e] = test_count(w, (ElementId)e);
+        mass[e] = test_mass(w, (ElementId)e);
     }
     sim_run_ticks(w, 1000);
-    for (int e = 0; e < ELEM_COUNT; e++) {
-        EXPECT_EQ(test_count(w, (ElementId)e), before[e]);
+    for (int e = 1; e < ELEM_COUNT; e++) {
+        if (g_elem_behavior[e] == BEHAVIOR_GAS) {
+            EXPECT(fabs(test_mass(w, (ElementId)e) - mass[e]) <= 1e-4 * mass[e]);
+        } else {
+            EXPECT_EQ(test_count(w, (ElementId)e), before[e]);
+        }
     }
     world_destroy(w);
 }

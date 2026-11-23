@@ -106,7 +106,13 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             if (e->only_void && w->cells[i].element != ELEM_VOID) {
                 continue;
             }
-            world_set_cell(w, x, y, e->element, rng_next(rng));
+            uint32_t bits = rng_next(rng);
+            ElementId el = e->element;
+            if (el == EDIT_AIR) {
+                el =
+                    (bits >> 16) < (uint32_t)(AIR_O2_FRAC * 65536.0f) ? ELEM_OXYGEN : ELEM_NITROGEN;
+            }
+            world_set_cell(w, x, y, el, bits);
             written++;
         }
     }
@@ -116,7 +122,7 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
 }
 
 int64_t sim_apply_edit(World *w, const Edit *e) {
-    if (e->element >= ELEM_COUNT || e->radius < 0) {
+    if ((e->element >= ELEM_COUNT && e->element != EDIT_AIR) || e->radius < 0) {
         return 0;
     }
     Rng rng = rng_from_seed(w->seed ^ pr_splitmix64(w->tick + 0x5EED) ^

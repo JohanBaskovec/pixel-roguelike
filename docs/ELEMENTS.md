@@ -20,20 +20,27 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice (later) | `#7A7A7A` α 0.55 | 1 |
 | 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.43 | 1 |
 | 9 | Steam | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses 373.15 K → water | `#E6ECF2` α 0.25 | 3 |
-| 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | faint, TBD | 4 |
+| 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | `#7C86A8` α 0.16 | 4 |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
   2 (wet).
 - **Gas colours** are a deliberate deviation, since real gases are invisible. The α is the blend
-  of one gas pixel over the void background. It is high enough that a thin cloud of single
-  particles is still readable. From M4 it scales with mass.
+  of one gas pixel at 1 atm over the void background. From M4 it scales with density:
+  α · √(m / m_1atm), between 0.3× and 2.5× (`GAS_ALPHA_MIN`, `GAS_ALPHA_MAX` in
+  `src/render/render.c`), so thin gas stays faintly visible. Nitrogen is the faintest, so air
+  looks like a light haze of oxygen.
 - **Per-pixel variation:** every element's brightness varies by up to ± its `shade_var` (0–255
   scale; void 3, dirt 18, rock 14, iron 8, ice 10, water 10, gases 30), so materials look
   textured.
-- **Molar masses** (needed from M4): O₂ 0.032, CO₂ 0.044, H₂ 0.002, H₂O 0.018, N₂ 0.028 kg/mol.
+- **Gas mass and pressure** (M4): a gas cell holds a mass; pressure `P = (m/M)·R·T/V`. Molar
+  masses: O₂ 0.031999, CO₂ 0.04401, H₂ 0.002016, H₂O 0.018015, N₂ 0.028014 kg/mol. A cell of air at
+  1 atm and 20 °C holds 0.15 g. The densities in the table are at 0 °C and 1 atm (steam: 100 °C).
+- **Buoyancy** treats O₂ and N₂ as air: both get `AIR_DENSITY_0C` = 1.2922 kg/m³ for buoyancy only
+  (deviation 7 below).
 - **Nitrogen** (M4) is inert. With it, air can be realistic: 78% N₂, 21% O₂, ~1% argon (ignored),
-  0.04% CO₂ by volume. Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
+  0.04% CO₂ by volume. The Air brush paints each cell oxygen with probability `AIR_O2_FRAC` = 0.21,
+  else nitrogen (argon counted as nitrogen). Breathing (M4c) consumes ~250 mL/min of O₂ at rest.
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
@@ -67,13 +74,22 @@ Movement constants. These are game-feel values, not physics.
 | CO₂ | 2 | Heavier molecules, slower spread |
 | Hydrogen | 6 | Lighter molecules, faster spread |
 | Steam | 4 | Water vapour (18 g/mol), between oxygen and hydrogen |
+| Nitrogen | 3 | Like oxygen |
+
+For gases, `spread` is how far a split-off half (dense gas) or a particle (thin gas) moves into
+void.
 
 All are clamped to `MAX_MOVE` = 32.
 
 | Global | Value | Where | Meaning |
 |---|---|---|---|
 | `K_BUOY` | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
-| `P_GAS_MIX` | 1/16 | `sim/elements.h` | Probability that two different gases swap during a random walk (÷4 against stratification) |
+| `P_GAS_MIX` | 1/2 | `sim/elements.h` | Probability that two different gases trade places when that lowers their same-gas contacts |
+| `GAS_MIN_FRAC` | 0.01 | `sim/elements.h` | Smallest cell a split may leave, as a fraction of the 1-atm mass; thinner gas moves as particles |
+| `GAS_REACH` | 16 | `sim/sim.c` | Farthest cell of the same gas a cell equalises pressure with in one tick |
+| `GAS_JUMP_MAX_DT` | 2 K | `sim/sim.c` | Long equalisation jumps only between cells this close in temperature |
+| `GAS_EQ_TOL` | 0.1% | `sim/sim.c` | Pressures closer than this count as equal (no transfer; may sleep) |
+| `GAS_PUSH_RATIO` | 2.1 | `sim/sim.c` | Pressure ratio above which a gas pushes a neighbouring gas cell aside |
 | `GRAVITY_INC_P16` | 0.87 | `sim/sim.c` | Chance per tick a falling liquid gains 1/16 px/tick of speed (≈ 9.8 m/s² at 5 cm/px) |
 | `FALL_SPEED_MAX` | 127/16 px/tick | `sim/sim.c` | Terminal fall speed, about 8 px/tick (24 m/s) |
 | `LIQUID_LOOKAHEAD` | 32 | `sim/sim.c` | How far a surface liquid cell looks sideways for a drop (= `MAX_MOVE`) |
@@ -85,7 +101,6 @@ All are clamped to `MAX_MOVE` = 32.
 | `HEAT_WAKE_MOVEMENT_K` | 0.02 K/tick | `sim/heat.c` | Temperature change that wakes a chunk's fluids (convection) |
 | `K_CONVECTION` | 200 | `sim/sim.c` | Liquid convection swap probability per unit of relative density difference |
 | `CONVECTION_MIN_K` | 0.05 K | `sim/sim.c` | Smallest temperature difference that drives convection or same-gas buoyancy |
-| `BOIL_EXCESS_CAP_K` | 20 K | `sim/heat.c` | Freshly boiled steam starts at most this far above 100 °C (no gas mass until M4) |
 | `EDIT_HEAT_STEP_K` | 8 K | `sim/edit.h` | Heat / Cool brush change per application (60 per second while held) |
 
 ## Gameplay deviations from reality
@@ -95,14 +110,19 @@ Keep this list complete.
 1. Gases are tinted so they are visible.
 2. Heat conduction is sped up: 1000× in solids and liquids, 10× where a gas is involved
    (`HEAT_TIME_SCALE`, `HEAT_TIME_SCALE_GAS`). Relative conductivities stay real.
-3. M1–M3 gas is one particle per pixel at fixed density, with no pressure, until M4. So boiling
-   turns one water cell into one steam cell (mass not conserved), and freshly boiled steam's
-   temperature is capped (`BOIL_EXCESS_CAP_K`).
+3. One gas per cell (D-005): different gases never share a cell, so total pressure only evens
+   out between two gases when one pushes the other (above 2.1× its pressure). Pressure spreads by
+   diffusion (a few seconds across a room), not at the speed of sound. Condensing steam becomes a
+   full water cell with probability m / m_water (mass conserved on average), at 100 °C whatever
+   its partial pressure.
 4. Liquids are incompressible. Pressure moves water from the top of a body straight to the
    opening it is pushed toward, and the flow rate through an opening is not proportional to the
    square root of the depth (see SIMULATION.md → Liquid pressure).
 5. No heat radiation: vacuum is a perfect insulator (D-017).
-6. Until M4 there is no nitrogen, so "air" is pure oxygen.
+6. Gas pressure does not act on liquids yet (see ROADMAP M4).
+7. For buoyancy, oxygen and nitrogen have the same density (air, `AIR_DENSITY_0C`), so painted
+   air does not unmix. Real O₂ is 14% denser than N₂, but air stays mixed because it is mixed
+   molecule by molecule, which one-gas-per-cell cannot represent.
 
 ## Adding an element (checklist)
 

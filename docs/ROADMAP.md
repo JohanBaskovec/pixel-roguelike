@@ -154,18 +154,21 @@ mixing rather than as a tight plume (see SIMULATION.md).
 
 ## M4 – Gas mass and pressure
 
-- [ ] Gas cells carry mass; gas expands into vacuum and thins out; pressure = f(mass, T)
-- [ ] Gases flow from high to low pressure; different gases still do not share a cell
-- [ ] **Nitrogen** (inert gas) so that air can be realistic: 78% N₂, 21% O₂ by volume. Until
+- [x] Gas cells carry mass; gas expands into vacuum and thins out; pressure = f(mass, T)
+- [x] Gases flow from high to low pressure; different gases still do not share a cell
+- [x] **Nitrogen** (inert gas) so that air can be realistic: 78% N₂, 21% O₂ by volume. Until
       then "air" is pure oxygen, which makes breathing and suffocation unrealistic
 - [ ] **Gas pressure acts on liquids:** a liquid body's surface pressure is the gas pressure above
       it, not zero. Water compares (gas pressure + depth) at its surface with (gas pressure) at an
       opening. Gives pressurised tanks pushing water up pipes, and trapped air resisting water
       coming into a container. Test: sealed tank, pressurised gas on top, water rises in a pipe
-- [ ] **Pressure from heating sealed gas** (ideal gas law with M3 temperatures). Test: heated
+      **Not done yet.** Needs the gas above each water body's surface (its pressure becomes the
+      body's surface pressure, 1 atm ≈ 206 cells of water) and water entering a gas cell to
+      compress that gas into its neighbours instead of swapping it to the body's top.
+- [x] **Pressure from heating sealed gas** (ideal gas law with M3 temperatures). Test: heated
       sealed container's gas pressure rises as P ∝ T
-- [ ] Gas pressure in the pressure overlay; cursor inspector shows partial pressures
-- [ ] Revisit D-005 and record the outcome
+- [x] Gas pressure in the pressure overlay; cursor inspector shows partial pressures
+- [x] Revisit D-005 and record the outcome (D-005, D-024)
 
 ## M4b – Flowing water (free-flying particles)
 

@@ -132,6 +132,7 @@ if(PR_BUILD_TESTS)
     tests/test_sim.c
     tests/test_edit.c
     tests/test_heat.c
+    tests/test_gas.c
   )
   target_link_libraries(pr-tests PRIVATE pr_sim)
   pr_configure_target(pr-tests)
