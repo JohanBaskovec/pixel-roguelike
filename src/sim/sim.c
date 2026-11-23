@@ -310,8 +310,9 @@ static void update_liquid(TickCtx *c, int x, int y) {
     // 2. Water pressure: if the body of still water this cell belongs to has its top at least
     //    one cell above an open cell above or beside this cell, ask for one cell of water to be
     //    moved from that top surface to the open cell (carried out after the phase, see
-    //    pressure.c). Heights count gas pressure (as a height of liquid): the body's top is
-    //    raised by the gas pressing on its surface, the open cell by the gas in it. This levels
+    //    pressure.c). Heights count what presses on the liquid (as a height of it): the body's
+    //    top is raised by lighter liquids and gas on its surface, the open cell by those in and
+    //    above it. This levels
     //    pools over any distance, balances U-tubes, makes deep water push out of openings and
     //    lets gas push on water.
     bool labelled = w->piece[world_index(w, x, y)] != 0;
@@ -321,7 +322,8 @@ static void update_liquid(TickCtx *c, int x, int y) {
         for (int k = 0; k < 3; k++) {
             int qx = q[k][0], qy = q[k][1];
             if (body_top <= qy - 1 && can_displace(w, qx, qy, d) &&
-                body_top <= qy - 1 - world_gas_head(w, qx, qy, cell->element)) {
+                // A first check; within reach (the transfer counts the whole column above Q).
+                body_top <= qy - 1 - pressure_load_head(w, qx, qy, cell->element, MAX_MOVE - 1)) {
                 if (c->nreq < TICK_MAX_REQUESTS) {
                     c->req[c->nreq++] = (PressureRequest){x, y, qx, qy};
                 } else {

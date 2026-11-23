@@ -27,14 +27,15 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 ## Current status
 
 **M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure**, **M3 –
-Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water** and **M4c – Creatures**
-are implemented: a 4096 × 2048 dirt box
+Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4c – Creatures** and
+**M5 – Matter variety and reactions** are implemented: a 4096 × 2048 dirt box
 filled with void, a toolbar to paint water, steam, oxygen, CO2, hydrogen, nitrogen, air, dirt,
 rock, iron and ice (or erase, heat, cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
 liquids), free particles (jets that follow Torricelli, splashes), creatures that walk, swim,
-breathe at real rates and give off body heat, a camera (pan/zoom), tests and a benchmark. The next
-milestone is **M5 – Matter variety and reactions**. See `docs/ROADMAP.md`, including the acceptance notes on what
+breathe at real rates and give off body heat, powders and digging, lava, molten iron and oil
+(liquids push each other), hydrogen combustion, a camera (pan/zoom), tests and a benchmark. The
+next milestone is **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
@@ -185,5 +186,7 @@ benchmark all link.
 - Use Debug + `PR_SANITIZE` for correctness work. Use Release or RelWithDebInfo for performance
   work. **Never quote performance numbers from a Debug build.**
 - Run `ctest` before committing. Run `pr-bench` before committing changes to `src/sim/`.
+- Mind the world size in tests: `world_create` rounds width and height up to multiples of 64
+  (a "128 × 96" box is really 128 × 128).
 - Write a behaviour test for every new rule: set up a tiny world, run N ticks, assert the
   outcome. Examples: water ends up below oxygen; the per-element cell count is conserved.

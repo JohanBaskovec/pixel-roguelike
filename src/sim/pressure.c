@@ -129,7 +129,7 @@ static void label_chunk(void *user, int index) {
                 w->piece[world_index(w, x, y)] = (uint8_t)id;
                 if (liquid_surface_free(w, x, y, e)) {
                     // Head: the row, raised by the pressure of the gas above (if any).
-                    int32_t head = y - world_gas_head(w, x, y - 1, e);
+                    int32_t head = y - pressure_load_head(w, x, y - 1, e, PRESSURE_LOAD_SCAN);
                     if (head < top || (head == top && y < top_row)) {
                         top = head;
                         top_row = (int16_t)y;
@@ -281,6 +281,42 @@ void pressure_update(World *w) {
         }
         ps->cp[ch].last_top = best;
     }
+}
+
+// A run of this many void or gas cells ends the column of liquid above a cell; shorter gaps are
+// bubbles inside it (moving liquids leave them), and the liquid above them still weighs on what
+// is below. Every liquid in the column counts, by its density (drops of water sinking through a
+// column of oil weigh on it too).
+#define LOAD_GAP 3
+
+int32_t pressure_load_head(const World *w, int x, int y, ElementId liquid, int max_scan) {
+    float rho = g_elem_defs[liquid].density;
+    float h = 0.0f, gas_p = -1.0f;
+    int gap = 0;
+    for (int k = 0, yy = y; k < max_scan && yy >= 0; k++, yy--) {
+        ElementId e = world_elem(w, x, yy);
+        uint8_t b = g_elem_behavior[e];
+        if (b == BEHAVIOR_NONE || b == BEHAVIOR_GAS) {
+            if (gap++ == 0) {
+                gas_p = world_gas_pressure(w, x, yy); // the gas over the column, if it ends here
+            }
+            if (gap >= LOAD_GAP) {
+                break;
+            }
+            continue;
+        }
+        if (b != BEHAVIOR_LIQUID) {
+            gas_p = gap > 0 ? gas_p : 0.0f; // a solid or powder closes the column
+            break;
+        }
+        gap = 0;
+        gas_p = -1.0f;
+        h += g_elem_defs[e].density / rho;
+    }
+    if (gas_p > 0.0f) {
+        h += gas_p / (rho * GRAVITY * CELL_SIZE_M);
+    }
+    return (int32_t)PR_MIN(h + 0.5f, 1e6f);
 }
 
 // The root node of the still cell at (x, y), or -1.
@@ -511,7 +547,7 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         int ch = (py >> CHUNK_SHIFT) * w->chunks_x + (px >> CHUNK_SHIFT);
         int32_t root = ps->root[ch << NODE_SHIFT | pid];
         int32_t top = ps->top[root];
-        int32_t q_head = qy - world_gas_head(w, qx, qy, pc.element);
+        int32_t q_head = qy - pressure_load_head(w, qx, qy, pc.element, PRESSURE_LOAD_SCAN);
         if (top == PRESSURE_NO_TOP || top + ps->used[root] > q_head - 1) {
             continue;
         }
@@ -572,6 +608,32 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
             replaced = (Cell){ELEM_VOID, replaced.stamp, replaced.shade, 0};
             w->temp[iq] = 0.0f;
             w->mass[iq] = 0.0f;
+        } else if (g_elem_behavior[replaced.element] == BEHAVIOR_LIQUID) {
+            // A lighter liquid at Q: liquid entering under it lifts the column above Q by one cell.
+            // Its cell goes to the first free cell above that column (whose void or gas takes the
+            // source's place), never to the source, which may be far away (another arm of a
+            // U-tube). Without a free cell above, no transfer.
+            int ty = qy - 1;
+            while (ty > qy - PRESSURE_LOAD_SCAN && ty >= 0 &&
+                   g_elem_behavior[world_elem(w, qx, ty)] == BEHAVIOR_LIQUID) {
+                ty--;
+            }
+            if (ty < 0 || !particle_passes(w, qx, ty)) {
+                ps->used[root] = (int16_t)used0;
+                continue;
+            }
+            size_t it = world_index(w, qx, ty);
+            Cell above = w->cells[it];
+            float tt = w->temp[it], mt = w->mass[it];
+            w->cells[it] = replaced;
+            w->temp[it] = w->temp[iq];
+            w->mass[it] = 0.0f;
+            above.stamp = replaced.stamp;
+            replaced = above;
+            w->temp[iq] = tt;
+            w->mass[iq] = mt;
+            world_wake_rect(w, qx - 1, ty - 1, qx + 1, ty + 1);
+            world_note_moved(w, qx, ty);
         }
         w->cells[is] = replaced;
         w->temp[is] = w->temp[iq];

@@ -4,6 +4,8 @@
 #include "sim/edit.h"
 #include "sim/sim.h"
 
+#include <stdlib.h>
+
 void test_sand_piles_up(void);
 void test_sand_sinks_in_water(void);
 void test_digging_makes_rubble(void);
@@ -11,6 +13,7 @@ void test_creature_stands_on_sand(void);
 void test_rock_and_iron_melt_and_freeze(void);
 void test_lava_boils_water(void);
 void test_oil_floats_on_water(void);
+void test_oil_manometer(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -145,5 +148,43 @@ void test_oil_floats_on_water(void) {
     EXPECT_EQ(test_count(w, ELEM_OIL), oil);
     EXPECT_EQ(test_count(w, ELEM_WATER), water);
     EXPECT(test_mean_y(w, ELEM_OIL) + 20.0 < test_mean_y(w, ELEM_WATER));
+    world_destroy(w);
+}
+
+void test_oil_manometer(void) {
+    // A U-tube of water with a 60-cell column of oil poured into its left arm. Liquids push each
+    // other by weight: the water under the oil stands lower than in the right arm by
+    // 60 x 870 / 1000 = 52 cells (a manometer). Nothing is lost.
+    World *w = test_world_box(128, 192, 88);
+    fill(w, 1, 1, 126, 190, ELEM_ROCK);
+    fill(w, 20, 10, 39, 180, ELEM_VOID);  // left arm
+    fill(w, 60, 10, 79, 180, ELEM_VOID);  // right arm
+    fill(w, 20, 161, 79, 180, ELEM_VOID); // channel between them
+    fill(w, 20, 120, 39, 180, ELEM_WATER);
+    fill(w, 60, 120, 79, 180, ELEM_WATER);
+    fill(w, 40, 161, 59, 180, ELEM_WATER);
+    fill(w, 20, 60, 39, 119, ELEM_OIL);
+    int64_t water = test_count(w, ELEM_WATER), oil = test_count(w, ELEM_OIL);
+    sim_run_ticks(w, 3000);
+    EXPECT_EQ(test_count(w, ELEM_WATER), water);
+    EXPECT_EQ(test_count(w, ELEM_OIL), oil);
+    int left = -1, right = -1;
+    for (int y = 10; y <= 180 && (left < 0 || right < 0); y++) {
+        if (left < 0 && test_cell_is(w, 30, y, ELEM_WATER)) {
+            left = y;
+        }
+        if (right < 0 && test_cell_is(w, 70, y, ELEM_WATER)) {
+            right = y;
+        }
+    }
+    int64_t oil_right = 0;
+    for (int y = 10; y <= 160; y++) {
+        for (int x = 60; x <= 79; x++) {
+            oil_right += test_cell_is(w, x, y, ELEM_OIL);
+        }
+    }
+    EXPECT(left > 0 && right > 0);
+    EXPECT(abs((left - right) - 52) <= 3);
+    EXPECT(oil_right < oil / 20);
     world_destroy(w);
 }

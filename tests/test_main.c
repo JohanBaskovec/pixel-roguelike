@@ -56,6 +56,7 @@ void test_creature_stands_on_sand(void);
 void test_rock_and_iron_melt_and_freeze(void);
 void test_lava_boils_water(void);
 void test_oil_floats_on_water(void);
+void test_oil_manometer(void);
 void test_hydrogen_burns_in_oxygen(void);
 void test_cold_hydrogen_does_not_burn(void);
 void test_burning_same_for_any_thread_count(void);
@@ -137,6 +138,7 @@ int main(int argc, char **argv) {
     RUN(test_rock_and_iron_melt_and_freeze);
     RUN(test_lava_boils_water);
     RUN(test_oil_floats_on_water);
+    RUN(test_oil_manometer);
     RUN(test_hydrogen_burns_in_oxygen);
     RUN(test_cold_hydrogen_does_not_burn);
     RUN(test_burning_same_for_any_thread_count);

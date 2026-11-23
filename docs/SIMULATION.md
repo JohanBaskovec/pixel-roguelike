@@ -147,11 +147,15 @@ knows its **top**: the highest row holding one of its free-surface cells (a stil
 a lighter fluid or falling water above it). A body with no free surface (a sealed container) has
 no top and no pressure.
 
-**Gas pressure as height.** Heights count gas pressure as a height of the liquid,
-`liquid_head(P) = P / (ρ·g·Δx)` (1 atm on water: 207 cells, 10.3 m). A free-surface cell's
-**head** is its row minus the head of the gas directly above it, and the body's **top** is the
-smallest head among its free-surface cells. An open cell's head is its row minus the head of the
-gas in it (void: its row). In a world at one pressure (all vacuum, or all air at 1 atm) every
+**What presses on a liquid, as height.** Heights count what weighs on the liquid as a height of
+it (`pressure_load_head`): the liquids stacked above (each cell counts its density over this
+liquid's: 60 cells of oil on water count as 52; M5), plus the gas pressure over that column,
+`P / (ρ·g·Δx)` (1 atm on water: 207 cells, 10.3 m). The column ends at a solid or powder, or at
+3 empty cells in a row; shorter gaps are bubbles inside it. A free-surface cell's **head** is its
+row minus the load above it, and the body's **top** is the smallest head among its free-surface
+cells. An open cell's head is its row minus the load in and above it (void with nothing above:
+its row). In the parallel request check the column is read only within reach (31 cells); the
+transfer checks the whole column (up to 512 cells). In a world at one pressure (all vacuum, or all air at 1 atm) every
 head shifts by the same amount and this is the plain row rule.
 
 **The rule.** A still cell P next to an open cell Q (void or lighter fluid; above P or beside it)
@@ -166,6 +170,8 @@ to Q. So:
   surface with a partial top row is stable, and settled pools sleep completely);
 - U-tubes and communicating vessels balance; a reservoir drains through an opening in its wall
   until both sides are level; a heap or a column of water spreads out;
+- liquids push each other: water under a column of oil stands lower than open water by the
+  oil's weight (a manometer: 60 cells of oil, 52 cells lower; tested);
 - gas pushes on liquids: a sealed tank with pressurised gas drives water up a pipe until the
   column weighs as much as the gas pressure; air at 1 atm holds water about 207 cells up a tube
   sealed at the top (a barometer); water flowing into a sealed room of air compresses the air
@@ -181,6 +187,12 @@ the body's top, starting staggered along the first tick's path, with ±3% of spr
 jet. Measured: 150 cells deep, 3.95 cells/tick through a one-cell hole (theory 4.1); 25 deep,
 1.58 (1.65); the deep jet reaches nearly twice as far. Openings at a free surface only level
 (cell by cell): a surface does not spout.
+
+**Moving a lighter liquid out of the way (M5).** Liquid entering a cell of a lighter liquid
+lifts that liquid's column by one cell: the lighter cell moves to the first free cell above the
+column, and that free cell's void or gas takes the source's place. With no free cell above, the
+transfer does not happen. (Swapping the lighter liquid to the source would carry it to wherever
+the source is, such as the other arm of a U-tube.)
 
 **Moving gas out of the way.** When water moves into a gas cell Q, and the gas there is at about
 the pressure of the gas above the source (within `GAS_SAME_REGION`, 5%: one region, e.g. one room
@@ -221,7 +233,9 @@ problem altogether, and is also cheaper (no gradient traces).
   Once the liquid outside reaches the opening, both sides are one body, and transfers move liquid
   from the body's top to any open cell of its surface, however narrow the passage between them:
   the flow is not limited by the size of the opening.
-- Different liquids do not push each other (only one liquid exists so far). Planned in M5.
+- Liquid entering a cell of a lighter liquid lifts that liquid's column by one cell (its cell goes
+  to the first free cell above the column); with no free cell above, there is no transfer. The
+  lighter liquid is never moved to the source, which may be far away.
 - Gas pressure is resolved to one cell of liquid (490 Pa for water). Under mixed air, the oxygen
   and nitrogen cells' pressures can stay up to ~3% apart (see Gases), and a pool there may keep
   trading a few cells per tick between surface spots under one and the other.

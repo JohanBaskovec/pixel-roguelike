@@ -353,3 +353,19 @@ to watch).
   teleports across the body (9 or 35 cells), which reads as flowing around it. Stirring is an
   explicit modelling choice for air currents (documented as a deviation in `ELEMENTS.md`).
 
+## D-028 — Liquids push each other through the load above them
+
+- **Status:** Accepted (M5); extends D-018 and D-025
+- **Context:** With several liquids (oil, lava, molten iron), water pressure must compare
+  pressures, not levels: a column of oil weighs on the water under it.
+- **Decision:** The "head" of a surface cell or an opening subtracts the load above it as a height
+  of the liquid: every liquid cell stacked above, by its density over the liquid's, plus the gas
+  pressure over that column (bubbles of up to 2 empty cells do not end the column). Liquid
+  entering a lighter liquid lifts that liquid's column by one cell instead of swapping it to the
+  source.
+- **Consequences:** Manometers work (tested within one cell). Reading the column costs a scan
+  upward: unlimited in labelling and transfers (nothing else writes then), limited to the 32-cell
+  reach in the parallel request check, which the transfer then confirms. A first version that
+  stopped at the first non-lighter cell, and swapped lighter liquid to the source, let oil leak
+  into the far arm of a U-tube.
+

@@ -4,12 +4,13 @@
 //
 // Still liquid (liquid that is not falling) is grouped into connected bodies. Each body knows its
 // top: the highest "head" among its free-surface cells, where a surface cell's head is its row
-// minus the pressure of the gas above it, expressed as a height of the liquid (liquid_head; 1 atm
-// on water is 207 cells). A still cell next to an open cell (void or lighter fluid) whose head
-// (row minus its gas pressure) is at least one cell below that top is pushed: one cell of liquid
-// moves from the body's top surface to the opening. That levels pools over any distance, balances
-// U-tubes, drains reservoirs through openings, and lets gas pressure push on liquids (a
-// pressurised tank drives water up a pipe; water rises 207 cells into a vacuum: a barometer).
+// minus what presses on it, as a height of the liquid: lighter liquids stacked on it (M5) and the
+// pressure of the gas above them (liquid_head; 1 atm on water is 207 cells). A still cell next to
+// an open cell (void or lighter fluid) whose head (row minus its gas pressure) is at least one cell
+// below that top is pushed: one cell of liquid moves from the body's top surface to the opening.
+// That levels pools over any distance, balances U-tubes, drains reservoirs through openings, and
+// lets gas pressure push on liquids (a pressurised tank drives water up a pipe; water rises 207
+// cells into a vacuum: a barometer).
 //
 // Bodies are labelled per chunk (only chunks where liquid changed, in parallel) and joined across
 // chunk borders with a union-find over the per-chunk pieces every tick, so the result is exact:
@@ -36,6 +37,16 @@ void pressure_update(World *w);
 // Top (smallest head, see above) of the body the still cell at (x, y) belongs to, or
 // PRESSURE_NO_TOP. Valid for the positions labelled at the start of the tick.
 int32_t pressure_body_top(const World *w, int x, int y);
+
+// What presses on liquid `liquid` at (x, y), as a height of it: the liquids stacked from (x, y)
+// upward (each cell counts its density over the liquid's; gaps of fewer than 3 empty cells are
+// bubbles inside the column), at most max_scan cells, plus the pressure of the gas above them (or
+// at (x, y)). Rounded to whole cells. Reads only that column.
+int32_t pressure_load_head(const World *w, int x, int y, ElementId liquid, int max_scan);
+
+// Longest column of lighter liquid counted where the scan may be long (labelling and transfers
+// run while nothing else writes cells).
+#define PRESSURE_LOAD_SCAN 512
 
 // Row of the free-surface cells that make that top, or PRESSURE_NO_TOP.
 int32_t pressure_body_top_row(const World *w, int x, int y);

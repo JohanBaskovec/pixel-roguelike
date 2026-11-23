@@ -108,6 +108,7 @@ Rules
 | 2026-11-23 | M4c | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 15.8 / 16.4 (p50, M4b / M4c builds run alternately) | Creatures; the bench scene has none, so no change beyond noise (this VM measured 15.4–17.2 ms for one build in this session, slower than earlier in the day). A breathing creature keeps the gas around it awake: a sealed 126 × 62 room of air with one person costs about 1.2 ms/tick |
 | 2026-11-23 | M5a | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 16.7 / 16.9 (p50, two runs) | Powders (a new case in the movement switch); the bench scene has none. Within this session's noise (15.4–17.2 ms for one build) |
 | 2026-11-23 | M5c | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 16.8 / 18.3 / 16.1 vs 17.9 / 17.4 / 15.8 (p50, new vs M5b, alternately) | Reactions. First version checked every hydrogen cell's neighbours for ignition: +5–10%. Gated by the chunk temperature ranges (nothing near the ignition temperature: no check): within noise |
+| 2026-11-23 | M5d | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 16.2 / 16.0 (p50, two runs) | Liquids push each other (column scans in labelling, requests and transfers). Within noise |
 
 Notes on the M1 baseline:
 - The bench scene is a worst case: 65% of the box is a random mix of water, three gases and
