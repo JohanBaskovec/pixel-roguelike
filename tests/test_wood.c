@@ -6,6 +6,8 @@
 #include <math.h>
 
 void test_wood_burns_in_air(void);
+void test_hot_gas_lights_wood(void);
+void test_embers_heat_the_wood_beside_them(void);
 void test_wood_needs_oxygen(void);
 void test_wood_burns_only_above_16_percent_oxygen(void);
 
@@ -90,4 +92,49 @@ void test_wood_burns_only_above_16_percent_oxygen(void) {
     int64_t at14 = burnt_at(0.14, 700, 143);
     EXPECT(at21 >= 3);
     EXPECT_EQ(at14, 0);
+}
+
+void test_hot_gas_lights_wood(void) {
+    // A wood cell in gas that is held at 1300 K (a steady flame; a puff of hot air alone holds too
+    // little heat to matter) is heated by it WOOD_GAS_COUPLING times faster than still air
+    // conducts, and catches fire within seconds.
+    World *w = test_world_box(64, 64, 144);
+    fill(w, 1, 1, 62, 62, EDIT_AIR);
+    fill(w, 25, 43, 25, 43, ELEM_WOOD);
+    float peak = 0.0f;
+    int t_lit = -1;
+    for (int t = 0; t < 600 && t_lit < 0; t++) {
+        for (int y = 38; y <= 48; y++) {
+            for (int x = 20; x <= 30; x++) {
+                size_t i = world_index(w, x, y);
+                if (w->cells[i].element == ELEM_GAS) {
+                    w->temp[i] = 1300.0f;
+                }
+            }
+        }
+        world_wake_heat(w, 18, 36, 32, 50);
+        sim_tick(w, NULL);
+        peak = fmaxf(peak, w->temp[world_index(w, 25, 43)]);
+        if (w->cells[world_index(w, 25, 43)].element == ELEM_BURNING_WOOD) {
+            t_lit = t;
+        }
+    }
+    EXPECT(t_lit >= 0 && t_lit < 600);
+    world_destroy(w);
+}
+
+void test_embers_heat_the_wood_beside_them(void) {
+    // A burning cell with no oxygen around it (a smouldering ember inside a log) still passes
+    // heat to the wood beside it, faster than plain conduction, and lights it.
+    World *w = test_world_box(64, 64, 145);
+    fill(w, 1, 1, 62, 62, ELEM_NITROGEN); // no oxygen at all
+    fill(w, 20, 50, 30, 62, ELEM_WOOD);
+    size_t ember = world_index(w, 25, 55);
+    w->cells[ember].element = ELEM_BURNING_WOOD;
+    w->temp[ember] = 1400.0f;
+    world_wake_heat(w, 15, 45, 35, 62);
+    world_wake_rect(w, 15, 45, 35, 62);
+    sim_run_ticks(w, 120);
+    EXPECT(w->temp[world_index(w, 24, 55)] > 400.0f || w->cells[world_index(w, 24, 55)].element == ELEM_BURNING_WOOD);
+    world_destroy(w);
 }

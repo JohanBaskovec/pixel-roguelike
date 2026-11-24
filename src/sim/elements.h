@@ -123,6 +123,7 @@ extern float g_min_ignite_k; // lowest ignition temperature of any reaction
 #define WOOD_BURN_TICKS 240 // 10 s for a cell at full burn
 #define WOOD_FUEL_SCALE 0.02f // see below
 #define WOOD_HEAT_SCALE 10.0f
+#define WOOD_GAS_COUPLING 100.0f // hot gas heats wood this many times faster than air conducts
 #define WOOD_SPREAD     4.0f // flame contact heats unburnt wood this many times faster than conduction
 #define WOOD_FUEL_HEAT  0.7f // share of the heat of combustion that goes back into the wood
 #define WOOD_MIN_O2     0.16f

@@ -701,6 +701,8 @@ to watch).
   of its fuel, burns in 4 s at full rate, and its heat is multiplied by 10, with flame contact
   heating the wood beside it, so fires spread and burn out a log in tens of seconds; the fire
   still dies where the air falls below 16% oxygen (tested). In ELEMENTS → Deviations 19.
+- **Heat coupling:** hot gas heats wood 100× faster than still air conducts, and embers
+  heat their neighbours (added after play-testing: fire next to lava did not spread).
 - **Consequences:** A burning room fills with CO₂ and steam and the player, who breathes, suffers
   (D-027). Wood is a solid to bullets (they stop). Burning wood cells keep their chunk in the
   heat pass until they are out. No ash or charcoal, no flames drawn apart from the glow of hot

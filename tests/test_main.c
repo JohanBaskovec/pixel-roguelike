@@ -87,6 +87,8 @@ void test_crates_are_picked_up(void);
 void test_level_has_crates_and_monsters(void);
 void test_monsters_chase_until_off_screen(void);
 void test_wood_burns_in_air(void);
+void test_hot_gas_lights_wood(void);
+void test_embers_heat_the_wood_beside_them(void);
 void test_log_falls_and_rests(void);
 void test_log_tips_off_a_ledge(void);
 void test_log_is_cut_in_two(void);
@@ -226,6 +228,8 @@ int main(int argc, char **argv) {
     RUN(test_level_has_crates_and_monsters);
     RUN(test_monsters_chase_until_off_screen);
     RUN(test_wood_burns_in_air);
+    RUN(test_hot_gas_lights_wood);
+    RUN(test_embers_heat_the_wood_beside_them);
     RUN(test_log_falls_and_rests);
     RUN(test_log_tips_off_a_ledge);
     RUN(test_log_is_cut_in_two);

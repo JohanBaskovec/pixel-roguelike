@@ -442,7 +442,11 @@ and going out are phase changes in the heat pass (`g_elem_above[ELEM_WOOD]`, `g_
    and puts the carbon dioxide and water vapour of the burn into the nearest gas cell. Mass in
    the gas is exact: per kg of wood 1.185 kg of O₂ in, 0.556 kg of H₂O and 1.629 kg of CO₂ out.
 3. releases the heat: 30% into that gas cell (the flame, which rises; up to 1400 K), the rest
-   into the wood, which heats the unburnt wood beside it at four times the conduction rate.
+   into the wood. Burning cells, with oxygen or without (embers), also heat the unburnt wood
+   beside them at four times the conduction rate. Between wood and gas the heat pass
+   multiplies the coefficient by 100 (`WOOD_GAS_COUPLING`). A fire front therefore crosses
+   wood only where oxygen reaches it (a burning cell with none cannot make more heat than it
+   holds: embers light their neighbours only up to their own temperature).
 Deviations (a cell holds 2% of a cube's fuel, heat 10× too high for it) are ELEMENTS → Deviations
 19. Tested: a lit log burns on and the changes of O₂, CO₂ and H₂O have the stoichiometric ratios;
 in pure nitrogen it does not burn; in 21% oxygen it burns and in 14% it does not.

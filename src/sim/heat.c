@@ -43,11 +43,11 @@ typedef struct HeatScratch {
 #define GAS_COND_SCALE (CELL_SIZE_M * TICK_SECONDS * HEAT_TIME_SCALE_GAS)
 
 static inline float gas_flux(float ka, float ca, float ta, uint8_t wa, bool ga, float kb, float cb,
-                             float tb, uint8_t wb, bool gb) {
+                             float tb, uint8_t wb, bool gb, float boost) {
     if (ka <= 0.0f || kb <= 0.0f || ca <= 0.0f || cb <= 0.0f) {
         return 0.0f;
     }
-    float k = 2.0f * ka * kb / (ka + kb) * GAS_COND_SCALE;
+    float k = 2.0f * ka * kb / (ka + kb) * GAS_COND_SCALE * boost;
     if ((wa | wb) != 0 && ga && gb) {
         k *= 1.0f + GAS_TURB_PER_WIND * (float)PR_MAX(wa, wb);
     }
@@ -89,8 +89,12 @@ static inline float pair_flux(const HeatHalo *h, int ay, int ax, int by, int bx)
     if (!ga && !gb) {
         return g_heat_coef[ea][eb] * (tb - ta);
     }
+    // Hot gas heats wood far faster than still air conducts (flames and hot gas convect and
+    // radiate): WOOD_GAS_COUPLING times, up to the stability limit.
+    bool wood = ea == ELEM_WOOD || ea == ELEM_BURNING_WOOD || eb == ELEM_WOOD ||
+                eb == ELEM_BURNING_WOOD;
     return gas_flux(h->cond[ay][ax], h->cap[ay][ax], ta, h->wind[ay][ax], ga, h->cond[by][bx],
-                    h->cap[by][bx], tb, h->wind[by][bx], gb);
+                    h->cap[by][bx], tb, h->wind[by][bx], gb, wood ? WOOD_GAS_COUPLING : 1.0f);
 }
 
 static void compute_chunk(void *user, int index) {

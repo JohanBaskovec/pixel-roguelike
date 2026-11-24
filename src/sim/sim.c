@@ -867,6 +867,29 @@ static bool react(TickCtx *c, int x, int y) {
 #define WOOD_AIR_RADIUS 16
 #define WOOD_AIR_FRAC   0.25f
 
+// Flame contact: a burning cell also heats the unburnt wood beside it, WOOD_SPREAD times as fast
+// as conduction does (heat is moved, not made). Embers do it too (a cell with no oxygen).
+static void burning_contact(TickCtx *c, int x, int y) {
+    World *w = c->w;
+    size_t i = world_index(w, x, y);
+    float tw = w->temp[i];
+    for (int k = 0; k < 4; k++) {
+        int nx = x + k_dir4[k][0], ny = y + k_dir4[k][1];
+        if (world_elem(w, nx, ny) != ELEM_WOOD) {
+            continue;
+        }
+        size_t j = world_index(w, nx, ny);
+        float q = PR_MIN(WOOD_SPREAD * g_heat_coef[ELEM_BURNING_WOOD][ELEM_WOOD],
+                         0.2f * g_elem_cap[ELEM_WOOD]) *
+                  PR_MAX(tw - w->temp[j], 0.0f);
+        w->temp[j] += q * g_elem_inv_cap[ELEM_WOOD];
+        tw -= q * g_elem_inv_cap[ELEM_BURNING_WOOD];
+        ctx_arrive(c, nx, ny, w->cells[j], w->temp[j]);
+    }
+    w->temp[i] = tw;
+    ctx_arrive(c, x, y, w->cells[i], tw);
+}
+
 // One tick of a burning wood cell at (x, y). It takes oxygen from the gas cells beside it that
 // hold at least WOOD_MIN_O2 of it by volume (at most the cell burns in WOOD_BURN_TICKS), burns that much wood (its `aux` counts the share gone: a whole cell
 // at 255, when it disappears), puts the carbon dioxide and water vapour of that burn into the
@@ -878,6 +901,7 @@ static void update_burning_wood(TickCtx *c, int x, int y) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
     keep_alive(c, x, y); // burning: visit it again next tick
+    burning_contact(c, x, y);
     const float m_cell = g_elem_mass[ELEM_WOOD] * WOOD_FUEL_SCALE; // the fuel in a cell, kg
     const float need = m_cell / (float)WOOD_BURN_TICKS * WOOD_O2_PER_KG; // kg of O2 a tick
     int32_t near[WOOD_AIR_CELLS];
@@ -941,20 +965,6 @@ static void update_burning_wood(TickCtx *c, int x, int y) {
                    w->temp[j]);
     }
     tw += heat * g_elem_inv_cap[ELEM_BURNING_WOOD];
-    // Flame contact: the burning cell also heats the unburnt wood beside it, WOOD_SPREAD times
-    // as fast as conduction does (heat is moved, not made).
-    for (int k = 0; k < 4; k++) {
-        int nx = x + k_dir4[k][0], ny = y + k_dir4[k][1];
-        if (world_elem(w, nx, ny) != ELEM_WOOD) {
-            continue;
-        }
-        size_t j = world_index(w, nx, ny);
-        float q = PR_MIN(WOOD_SPREAD * g_heat_coef[ELEM_BURNING_WOOD][ELEM_WOOD], 0.2f * g_elem_cap[ELEM_WOOD]) *
-                  PR_MAX(tw - w->temp[j], 0.0f);
-        w->temp[j] += q * g_elem_inv_cap[ELEM_WOOD];
-        tw -= q * g_elem_inv_cap[ELEM_BURNING_WOOD];
-        ctx_arrive(c, nx, ny, w->cells[j], w->temp[j]);
-    }
     w->temp[i] = tw;
     ctx_arrive(c, x, y, w->cells[i], w->temp[i]);
     // The share gone: a random whole number of steps (of 1/255 of a cell) with the right mean.

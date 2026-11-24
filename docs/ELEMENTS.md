@@ -268,6 +268,11 @@ Keep this list complete.
     proportion, if their mean oxygen is at least 16% by volume; the products enter the nearest
     gas cell, hot. Heat released: `WOOD_FUEL_HEAT` 70% into the wood (the rest into that gas cell,
     up to `WOOD_FLAME_K` 1400 K, and the excess into the wood). A cell burns away without ash.
+    Heat between wood and gas is `WOOD_GAS_COUPLING` = 100× what the gas conducts (flames and hot
+    gas also radiate and convect; still air conducts to wood 100× too slowly for a fire), and an
+    ember (a burning cell with no oxygen around it) still heats the wood beside it. Plain
+    wood-to-wood conduction is real: wood is an insulator, so heat crosses a few cells of it
+    in minutes (at the 1000× solid time scale).
 
 ## Adding an element (checklist)
 
