@@ -623,12 +623,27 @@ ticks, lets a droplet leave from a side cell until its blood is gone (36 cells: 
 breathe. A monster notices the live player when it sees it (a straight line through void, gas,
 liquid and bodies) while the player is on the screen (`World.view_w` × `view_h` cells around the
 player, set by the game from the window and zoom each tick; 720 × 450 by default), and then
-chases it (`alert`), through walls too since there is no pathfinding, until the player is off
-the screen again. The walker runs at 2.5 m/s and jumps when
+chases it (`alert`) until the player is off the screen again. With the player in sight it goes
+straight at it; without, it follows a route (Pathfinding below). The walker runs at 2.5 m/s and jumps when
 the player is higher or something at foot level blocks it; the flyer sets its own velocity
 (no gravity while alive) at 3 m/s, slowing near the player, and falls when dead. Not alerted they wander (the walker as the test creature does; the flyer drifts and bobs). Touching
 the player (a cell apart or less) they bite for 10 and 6 hp every 40 ticks. Frozen outside the
 simulated area like all creatures (D-040).
+
+*Pathfinding (path.c; D-043).* The world around the player (twice the screen, at most 320 × 240
+blocks) is sampled in blocks of 6 cells (a walker's size): a block is open if its centre cell
+holds void, gas, liquid or a body (so a wall under 6 cells thick can be missed; the maze's are 20).
+From the player's block two breadth-first searches give each open block its distance to the
+player: for flyers over blocks that are open with all eight neighbours open (an 11-cell body
+keeps a block clear of walls), moving to any of eight neighbours (a diagonal needs both blocks it
+cuts across); for walkers over the moves a walker can make, searched backwards: to a side block,
+down to the block below (a fall), and up one block onto a ledge, never up a shaft. A monster that
+is alert but has no line of sight steps to the neighbour with the smallest distance: the walker
+walks that way (centring over a hole before it drops, jumping up a ledge), the flyer flies to
+that block's centre. The fields are rebuilt every 20 ticks, when an alert monster without sight
+asks, so digging changes the routes. A walker cannot reach a player above it (no way up a
+shaft), nor can anything reach one it has no route to: it then walks, or flies, straight at the
+player.
 
 *Ammunition and crates.* `Rifle` counts rounds (`rifle_init`; a zero `Rifle` has endless ones, for
 tests): a 30-round magazine and a pack of 90 (at most 240). `R`, or pulling the trigger on an

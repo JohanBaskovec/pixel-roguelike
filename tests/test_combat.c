@@ -17,6 +17,8 @@ void test_rifle_ammunition_and_reload(void);
 void test_crates_are_picked_up(void);
 void test_level_has_crates_and_monsters(void);
 void test_monsters_chase_until_off_screen(void);
+void test_walker_finds_the_hole_down(void);
+void test_flyer_finds_the_gap(void);
 
 static World *room(uint64_t seed, int width) {
     World *w = test_world_box(width, 128, seed);
@@ -218,5 +220,50 @@ void test_monsters_chase_until_off_screen(void) {
     w->view_w = 100;
     sim_run_ticks(w, 2);
     EXPECT(!seer->alert);
+    world_destroy(w);
+}
+
+static void rock(World *w, int x0, int y0, int x1, int y1) {
+    for (int y = y0; y <= y1; y++) {
+        Edit e = {x0, y, x1, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+        sim_apply_edit(w, &e);
+    }
+}
+
+void test_walker_finds_the_hole_down(void) {
+    // The player is in a room under a slab, a walker on top of it (alert): it walks to the hole in
+    // the slab, drops through, and comes back along the floor to the player. Without a route it
+    // would press along the slab above the player for ever.
+    World *w = room(136, 512);
+    rock(w, 1, 60, 510, 66);
+    for (int y = 60; y <= 66; y++) { // the hole
+        Edit hole = {150, y, 200, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+        sim_apply_edit(w, &hole);
+    }
+    int pl = scene_spawn_player_from(w, 40, 80);
+    int wi = enemy_spawn(w, KIND_WALKER, 100, 60 - WALKER_H);
+    EXPECT(pl >= 0 && wi >= 0);
+    Creature *m = &w->creatures[wi];
+    m->alert = 1;
+    sim_run_ticks(w, 450);
+    EXPECT(m->y > 100); // it came down
+    EXPECT(m->x < 110);  // and back toward the player
+    EXPECT(w->creatures[pl].hp < PERSON_HP); // and bit it
+    world_destroy(w);
+}
+
+void test_flyer_finds_the_gap(void) {
+    // A wall with a gap at the top between the flyer (alert) and the player: it flies up, over,
+    // and down to the player instead of pressing against the wall.
+    World *w = room(137, 512);
+    int pl = scene_spawn_player(w, 40);
+    int fi = enemy_spawn(w, KIND_FLYER, 200, 100);
+    EXPECT(pl >= 0 && fi >= 0);
+    rock(w, 120, 30, 127, 126); // thick enough for the 6-cell blocks to see (path.h)
+    Creature *m = &w->creatures[fi];
+    m->alert = 1;
+    sim_run_ticks(w, 500);
+    EXPECT(m->x < 100);
+    EXPECT(w->creatures[pl].hp < PERSON_HP);
     world_destroy(w);
 }

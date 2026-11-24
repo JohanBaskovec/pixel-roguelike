@@ -293,6 +293,8 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
       and health crates (walk on them), two monsters that chase and bite the player (a 6 × 6
       walker and an 11 × 11 flyer), with hit points; bullets hurt them and scatter blood; dead
       bodies stay and bleed; all scattered over the maze (boxes, no sprites; D-042)
+- [x] Monster pathfinding over blocks of 6 cells around the player (flyers anywhere, walkers
+      along, down and one block up; D-043)
 - [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour), at the
       same half size
 - [ ] Smoke grenades (smoke as one more gas species, or as fine particles carried by the air)

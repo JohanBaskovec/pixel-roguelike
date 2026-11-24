@@ -99,6 +99,7 @@ add_library(pr_sim STATIC
   src/sim/creature.c
   src/sim/weapon.c
   src/sim/enemy.c
+  src/sim/path.c
   src/sim/pickup.c
   src/sim/edit.c
   src/sim/scene.c

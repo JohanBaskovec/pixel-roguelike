@@ -657,6 +657,7 @@ to watch).
   up by overlap. Rifle ammunition is counted only for a `Rifle` made with `rifle_init()` (a zero
   `Rifle` is endless, which keeps the weapon tests as they were). The restart key moves from `R`
   (now reload) to `F5`.
+- **Pathfinding:** see D-043.
 - **Chase rule:** a monster notices the player when it sees it on the screen and chases until
   the player is off the screen (`World.view_w/view_h`, in cells, set by the game each tick), even
   with a wall between: there is no pathfinding yet (a search over the maze's rooms is the cheap
@@ -665,3 +666,22 @@ to watch).
   kept hundreds of chunks in the heat pass (50 monsters: 12 ms a tick against 2 ms). Monsters
   cost little while frozen outside the simulated area (D-040). Monsters only bite; ranged enemies,
   knockback, the player's death screen beyond a message, and sprites are later work.
+
+## D-043 — Monster pathfinding: distance fields over blocks around the player
+
+- **Status:** Accepted (2026-11-24), asked for by the user.
+- **Context:** Monsters chase the player until it is off the screen (D-042), but without a route
+  they pressed against walls. The maze is destructible, so a route over its room graph would go
+  stale; a search over cells is far too big.
+- **Decision:** One shared distance field per kind, from the player, over blocks of 6 cells in a
+  window of twice the screen around it (`path.c`), rebuilt every 20 ticks when an alert monster
+  without line of sight needs it. A monster follows the descent of the field (one search serves
+  every monster, whatever their number). Flyers use blocks with all neighbours open (they are 11
+  cells wide); walkers use the moves a walker can make (side, down, up one block), so a player
+  above them in a shaft is out of reach and they fall back to walking at it. In sight they still
+  go straight at the player.
+- **Consequences:** Two searches over about 36 000 blocks every 20 ticks while a monster hunts
+  without sight (well under a millisecond). Walls under 6 cells thick can be missed by the
+  sampling, and a monster outside the window (twice the screen) has no route. Routes follow
+  digging within 20 ticks. A smarter walker (jumping up shafts with the jetpack-less jump is
+  impossible anyway) and monsters that open doors are not needed yet.

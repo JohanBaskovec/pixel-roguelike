@@ -2,6 +2,7 @@
 
 #include "core/rng.h"
 #include "sim/particle.h"
+#include "sim/path.h"
 
 #include <math.h>
 
@@ -153,28 +154,45 @@ void enemy_think(World *w, Creature *c) {
         c->alert = 1;
     }
     bool chase = c->alert;
+    // In sight it goes straight for the player; otherwise it follows the route (path.h).
+    bool sight = on_screen && in_sight(w, cx, cy, cx + dx, cy + dy);
+    bool routed_ok = chase && !sight && path_update(w, (int)(cx + dx), (int)(cy + dy));
     if (c->attack_cd > 0) {
         c->attack_cd--;
     }
     c->wander = !chase; // wandering picks `walk` at random (creature.c)
     if (walker) {
         if (chase) {
-            c->walk = fabsf(dx) < 2.0f ? 0 : (int8_t)(dx > 0.0f ? 1 : -1);
-            // Jump when the player is higher, or something blocks the way at foot level.
+            int pw = 0, pj = 0;
+            bool routed = routed_ok && path_walker_step(w, (int)cx, (int)cy, &pw, &pj);
+            if (routed) {
+                c->walk = (int8_t)pw;
+            } else {
+                c->walk = fabsf(dx) < 2.0f ? 0 : (int8_t)(dx > 0.0f ? 1 : -1);
+            }
+            // Jump when the route goes up a ledge, the player is higher (straight chase), or
+            // something blocks the way at foot level.
             int ahead = c->walk > 0 ? c->x + c->w : c->x - 1;
             bool blocked = c->walk != 0 && !particle_passes(w, ahead, c->y + c->h - 1);
-            if (c->grounded && (blocked || dy < -(float)c->h * 1.5f)) {
+            if (c->grounded && (blocked || pj || (!routed && dy < -(float)c->h * 1.5f))) {
                 c->jump = 1;
             }
         }
     } else {
         float tvx, tvy;
         if (chase) {
-            float len = sqrtf(dx * dx + dy * dy);
+            float gx = dx, gy = dy, k = 1.0f;
+            float wx, wy;
+            if (routed_ok && path_flyer_step(w, (int)cx, (int)cy, &wx, &wy)) {
+                gx = wx - cx; // the next waypoint of the route
+                gy = wy - cy;
+            } else if (dx * dx + dy * dy < 36.0f) {
+                k = 0.2f; // slow down when close
+            }
+            float len = sqrtf(gx * gx + gy * gy);
             len = PR_MAX(len, 1.0f);
-            float k = len > 6.0f ? 1.0f : 0.2f; // slow down when close
-            tvx = dx / len * c->speed * k;
-            tvy = dy / len * c->speed * k;
+            tvx = gx / len * c->speed * k;
+            tvy = gy / len * c->speed * k;
         } else {
             // Idle: drift sideways with the wandering direction, bobbing a little.
             tvx = (float)c->walk * c->speed * 0.4f;

@@ -4,6 +4,7 @@
 #include "sim/creature.h"
 #include "sim/heat.h"
 #include "sim/particle.h"
+#include "sim/path.h"
 #include "sim/pressure.h"
 
 #include <stdlib.h>
@@ -66,6 +67,7 @@ void world_destroy(World *w) {
     pr_aligned_free(w->particles);
     pr_aligned_free(w->creatures);
     pr_aligned_free(w->pickups);
+    path_free(w);
     pr_aligned_free(w->sim_scratch);
     free(w);
 }
