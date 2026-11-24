@@ -8,8 +8,8 @@ brush.
 
 ## Genre
 
-**An action roguelike** (decided 2026-11-23, D-031). The player is a character in the world, 1.85 m
-tall, with weapons (an automatic rifle first) that act on the simulation like everything else: a
+**An action roguelike** (decided 2026-11-23, D-031). The player is a character in the world (85 cm
+tall: bodies are drawn at half a person's size, D-038), with weapons (an automatic rifle first) that act on the simulation like everything else: a
 bullet is a pixel of lead that flies, digs and falls. We only ever see part of the level around
 the player. The sandbox tools stay available for now.
 

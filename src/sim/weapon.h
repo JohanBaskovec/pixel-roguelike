@@ -14,9 +14,9 @@
 #define RIFLE_BULLET_SPEED (900.0f / CELL_SIZE_M * TICK_SECONDS)
 #define RIFLE_INTERVAL     5      // ticks between shots: 720 rounds per minute
 #define RIFLE_SPREAD       0.005f // radians, either way (about 0.3 degrees)
-#define RIFLE_SHOULDER     8      // rows from the top of the body: the shoulder, 1.45 m up
-#define RIFLE_LENGTH       18     // cells (90 cm)
-#define RIFLE_PORT         7      // ejection port, cells along the rifle from the shoulder
+#define RIFLE_SHOULDER     4      // rows from the top of the body: the shoulder, 65 cm up
+#define RIFLE_LENGTH       9      // cells (45 cm, at the body's half size)
+#define RIFLE_PORT         4      // ejection port, cells along the rifle from the shoulder
 
 typedef struct Rifle {
     int32_t cooldown; // ticks until it can fire again

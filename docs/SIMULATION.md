@@ -440,7 +440,8 @@ sides. A particle crossing a falling stream does not mix with it.
 ### Creatures (M4c; D-027)
 
 Code: `src/sim/creature.c`. Creatures are entities, not cells: each has a position, a velocity and
-a body, a 9 × 35 rectangle (45 cm × 1.75 m) of `ELEM_BODY` cells stamped into the grid. Body
+a body, a 5 × 17 rectangle (25 cm × 85 cm: half a person's size, D-038) of `ELEM_BODY` cells
+stamped into the grid. Body
 cells are `BEHAVIOR_STATIC`, so liquid, gas, particles and water pressure treat them as walls, and
 brushes do not paint over them; heat conducts through them. Creatures are updated serially, in
 list order, at the start of each tick (before heat and movement).
@@ -448,7 +449,7 @@ list order, at the start of each tick (before heat and movement).
 - **Moving.** Gravity (9.81 m/s²) and, in liquid, buoyancy for the submerged fraction of its sides
   (body 985 kg/m³ against water's 1000: it floats, barely), drag, and swimming up while its head
   is under. Walking at 1.4 m/s (half in liquid or when impaired), stepping up ledges of up to
-  `STEP_UP` (4 cells, 20 cm). It moves cell by cell; each step swaps the cells its leading edge
+  `STEP_UP` (2 cells, 10 cm). It moves cell by cell; each step swaps the cells its leading edge
   moves into (void, gas or liquid) with the body cells it leaves at the other end, so gas and
   water flow around the body and **nothing is created or lost** (tested). Walking through a gas
   boundary carries the gas it walks into to behind it.
@@ -508,7 +509,7 @@ list order, at the start of each tick (before heat and movement).
   gameplay or tests; the room-size results do not depend on it.
 - The test creature (key K) wanders: it picks a direction about every 3 s and turns back when
   blocked.
-- **The player** (M6a, `scene_spawn_player`) is a creature with a 9 × 37 body (1.85 m), running
+- **The player** (M6a, `scene_spawn_player`) is a creature with a 5 × 17 body (85 cm), running
   at 4 m/s (`speed`). It jumps when asked (`jump`) while standing: take-off at 3.13 m/s, about
   50 cm high (tested: 10 cells, and back on the floor). It faces the mouse (`aimed`), not its
   walking direction. **Air control** (a game deviation): in the air, the walking direction pulls
@@ -517,26 +518,26 @@ list order, at the start of each tick (before heat and movement).
   the air after a standing jump). Input is applied between ticks on the main thread.
 - **Kicking small piles** (M6a, after play-testing: the player got stuck on its casings). When a
   walker's leading column holds powder (casings, spent bullets, loose soil, rubble, sand) only in
-  its lowest `KICK_ROWS` rows (40 cm), and nothing else in the way, each of those cells is kicked
+  its lowest `KICK_ROWS` rows (20 cm), and nothing else in the way, each of those cells is kicked
   ahead: a particle from the first free cell above it (in front, or in that column), at twice
   the walker's speed and 1.5–3.3 m/s upward, well clear of it. It lands again ahead (nothing is
-  destroyed). It is not kicked if powder rises above the kick rows within `KICK_AHEAD` (12)
+  destroyed). It is not kicked if powder rises above the kick rows within `KICK_AHEAD` (6)
   columns: that is the foot of a bigger heap, and the walker climbs its 45° slope (`STEP_UP`)
   instead. (Kicking a heap's foot dug the walker into it until the face was too high to kick or
   climb, and pixels kicked onto a rising slope slid back against the walker: both left it stuck,
-  found in play-testing.) Tested: walking through small piles of each, the player stays within 3
-  cells of the floor (it climbed 5 before), and every cell is still there; heaps of loose soil 1
-  and 2 m high are crossed both ways.
+  found in play-testing.) Tested: walking through small piles of each (up to 20 cm), the player
+  stays within 2 cells of the floor, and every cell is still there; heaps of loose soil 1 and 2 m
+  high are crossed both ways.
 
 ### Rifle and bullets (M6a; D-031)
 
 Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flight).
 
 - **Firing.** While the trigger is held, the rifle fires every `RIFLE_INTERVAL` (5) ticks (720
-  rounds/min) from the shooter's shoulder (row 8 of the body, 1.45 m up) toward the aim point,
+  rounds/min) from the shooter's shoulder (row 4 of the body, 65 cm up) toward the aim point,
   with a random spread of ±0.3°. The bullet is a free particle carrying one cell of lead
   (`ELEM_BULLET`, at room temperature: see `ELEMENTS.md`), at 900 m/s (300 cells/tick). It starts at the muzzle, `RIFLE_LENGTH`
-  (18 cells) along the line of fire, or in front of a closer wall: well clear of the body even
+  (9 cells, 45 cm, at the body's half size) along the line of fire, or in front of a closer wall: well clear of the body even
   when the shooter moves forward at the start of the next tick, before the bullet flies (it used
   to start at the edge of the body, then stop in the body and drop in front of the player). The
   spent casing (`ELEM_CASING`, at room temperature) is thrown up and back (1.5–4.5 m/s up) from the ejection

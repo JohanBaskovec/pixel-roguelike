@@ -7,8 +7,8 @@
 #include <stdint.h>
 #include <string.h>
 
-// Steps up ledges up to STEP_UP cells (20 cm) without stopping.
-#define STEP_UP  4
+// Steps up ledges up to STEP_UP cells (10 cm, for its 85 cm) without stopping.
+#define STEP_UP  2
 #define FALL_MAX 24.0f // cells per tick
 // In liquid: drag per tick on the velocity, times the submerged fraction; swimming upward when
 // the head is under (acceleration, cells per tick^2).
@@ -258,12 +258,12 @@ static void push_wind(World *w, int x, int y, int dir, int speed) {
 }
 
 // Small piles at a walker's feet (docs/SIMULATION.md -> Creatures): powder (casings, spent
-// bullets, loose soil, rubble, sand) in the lowest KICK_ROWS rows (40 cm) of the column it walks
+// bullets, loose soil, rubble, sand) in the lowest KICK_ROWS rows (20 cm) of the column it walks
 // into is kicked ahead instead of stopping it, if nothing else is in the way and it is not the foot
 // of a bigger heap (then the walker climbs). Each cell flies as a particle from just ahead, at
 // twice the walker's speed and upward (well clear of it), and lands again.
-#define KICK_ROWS  8
-#define KICK_AHEAD 12
+#define KICK_ROWS  4
+#define KICK_AHEAD 6
 
 static float kick_rand(uint64_t *h) {
     *h = pr_splitmix64(*h);

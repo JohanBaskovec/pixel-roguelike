@@ -30,7 +30,8 @@ with 6–8 cores.
 | M2 | 4096 × 2048 (8.4 M cells), multithreaded | 60 ticks/s with ≈ 2 M active cells (desktop, not yet verified; see ROADMAP) |
 
 **The scene to hold at 60 ticks/s** (the user's target, 2026-11-23; not met yet): a firefight on
-screen at zoom 1 (about 1.1 million cells in view, at 5 cm per cell: D-037), with tens of bullets
+screen (about 520 000 cells in view on a 1920 × 1080 screen at the default zoom ×2, at 5 cm per
+cell: D-037, D-038), with tens of bullets
 in flight, enemies shooting back, the player jumping into water, walls coming apart cell by
 cell, and the air stirred and heated all around; later smoke grenades, rockets and acid. Solids,
 powders, liquids, bullets and bodies are cheap enough already; **gas is what does not fit**

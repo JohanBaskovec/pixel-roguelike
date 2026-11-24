@@ -239,7 +239,8 @@ from the oxygen use within 4%. Breathing also stirs the air around a person (D-0
 The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 
 - [x] Zoom ×1 by default (zooming in and out still works); the camera follows the player (`F`)
-- [x] A player character, 1.85 m tall (37 × 9 cells): runs at 4 m/s with `A`/`D`, jumps 50 cm
+      (×2 since D-038)
+- [x] A player character, 1.85 m tall (37 × 9 cells; 17 × 5 since D-038): runs at 4 m/s with `A`/`D`, jumps 50 cm
       with `W` (physical keys: `Q`/`D`/`Z` on AZERTY), faces the mouse; breathes like any creature
 - [x] An automatic rifle (the `Rifle` tool, default; left button fires, 720 rounds/min): a real
       bullet (one pixel of lead) flies at 900 m/s, stirs the air along its path, digs through
@@ -252,7 +253,8 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
       evenly mixed air that is settled at once
 - [x] The element tools stay, beside the rifle
 - [x] Casings never block the player (after play-testing): bullets start at the muzzle, powders in
-      flight pass through bodies, and walkers kick piles up to 40 cm high out of the way
+      flight pass through bodies, and walkers kick piles up to 40 cm high out of the way (20 cm for
+      the half-size bodies of D-038)
 - [x] No large clump of gas stays unmixed (after play-testing): diffusion down concentration
       gradients at several scales, at gentle indoor-turbulence rates, coming to rest once evenly
       mixed (D-032)
@@ -283,7 +285,10 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 
 Asked for by the user, not designed yet (each needs the gas rework of M6c to run well in a busy
 scene; the target scene is in `PERFORMANCE.md` → Budgets):
-- [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour)
+- [x] Bodies at half size (player 17 × 5 cells, 85 cm) and zoom ×2 by default, the world's scale
+      unchanged (asked for after play-testing; D-038)
+- [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour), at the
+      same half size
 - [ ] Smoke grenades (smoke as one more gas species, or as fine particles carried by the air)
 - [ ] Rockets (a blast: hot gas at high pressure, digging and debris)
 - [ ] Acid that eats through walls (a liquid that reacts with solids)

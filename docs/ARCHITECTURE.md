@@ -242,7 +242,7 @@ whatever the thread count. This requires:
 `sim_tick`: the walking direction and jump from the keyboard (scancodes, so the physical keys
 are the same on any layout), the facing from the mouse, and `rifle_update()` with the trigger.
 Shots add particles; their flight runs in the tick's serial particle step. The camera follows the
-player at zoom 1 unless the user pans. The rifle and bullet streaks are drawn over the world
+player at zoom ×2 unless the user pans. The rifle and bullet streaks are drawn over the world
 texture (they are not cells).
 
 ## Player edits
@@ -296,7 +296,7 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
   and snapped to whole screen pixels so the image does not shimmer while panning.
 - Controls: middle-drag or arrows to pan (WASD too when there is no player), Ctrl+wheel to zoom
   around the cursor, Home to fit the whole world, `F` to follow the player again. The game starts
-  at zoom 1, following the player.
+  at zoom ×2 (two screen pixels per cell), following the player.
 - Overlays are alternative colour mappings in the same conversion step: pressure view (`P`,
   depth below the body's top) and temperature view (`T`). While one is on, everything visible is
   redrawn every frame.

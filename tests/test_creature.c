@@ -43,9 +43,9 @@ void test_creature_falls_and_stands(void) {
 }
 
 void test_creature_walks_and_steps_up(void) {
-    // A step 3 cells high (15 cm) is walked up; a wall 24 cells high stops it.
+    // A step 2 cells high (10 cm) is walked up; a wall 24 cells high stops it.
     World *w = test_world_box(256, 128, 72);
-    fill(w, 120, 124, 254, 126, ELEM_ROCK);
+    fill(w, 120, 125, 254, 126, ELEM_ROCK);
     fill(w, 200, 100, 254, 123, ELEM_ROCK);
     int id = creature_spawn(w, 20, 80);
     sim_run_ticks(w, 120);
@@ -53,7 +53,7 @@ void test_creature_walks_and_steps_up(void) {
     sim_run_ticks(w, 900);
     Creature *c = &w->creatures[id];
     EXPECT(c->x > 130);
-    EXPECT_EQ(c->y + CREATURE_H - 1, 123); // on the step
+    EXPECT_EQ(c->y + CREATURE_H - 1, 124); // on the step
     EXPECT(c->x + CREATURE_W <= 200);      // stopped by the wall
     world_destroy(w);
 }
@@ -85,8 +85,9 @@ void test_creature_stirs_gas_and_conserves_it(void) {
 }
 
 void test_creature_floats_in_water(void) {
-    // Dropped into a deep pool, it ends floating with its head out (bodies are a little lighter
-    // than water, and it swims up when its head is under). Water is conserved.
+    // Dropped into a deep pool, it ends floating with its head out most of the time (bodies are a
+    // little lighter than water, and it swims up when its head is under: it bobs, treading
+    // water). Water is conserved.
     World *w = test_world_box(128, 192, 74);
     fill(w, 1, 100, 126, 190, ELEM_WATER);
     int64_t water = test_count(w, ELEM_WATER);
@@ -96,8 +97,13 @@ void test_creature_floats_in_water(void) {
     EXPECT_EQ(test_count(w, ELEM_WATER), water);
     EXPECT(c->submerged > 0.3f);         // in the water
     EXPECT(c->y + CREATURE_H - 1 < 190); // not on the bottom
-    EXPECT(!test_cell_is(w, c->x - 1, c->y + CREATURE_MOUTH, ELEM_WATER) ||
-           !test_cell_is(w, c->x + CREATURE_W, c->y + CREATURE_MOUTH, ELEM_WATER)); // head out
+    int out = 0;
+    for (int t = 0; t < 240; t++) {
+        sim_tick(w, NULL);
+        out += !test_cell_is(w, c->x - 1, c->y + CREATURE_MOUTH, ELEM_WATER) ||
+               !test_cell_is(w, c->x + CREATURE_W, c->y + CREATURE_MOUTH, ELEM_WATER);
+    }
+    EXPECT(out > 120); // head out
     EXPECT(c->state != CREATURE_DEAD);
     world_destroy(w);
 }
@@ -205,7 +211,7 @@ void test_creature_body_heat(void) {
             if (e == ELEM_BODY) {
                 body += (double)w->temp[i];
             } else if (g_elem_behavior[e] == BEHAVIOR_GAS) {
-                bool is_near = x >= c->x - 4 && x < c->x + CREATURE_W + 4 && y >= c->y - 4;
+                bool is_near = x >= c->x - 2 && x < c->x + CREATURE_W + 2 && y >= c->y - 2;
                 bool is_far = x < 20 || x > 107;
                 if (is_near) {
                     near += (double)w->temp[i];
@@ -368,9 +374,9 @@ void test_water_flows_around_a_body(void) {
     EXPECT_EQ(test_count(w, ELEM_WATER), water);
     world_destroy(w);
 
-    // Standing in water 17 cells deep (85 cm), it jumps.
+    // Standing in water 8 cells deep (40 cm, about half its height), it jumps.
     w = test_world_box(128, 128, 120);
-    fill(w, 1, 110, 126, 126, ELEM_WATER);
+    fill(w, 1, 119, 126, 126, ELEM_WATER);
     id = creature_spawn(w, 60, 70);
     c = &w->creatures[id];
     c->metabolism_scale = 0.0f;
@@ -381,7 +387,7 @@ void test_water_flows_around_a_body(void) {
         c->jump = 1;
         for (int t = 0; t < 60; t++) {
             sim_tick(w, NULL);
-            for (int y = 117; y < 127; y++) {
+            for (int y = 121; y < 127; y++) {
                 for (int x = 1; x < 127; x++) {
                     bubbles += g_elem_behavior[world_elem(w, x, y)] <= BEHAVIOR_NONE ||
                                g_elem_behavior[world_elem(w, x, y)] == BEHAVIOR_GAS;
@@ -408,10 +414,11 @@ void test_breath_in_and_out(void) {
     sim_run_ticks(w, 104);
     EXPECT(!c->holding);
     EXPECT(fabs(test_mass(w, ELEM_CO2) - co2_0 - c->co2_made) < 1e-3 * c->co2_made);
-    // The CO2 is near the mouth (in front of the face, at row 30): there, the air holds
-    // more than 0.1%; far off, still 0.04%.
+    // The CO2 is near the mouth (in front of the face): there, the air holds more than 0.1%; far
+    // off, still 0.04%.
     double best = 0.0;
-    for (int y = 30 - 6; y <= 30 + 6; y++) {
+    int my = c->y + CREATURE_MOUTH;
+    for (int y = my - 6; y <= my + 6; y++) {
         for (int x = c->x + c->w; x <= c->x + c->w + 8; x++) {
             const GasMix *g = &w->gas[world_index(w, x, y)];
             if (world_elem(w, x, y) == ELEM_GAS) {

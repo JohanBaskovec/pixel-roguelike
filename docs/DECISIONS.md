@@ -569,3 +569,21 @@ to watch).
   gas grid or a larger cell; both would reopen this decision. About 20 constants are written in
   cells (body sizes, step height, rifle length, breathing volumes, fall speeds), so the cell size
   is not a one-line change.
+
+## D-038 — Bodies drawn at half size, zoom ×2
+
+- **Status:** Accepted (2026-11-24), asked for by the user after play-testing.
+- **Context:** With a 1.85 m player (37 × 9 cells) at zoom ×1, the view showed little of the world
+  around the player. Making cells bigger (10 cm) was rejected (D-037): it coarsens every material.
+- **Decision:** Bodies are half a person's size: the player and other creatures are 5 × 17 cells
+  (25 cm × 85 cm), and the default zoom is ×2. The world keeps its scale (5 cm cells): gases,
+  liquids, particles, heat and bullets are unchanged. What is proportional to the body is halved:
+  the shoulder (row 4), the rifle (9 cells), the mouth (row 2), the ledge a walker steps up
+  (`STEP_UP` 2) and the piles it kicks (`KICK_ROWS` 4, `KICK_AHEAD` 6). What stays a person's:
+  breathing (volumes and rates), body heat (up to 100 W), running speed (4 m/s) and jump height
+  (50 cm).
+- **Consequences:** a body loses less heat (less surface: 28 W in the 0 °C test room),
+  floats with less of it out of the water (it treads water, its mouth out about three quarters of
+  the time), and stands in water up to about 40 cm. Gameplay and the view decide sizes from here
+  on, not a human's measurements.
+

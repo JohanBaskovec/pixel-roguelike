@@ -19,8 +19,8 @@
 
 // Zoom levels (screen pixels per world cell). Integer levels >= 1 keep every pixel the same size.
 static const float k_zoom[] = {0.25f, 1.0f / 3.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f};
-#define ZOOM_COUNT ((int)PR_ARRAY_COUNT(k_zoom))
-#define ZOOM_ONE   3
+#define ZOOM_COUNT   ((int)PR_ARRAY_COUNT(k_zoom))
+#define ZOOM_DEFAULT 4 // x2: two screen pixels per cell
 
 // Inspector: partial pressures are averaged over a (2r+1)^2 window around the cursor.
 #define INSPECT_RADIUS 7
@@ -173,7 +173,7 @@ bool app_init(App *app, const AppConfig *cfg) {
         return false;
     }
     layout(app);
-    app->zoom_index = ZOOM_ONE;
+    app->zoom_index = ZOOM_DEFAULT;
     if (player(app)) {
         camera_follow(app);
     } else {

@@ -219,14 +219,14 @@ void test_small_clumps_fall(void) {
 }
 
 void test_player_runs_and_jumps(void) {
-    // The player is 1.85 m tall (37 cells) and runs at 4 m/s (80 cells/s); a jump lifts the body
-    // about 50 cm (10 cells).
+    // The player is 85 cm tall (17 cells, half a person's size) and runs at 4 m/s (80 cells/s); a
+    // jump lifts the body about 50 cm (10 cells).
     World *w = test_world_box(512, 128, 106);
     fill(w, 1, 1, 510, 126, EDIT_AIR);
     int pl = scene_spawn_player(w, 40);
     EXPECT(pl >= 0);
     Creature *c = &w->creatures[pl];
-    EXPECT_EQ(c->h, 37);
+    EXPECT_EQ(c->h, PLAYER_H);
     sim_run_ticks(w, 30);
     EXPECT(c->grounded);
     int x0 = c->x, y0 = c->y;
@@ -309,14 +309,15 @@ void test_walk_forward_while_shooting(void) {
 }
 
 void test_walking_kicks_small_piles(void) {
-    // Small piles on the floor (casings, bullets, loose soil, rubble; up to 30 cm high) are kicked
-    // away by a walker instead of stopping it; nothing is destroyed.
+    // Small piles on the floor (casings, bullets, loose soil, rubble; up to 20 cm high, the
+    // walker's kick height) are kicked away by a walker instead of stopping it; nothing is
+    // destroyed.
     int pl;
     World *w = corridor(109, &pl);
-    fill(w, 60, 121, 63, 126, ELEM_CASING);
-    fill(w, 100, 123, 105, 126, ELEM_BULLET);
-    fill(w, 140, 120, 144, 126, ELEM_SOIL);
-    fill(w, 180, 122, 186, 126, ELEM_RUBBLE);
+    fill(w, 60, 123, 63, 126, ELEM_CASING);
+    fill(w, 100, 124, 105, 126, ELEM_BULLET);
+    fill(w, 140, 123, 144, 126, ELEM_SOIL);
+    fill(w, 180, 124, 186, 126, ELEM_RUBBLE);
     int64_t n[4] = {test_count(w, ELEM_CASING), test_count(w, ELEM_BULLET),
                     test_count(w, ELEM_SOIL), test_count(w, ELEM_RUBBLE)};
     Creature *c = &w->creatures[pl];
@@ -327,10 +328,9 @@ void test_walking_kicks_small_piles(void) {
         top = PR_MIN(top, c->y);
     }
     EXPECT(c->x > 220);
-    // It kicked them away rather than climbing over them (it climbed 5 cells before kicking);
-    // what it kicks ahead may land on the next pile and make it too tall to kick (40 cm): then
-    // it steps up a little.
-    EXPECT(y0 - top <= 3);
+    // It kicked them away rather than climbing over them; what it kicks ahead may land on the next
+    // pile and make it too tall to kick (20 cm): then it steps up a little (STEP_UP).
+    EXPECT(y0 - top <= 2);
     c->walk = 0;
     sim_run_ticks(w, 300);
     EXPECT_EQ(test_count(w, ELEM_CASING), n[0]);

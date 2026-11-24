@@ -9,16 +9,20 @@
 
 #include "sim/world.h"
 
-#define CREATURE_MAX    64
-#define CREATURE_MAX_W  16
-#define CREATURE_MAX_H  48
-#define CREATURE_W      9 // default body size in cells: 45 cm x 1.75 m at 5 cm per cell
-#define CREATURE_H      35
-#define CREATURE_MOUTH  3       // mouth row from the top of the body
+#define CREATURE_MAX   64
+#define CREATURE_MAX_W 16
+#define CREATURE_MAX_H 48
+// Bodies are drawn at half a person's size (25 cm x 85 cm at 5 cm per cell), for the view to show
+// more of the world around them; the world's physics keeps its scale. Their breathing and body
+// heat stay a person's, and they run and jump as fast and as high (docs/ELEMENTS.md ->
+// Deviations).
+#define CREATURE_W      5 // default body size in cells: 25 cm x 85 cm at 5 cm per cell
+#define CREATURE_H      17
+#define CREATURE_MOUTH  2       // mouth row from the top of the body
 #define CREATURE_BODY_K 310.15f // body temperature, 37 degC
-// The player (M6a): 1.85 m tall, 45 cm wide; runs at 4 m/s.
-#define PLAYER_W     9
-#define PLAYER_H     37
+// The player (M6a): 85 cm tall, 25 cm wide; runs at 4 m/s.
+#define PLAYER_W     5
+#define PLAYER_H     17
 #define PLAYER_SPEED (4.0f / CELL_SIZE_M * TICK_SECONDS)
 // Walking at 1.4 m/s (a creature's default `speed`), cells per tick.
 #define CREATURE_WALK_SPEED (1.4f / CELL_SIZE_M * TICK_SECONDS)

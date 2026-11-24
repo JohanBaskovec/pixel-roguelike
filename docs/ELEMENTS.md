@@ -128,7 +128,7 @@ All are clamped to `MAX_MOVE` = 32.
 | `WIND_DECAY_P16`, `WIND_SPREAD_P16` | 1/4, 1/2 | `sim/sim.c` | Gas currents: chance per tick to lose a speed step, to spread to a neighbour |
 | `WIND_PASS_LOSS`, `WIND_SPREAD_LOSS`, `WIND_TURN_LOSS` | 2, 4, 3 | `sim/sim.c` | Speed a current loses when it pushes a cell, spreads, or turns at a wall |
 | `BODY_PUSH_WIND`, `BODY_WAKE_WIND`, `BREATH_WIND` | 12, 18, 14 | `sim/creature.c` | Currents from a walking body (front, wake) and a breath out |
-| `PLAYER_W`, `PLAYER_H`, `PLAYER_SPEED` | 9, 37 cells, 4 m/s | `sim/creature.h` | The player: 45 cm × 1.85 m; running speed |
+| `PLAYER_W`, `PLAYER_H`, `PLAYER_SPEED` | 5, 17 cells, 4 m/s | `sim/creature.h` | The player: 25 cm × 85 cm (half size, D-038); running speed |
 | `CREATURE_JUMP_SPEED` | 3.13 m/s | `sim/creature.h` | Take-off speed of a jump (about 50 cm high) |
 | `AIR_CONTROL` | 10% of walking speed per tick | `sim/creature.c` | Steering in the air (deviation 15): full speed in 0.17 s |
 | `LIFT_SIDE` | 0.6 cells/tick | `sim/creature.c` | Powder in mid-air a body moves into slides off it this fast as it falls |
@@ -143,7 +143,7 @@ All are clamped to `MAX_MOVE` = 32.
 | `BULLET_WIND` | 8 | `sim/particle.c` | Current a bullet leaves in the gas along its path |
 | bullet resistance | dirt and powders 50, liquids 15 × ρ/1000 cells/tick per cell; rock: chips one cell and stops | `sim/particle.c` | Speed a bullet loses per cell (it flies at 300): about 30 cm of earth or sand, 1 m of water |
 | `CLUMP_MAX_CELLS` | 20 | `sim/edit.c` | Solid clumps this small, held by nothing, break loose |
-| `KICK_ROWS` | 8 cells (40 cm) | `sim/creature.c` | Powder piles at most this high in a walker's path are kicked ahead |
+| `KICK_ROWS` | 4 cells (20 cm) | `sim/creature.c` | Powder piles at most this high in a walker's path are kicked ahead |
 | `KICK_AHEAD` | 12 cells | `sim/creature.c` | Not kicked if powder rises higher within this many columns (a heap: climbed) |
 | `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from a falling stream (plus fall speed / 4) |
 | `FALL_WIND_LONE` | 4 | `sim/sim.c` | Current a lone falling cell gives the gas it displaces (never spreads, dies in about 16 ticks) |
@@ -151,7 +151,7 @@ All are clamped to `MAX_MOVE` = 32.
 | `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
 | `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
 | `CREATURE_WALK_SPEED` | 1.4 m/s | `sim/creature.h` | Walking speed (half when impaired or in liquid) |
-| `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
+| `STEP_UP` | 2 cells | `sim/creature.c` | Highest ledge (10 cm) walked up without stopping |
 | `BREATH_TICKS`, `INHALE_TICKS` | 257, 103 | `sim/creature.c` | One breath every 4.3 s (14 a minute); breathing in takes 1.7 s, then out |
 | `TIDAL_CELLS` | 4 cells (0.5 L) | `sim/creature.c` | Air breathed in and out per breath at rest (×3 walking) |
 | `DRAW_MIN`, `DRAW_MAX_FRAC` | 32 cells, 1/2 | `sim/creature.c` | A breath draws from at least the 32 gas cells nearest the mouth, at most half of each |
@@ -214,7 +214,8 @@ Keep this list complete.
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
    currents, which the game's diffusion is too slow for when breathing is sped up. Body heat is held at 37 °C with up to
    100 W, scaled by the gas conduction speed-up (×10) like the heat it loses. The body is a
-   9 × 35 rectangle. `metabolism_scale` speeds up breathing and health for gameplay or tests (1:
+   5 × 17 rectangle: half a person's size (D-038), with a person's breathing, body heat, running
+   speed (4 m/s) and jump (50 cm); its rifle is 45 cm long. `metabolism_scale` speeds up breathing and health for gameplay or tests (1:
    real time).
 12. Gas mixtures (D-035): still gas diffuses down each species' mole-fraction difference at about
     2.5e-3 m²/s, about 150× real molecular diffusion (`GAS_DIFFUSE_K`): indoor air is never

@@ -31,7 +31,7 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4c – Creatures** and
 **M5 – Matter variety and reactions** and **M6a – Action roguelike: the player and the rifle** are
 implemented. The game is an action roguelike: a level of dirt and rock under air in a 4096 × 2048
-world, a player (1.85 m) who runs, jumps and fires an automatic rifle whose bullets are real
+world, a player (drawn at half size: 85 cm, D-038) who runs, jumps and fires an automatic rifle whose bullets are real
 pixels (they fly, dig, stir the air and pile up with their casings, and melt; each shot blows
 hot muzzle gas), a toolbar to paint water,
 steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,
@@ -41,7 +41,7 @@ liquids; each gas cell a mixture of gases that diffuse, rise and sink by real de
 condense; currents), free particles (jets that
 follow Torricelli, splashes), creatures that walk, swim,
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
-(liquids push each other), hydrogen combustion, a camera that follows the player (zoom 1), tests
+(liquids push each other), hydrogen combustion, a camera that follows the player (zoom ×2), tests
 and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the player, HP, heat
 damage, and the content the user wants: enemies, smoke grenades, rockets, acid), **M6c –
 Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` → Proposed next steps,

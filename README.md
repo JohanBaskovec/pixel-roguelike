@@ -68,7 +68,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `B` | Toggle circle / square brush |
 | Middle mouse drag, arrows | Pan the view (stops following the player) |
 | `F` | Follow the player again |
-| `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×; starts at 1×) |
+| `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×; starts at 2×) |
 | `Home` | Show the whole world |
 | `P` | Pressure view: water coloured by depth below its surface, gas by pressure (log scale, green = 1 atm) |
 | `T` | Temperature view |
