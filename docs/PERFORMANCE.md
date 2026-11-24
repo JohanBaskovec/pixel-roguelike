@@ -121,14 +121,20 @@ Two cases in a 1024 × 1024 room of air, averaged over 10 s (600 ticks):
 | ... that do something (diffuse, equalise pressure, move) | about 12 000 | about 70 000 |
 | Time per tick, 1 thread / 4 threads, at 10 s | 34 / 11.5 ms | 31 / 11–12 ms |
 
-- **Firing:** three visits in four find nothing to do. A chunk keeps one bounding rectangle of
-  what is awake (`Chunk.cur`), and a bullet wakes each gas cell it crosses, so a diagonal trail
-  wakes the whole chunk. The heat pass and the density pass (`gas_rho_update`) also work on whole
-  chunks; the heat pass on the heat-active chunks and their four neighbours.
+- **Firing:** three visits in four find nothing to do. This was first put down to the chunk's
+  single bounding rectangle (a bullet's diagonal trail waking the whole chunk). Tracking per
+  16 × 16 tile (step 2, done) showed otherwise: the tiles cut the processed area by only 8% in
+  this case. The awake region is a broad patch of stirred air, and most of its cells are
+  neighbours of cells that acted (every exchange wakes the 3 × 3 cells around both ends), which
+  then find themselves within tolerance. The heat pass works on whole chunks: the heat-active
+  chunks and their four neighbours.
 - **CO2 ball:** most visited cells are really diffusing. The cost there is the rule itself: one
   random direction per tick, exchanging in place, with branches and a random number per cell.
 - **Profile, firing:** movement pass 65% (of which pressure equalisation 8%), heat pass 25%, gas
-  density pass 6%.
+  density pass 6%. After step 2 (callgrind, 1 thread, instructions): the gas rule 55%, of which
+  the sleep check (`gas_is_mobile`) is about half, and within it the composition comparison with
+  each neighbour (`gas_mix_differs`) is the largest single line (8% of the tick); the heat pass
+  20% (`compute_chunk` 16%, `apply_chunk` 7%).
 - **Threads:** 4 threads give 2.6–3×. Few chunks are awake per checkerboard phase, and
   water-pressure transfers and free particles run serially.
 - A cell within tolerance of its neighbours costs about 40 ns per visit; an active one 100 ns and
@@ -188,17 +194,31 @@ Likewise buoyancy as an exchange across horizontal faces makes heavy gas sink wh
 about as today; gas that moves as a body (plumes, a sinking blob that keeps its shape) needs
 step 3.
 
-### 2. Track activity per tile, not per chunk rectangle
+### 2. Track activity per tile, not per chunk rectangle (done, 2026-11-24)
 
-Keep a bit per 16 × 16 tile (16 per chunk) for "awake this tick" instead of one bounding rectangle
-per chunk, for the movement pass, the heat pass and the gas pass. A bullet's trail then wakes a
-strip two tiles wide instead of every chunk it crosses.
+Each dirty rect also keeps a bit per 16 × 16 tile (16 per chunk) for where it was woken
+(`DirtyRect.tiles`); the movement pass and the gas density pass process only the rect's cells
+inside those tiles. Heat stays per chunk.
 
-- No change to the physics; it also helps liquids and powders.
-- **Estimate:** up to 2× for the firing case with today's rules (74% of visits find nothing to
-  do, and they are the cheaper ones), little for the CO2 ball (35%). With step 1 the gain is
-  smaller in time but the mask is needed anyway, to skip settled tiles.
-- Wakes merge by OR, so the result still does not depend on the thread count.
+- No change to the physics. Wakes merge by OR, so the result still does not depend on the thread
+  count.
+- **Estimated** up to 2× for the firing case. **Measured** (4 threads, average over 10 s, two
+  runs each, alternately): firing in a 1024 × 1024 room 6.31 / 6.51 ms against 6.64 / 6.86 ms
+  (about 5%); the CO2 ball 6.94 / 6.89 against 7.13 / 6.83 (no change); firing in the default
+  level, and `pr-bench`, within this VM's noise. Cells visited: 8% fewer in the room, 12–18% in
+  the level. The estimate assumed the awake cells were thin bullet trails inside big rectangles;
+  they are mostly the neighbours of active cells (see "Where the time goes"). With step 1 the
+  mask is needed anyway, to skip settled tiles.
+- **Tried with it and dropped:** caching each gas cell's moles next to its density, for the
+  sleep checks (1% fewer instructions for 4 bytes per cell, 34 MB at 4096 × 2048); computing a
+  gas cell's heat capacity and conductivity in the heat pass only where a neighbour differs in
+  temperature (no change when firing: the heat-active chunks are not uniform). Kept: the sleep
+  check reads the neighbours' densities from the per-tick cache (`World.rho`) instead of
+  recomputing them (about 5% fewer instructions when firing).
+- **Found on the way:** a water-pressure transfer could carry a lone air bubble from under a
+  pool's surface to the far end of the body (it traded places with the moving water), here into
+  the vacuum of a sealed barometer tube, which then never filled. Fixed: no transfer when the gas
+  at the opening has no gas around it to be compressed into (SIMULATION → Liquid pressure).
 
 ### 3. Give air a velocity
 
@@ -251,7 +271,7 @@ blast), which adds credibility rather than speed.
 
 ### Order
 
-1. Step 2 (tiles): small, safe, useful under every option.
+1. Step 2 (tiles): done, about 5% (above).
 2. Step 1 (field pass) with coarse pressure relaxation, behind the existing tests, measured on
    the firing and CO2 cases against today's numbers before `update_gas()` is removed.
 3. Step 3 (velocity), after a stand-alone prototype of thin walls.
@@ -289,6 +309,7 @@ blast), which adds credibility rather than speed.
 | 2026-11-23 | M6a heaps | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 18.6 (p50, `--ticks 200`) | Walkers climb heaps instead of kicking their foot; kicked pixels fly farther; bullets are projectiles only above 30 m/s. No change expected or seen beyond this VM's noise (no creatures or bullets in the bench scene) |
 | 2026-11-23 | M6a breath, muzzle, metals | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 16.6 / 17.3 vs 18.3 / 16.4 (p50, new vs M6a heaps, alternately, `--ticks 200`) | Turbulent heat exchange in the heat pass (one more byte read per cell: the gas current), lungs, muzzle gas, lead and brass, powder lifted in mid-air, liquid flowing around bodies. No change beyond this VM's noise |
 | 2026-11-23 | M6a gas mixtures (D-035) | same | gcc 13.3 -O3 | 1024×768 bench scene; 4096×2048 fill 0.7; 1024² room: shooting into the air, CO2 ball (r = 100); default level; demo scene | 4 | — | bench 22.0 vs 18.2 (p50); 4096×2048: 203 vs 161; shooting 5.7–6.0 / 7.8–9.1 / 11.4–11.5 vs 7.1–7.9 / 11.2–11.8 / 13.6–13.8 ms at 1 / 5 / 10 s (two runs each, alternately); CO2 ball 4.7–5.2 / 9.1–9.4 / 11.0–12.0 vs 9.4–10.3 / 13.4–15.4 / 17.7–19.8; level: first tick 117 vs 271 ms, then asleep (was 13 ms for 2 s); demo (gas blobs expanding into a world of vacuum) 36 vs 14 ms at 8 s | A gas cell holds a mixture: Fick diffusion with a neighbour, column-window buoyancy on a per-tick density cache, gravity currents, in-cell burning, dew point. The cases that dropped the game to 10 fps are 1.2–2× faster; the bench soup of random single cells of pure gases is 20–25% slower (every cell differs), and gas expanding into a big vacuum 2.5× slower (it fills it faster, as more cells). Found on the way: still cells cost 153 ns (now a few loads when exactly equal, ~40 ns within tolerance); pressure churn from heating (tolerance 0.1% → 0.3%, 0.2% per 16 cells, 0.3% of 0.1 atm absolute); heat pass computes each pair once (shooting −20%). Left: a chunk's bounding-rect wake (a bullet trail wakes whole chunks) and few chunks per checkerboard phase (4 threads give 2.5×) |
+| 2026-11-24 | M6c tiles | same | gcc 13.3 -O3 | 1024×768 bench scene; 1024² room: firing, CO2 ball (r = 100); default level, firing | 4 | — | bench 17.1 / 19.1 vs 18.4 / 16.1 (p50, `--ticks 200`, alternately); firing 6.31 / 6.51 vs 6.64 / 6.86, CO2 ball 6.94 / 6.89 vs 7.13 / 6.83, level firing 11.0 / 10.6 vs 10.3 / 11.2 (ms/tick averaged over 10 s, alternately) | Activity per 16 × 16 tile (D-036 step 1) and cached densities in the gas sleep check. About 5% on firing in the room, the rest within noise; 8–18% fewer cells visited. Callgrind, firing, 1 thread: 43.1 G → 40.9 G instructions over the run. Estimated up to 2×: the awake region is broad stirred air, not thin trails |
 
 Notes on the M1 baseline:
 - The bench scene is a worst case: 65% of the box is a random mix of water, three gases and

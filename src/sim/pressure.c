@@ -604,7 +604,15 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         moving.aux &= 0x80; // arrives at rest
         moving.stamp = replaced.stamp = (uint8_t)w->tick;
         float t = w->temp[is];
-        if (q_gas && !same_region && squeeze_gas(w, qx, qy, sx, sy)) {
+        if (q_gas && !same_region) {
+            // Gas at Q that cannot be squeezed (a bubble alone under the liquid) must not trade
+            // places: it would land at the source, which may be far away, in other gas or in
+            // vacuum (a bubble from a pool teleported into a sealed barometer tube). No transfer;
+            // the bubble rises on its own.
+            if (!squeeze_gas(w, qx, qy, sx, sy)) {
+                ps->used[root] = (int16_t)used0;
+                continue;
+            }
             replaced = (Cell){ELEM_VOID, replaced.stamp, replaced.shade, 0};
             w->temp[iq] = 0.0f;
             gas_mix_clear(&w->gas[iq]);

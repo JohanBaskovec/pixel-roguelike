@@ -26,9 +26,21 @@ typedef struct GasMix {
     float m[GAS_SPECIES];
 } GasMix;
 
-// Dirty rect in chunk-local coordinates, inclusive. Empty when min_x > max_x.
+// Activity tiles: a chunk is 4 x 4 tiles of 16 x 16 cells. A dirty rect also keeps which tiles
+// were woken (bit ty * 4 + tx), so the cells to process are those of the rect inside those tiles:
+// a bullet's diagonal trail wakes a strip of tiles, not the whole chunk (docs/ARCHITECTURE.md ->
+// Dirty rects).
+#define TILE_SIZE   16
+#define TILE_SHIFT  4
+#define CHUNK_TILES (CHUNK_SIZE / TILE_SIZE) // per row
+
+_Static_assert(CHUNK_TILES == 4, "the tile mask holds 4 x 4 tiles");
+
+// Dirty rect in chunk-local coordinates, inclusive, and the tiles it was woken in. Empty when
+// min_x > max_x.
 typedef struct DirtyRect {
-    int16_t min_x, min_y, max_x, max_y;
+    int8_t min_x, min_y, max_x, max_y;
+    uint16_t tiles;
 } DirtyRect;
 
 typedef struct Chunk {
@@ -44,8 +56,10 @@ typedef struct Chunk {
     uint8_t heat_active;      // compute heat conduction this tick
     uint8_t heat_active_next; // ... next tick
     uint8_t heat_check;       // cells arrived: check next tick whether temperatures differ
-    uint8_t pad[2]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
+    uint8_t pad[6]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
 } Chunk;
+
+_Static_assert(sizeof(Chunk) == 32, "Chunk must stay 32 bytes");
 
 typedef struct World {
     int32_t width, height; // cells; multiples of CHUNK_SIZE
@@ -55,7 +69,8 @@ typedef struct World {
     float *temp_next; // heat pass scratch (Jacobi)
     GasMix *gas;      // per cell; gas cells only (zero elsewhere). Pressure: gas_mix_pressure()
     // Per cell: a gas cell's density at 1 atm and its temperature (kg/m^3; 0 for other cells), for
-    // buoyancy. Recomputed at the start of every tick for the awake chunks (sim.c).
+    // buoyancy and the sleep checks. Recomputed at the start of every tick for the awake cells
+    // (sim.c), so at most a tick old where cells changed.
     float *rho;
     uint8_t *piece; // water pressure: body piece id of still liquid within its chunk (pressure.h)
     Chunk *chunks;
@@ -221,25 +236,75 @@ static inline Chunk *world_chunk(World *w, int cx, int cy) {
 static inline void dirty_rect_clear(DirtyRect *r) {
     r->min_x = r->min_y = CHUNK_SIZE;
     r->max_x = r->max_y = -1;
+    r->tiles = 0;
 }
 
 static inline bool dirty_rect_empty(const DirtyRect *r) {
     return r->min_x > r->max_x;
 }
 
+// The tiles overlapping the chunk-local rect (x0, y0)-(x1, y1), inclusive, within the chunk.
+static inline uint16_t tile_mask(int x0, int y0, int x1, int y1) {
+    int tx0 = x0 >> TILE_SHIFT, tx1 = x1 >> TILE_SHIFT;
+    int ty0 = y0 >> TILE_SHIFT, ty1 = y1 >> TILE_SHIFT;
+    unsigned cols = (0xFu << tx0) & (0xFu >> (3 - tx1));                   // bits tx0..tx1
+    unsigned rows = (0x1111u << (4 * ty0)) & (0x1111u >> (4 * (3 - ty1))); // bit 0 of each row
+    return (uint16_t)(cols * rows); // no carries: cols < 16 and rows' bits are 4 apart
+}
+
 static inline void dirty_rect_add(DirtyRect *r, int x0, int y0, int x1, int y1) {
+    PR_ASSERT(x0 >= 0 && y0 >= 0 && x1 < CHUNK_SIZE && y1 < CHUNK_SIZE && x0 <= x1 && y0 <= y1);
     if (x0 < r->min_x) {
-        r->min_x = (int16_t)x0;
+        r->min_x = (int8_t)x0;
     }
     if (y0 < r->min_y) {
-        r->min_y = (int16_t)y0;
+        r->min_y = (int8_t)y0;
     }
     if (x1 > r->max_x) {
-        r->max_x = (int16_t)x1;
+        r->max_x = (int8_t)x1;
     }
     if (y1 > r->max_y) {
-        r->max_y = (int16_t)y1;
+        r->max_y = (int8_t)y1;
     }
+    r->tiles |= tile_mask(x0, y0, x1, y1);
+}
+
+// d becomes the union of d and s (bounding rect, tiles OR-ed): order-independent.
+static inline void dirty_rect_merge(DirtyRect *d, const DirtyRect *s) {
+    if (dirty_rect_empty(s)) {
+        return;
+    }
+    d->min_x = PR_MIN(d->min_x, s->min_x);
+    d->min_y = PR_MIN(d->min_y, s->min_y);
+    d->max_x = PR_MAX(d->max_x, s->max_x);
+    d->max_y = PR_MAX(d->max_y, s->max_y);
+    d->tiles |= s->tiles;
+}
+
+// The column spans of the rect r inside its woken tiles, on tile row ty: up to 2 runs of
+// adjacent tiles, clipped to the rect's columns, left to right, as chunk-local [x0[k], x1[k]].
+// Returns the number of spans.
+static inline int dirty_rect_spans(const DirtyRect *r, int ty, int x0[2], int x1[2]) {
+    unsigned bits = (r->tiles >> (4 * ty)) & 0xFu;
+    int n = 0;
+    for (int tx = 0; tx < CHUNK_TILES && bits;) {
+        if (!(bits & (1u << tx))) {
+            tx++;
+            continue;
+        }
+        int t0 = tx;
+        while (tx < CHUNK_TILES && (bits & (1u << tx))) {
+            tx++;
+        }
+        int a = PR_MAX(t0 * TILE_SIZE, r->min_x), b = PR_MIN(tx * TILE_SIZE - 1, r->max_x);
+        if (a <= b) {
+            PR_ASSERT(n < 2);
+            x0[n] = a;
+            x1[n] = b;
+            n++;
+        }
+    }
+    return n;
 }
 
 // Wake every cell in the world-space rect (inclusive, clamped) for the next tick, and mark the

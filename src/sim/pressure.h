@@ -52,7 +52,8 @@ int32_t pressure_load_head(const World *w, int x, int y, ElementId liquid, int m
 int32_t pressure_body_top_row(const World *w, int x, int y);
 
 // Carries out requests in order, serially: take a free-surface cell from the top of P's body and
-// move it to Q. Gas at Q is squeezed into a neighbouring cell of the same gas if there is one
-// (the source cell is left empty), else trades places with the moving cell. Returns the number of
+// move it to Q. Gas at Q at about the pressure of the gas above the source trades places with the
+// moving cell; other gas at Q is squeezed into the gas around Q (the source cell is left empty),
+// and if there is none (a lone bubble under the liquid), nothing moves. Returns the number of
 // cells moved. Wakes what it changes.
 int pressure_apply(World *w, const PressureRequest *req, int count);

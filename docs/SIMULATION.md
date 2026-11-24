@@ -34,7 +34,8 @@ matter leaves it.
 
 - Chunks are processed in the 4-phase checkerboard (`ARCHITECTURE.md`). The phase that goes
   first rotates every tick, so no chunk group always gets first pick of free space at its borders.
-- Within each chunk's dirty rect, rows are processed **bottom to top**. Within a row, the
+- Within each chunk's dirty rect (only its woken 16 × 16 tiles, `ARCHITECTURE.md` → Dirty rects),
+  rows are processed **bottom to top**. Within a row, the
   horizontal direction **alternates every tick**, so nothing drifts systematically to one side.
 - Each cell has a `stamp` byte: the low 8 bits of the tick in which it was last updated or
   moved. A cell whose stamp equals the current tick's stamp is skipped. This stops a rising gas,
@@ -215,7 +216,10 @@ cell of volume moved at a single spot would change its pressure by tens of perce
 equalises by diffusion, much slower than in reality, so such compressing transfers are limited to
 one per body every `GAS_LIQUID_INTERVAL` (2) ticks: the rest of the gas keeps up, and a barometer
 fills in about 20 s. Gas next to a liquid surface that changes (a transfer, heating) triggers a
-relabel, so heating a sealed tank pushes its water too.
+relabel, so heating a sealed tank pushes its water too. If the gas at Q has no gas around it to be
+compressed into (a lone bubble under the surface), the transfer does not happen: trading places
+would carry the bubble to the source, which may be far away, even into the vacuum of a sealed
+barometer tube. The bubble rises on its own.
 
 **How bodies are found, every tick, exactly:**
 1. Chunks where still liquid changed (a still cell moved or started to fall, a falling cell

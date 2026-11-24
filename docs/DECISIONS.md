@@ -512,15 +512,18 @@ to watch).
   1000 × 1000 room: shooting 1.2–1.4× faster, a big CO2 ball 1.6–2× faster, the default level
   settles at once; a soup of random single cells of pure gases (`pr-bench`) is 20–25% slower
   (every cell differs from its neighbours), and gas expanding into a world of vacuum (the demo)
-  2.5× slower. Not the 4–5× hoped for: most visited cells are woken by chunk-wide dirty rects
-  rather than active, and heat keeps pressure moving (ROADMAP M6c). Pressure precision is 0.3%
+  2.5× slower. Not the 4–5× hoped for: most visited cells have nothing to do (first put down to
+  chunk-wide dirty rects; tracking per tile later showed they are mostly the neighbours of active
+  cells, D-036), and heat keeps pressure moving (ROADMAP M6c). Pressure precision is 0.3%
   between neighbours and 0.2% per 16 cells (a finer one made shooting costlier). The model can be
   reused for liquids carrying dissolved or suspended matter (ROADMAP).
 
 ## D-036 — Gas computed as a field, with tile activity and (later) an air velocity
 
-- **Status:** Proposed (2026-11-23). Not implemented; the plan and its measurements are in
-  `docs/PERFORMANCE.md` → Proposed next steps.
+- **Status:** Proposed (2026-11-23); part (1) implemented 2026-11-24 for the movement and gas
+  density passes, with a smaller gain than estimated (about 5%, see PERFORMANCE → Benchmark log).
+  The rest is not implemented; the plan and its measurements are in `docs/PERFORMANCE.md` →
+  Proposed next steps.
 - **Context:** After D-035 a gas cell stores a mixture, but gas still moves mostly as cells trading
   places at random, one direction per tick: 40 ns per visit for a cell that has nothing to do,
   100 ns and more for an active one, and three visits in four find nothing to do when firing (a

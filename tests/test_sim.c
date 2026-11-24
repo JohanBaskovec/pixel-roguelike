@@ -16,6 +16,7 @@ void test_hydrogen_rises_above_oxygen(void);
 void test_counts_conserved(void);
 void test_deterministic(void);
 void test_settled_world_sleeps(void);
+void test_dirty_rect_tiles(void);
 void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
@@ -179,6 +180,57 @@ void test_deterministic(void) {
     world_destroy(a);
     world_destroy(b);
     world_destroy(c);
+}
+
+// Is the chunk-local cell (x, y) among the cells the movement pass processes for rect r?
+static bool rect_processes(const DirtyRect *r, int x, int y) {
+    if (dirty_rect_empty(r) || y < r->min_y || y > r->max_y) {
+        return false;
+    }
+    int x0[2], x1[2];
+    int n = dirty_rect_spans(r, y >> TILE_SHIFT, x0, x1);
+    for (int k = 0; k < n; k++) {
+        if (x >= x0[k] && x <= x1[k]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void test_dirty_rect_tiles(void) {
+    // A dirty rect keeps the 16 x 16 tiles it was woken in: a diagonal line of 3 x 3 wakes across
+    // a chunk is processed along a strip of tiles, not over its whole bounding rect, and merging
+    // two rects keeps both sets of tiles.
+    EXPECT_EQ(tile_mask(0, 0, 63, 63), 0xFFFF);
+    EXPECT_EQ(tile_mask(17, 17, 17, 17), 1 << 5);
+    EXPECT_EQ(tile_mask(15, 40, 16, 40), 0x3 << 8);
+    DirtyRect r;
+    dirty_rect_clear(&r);
+    for (int i = 1; i <= 61; i += 3) {
+        dirty_rect_add(&r, i - 1, i - 1, i + 1, i + 1);
+    }
+    EXPECT(r.min_x == 0 && r.min_y == 0 && r.max_x == 62 && r.max_y == 62); // the whole chunk
+    for (int i = 0; i <= 62; i++) {
+        EXPECT(rect_processes(&r, i, i)); // every woken cell is processed
+    }
+    EXPECT(!rect_processes(&r, 60, 2)); // ... but not the far corners
+    EXPECT(!rect_processes(&r, 2, 60));
+    int n = 0;
+    for (int y = 0; y < CHUNK_SIZE; y++) {
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            n += rect_processes(&r, x, y);
+        }
+    }
+    // The 4 diagonal tiles, plus the 2 others at each tile corner a wake straddles (the wakes
+    // around 16 and 31; none covers both 47 and 48): 8 of 16 tiles, less row and column 63 of the
+    // last one (outside the rect).
+    EXPECT_EQ(n, 8 * TILE_SIZE * TILE_SIZE - (2 * TILE_SIZE - 1));
+    DirtyRect s;
+    dirty_rect_clear(&s);
+    dirty_rect_add(&s, 60, 2, 60, 2);
+    dirty_rect_merge(&r, &s);
+    EXPECT(rect_processes(&r, 60, 2));
+    EXPECT(!rect_processes(&r, 2, 60));
 }
 
 void test_settled_world_sleeps(void) {

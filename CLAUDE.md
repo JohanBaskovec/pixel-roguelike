@@ -113,8 +113,8 @@ On Linux, building SDL3 from source needs the X11/Wayland development packages l
 
 ## Architecture in 30 seconds
 
-- The **world** is a grid of cells, split into **64×64 chunks**. Each chunk keeps a *dirty rect*,
-  and only dirty regions are simulated. Settled matter sleeps.
+- The **world** is a grid of cells, split into **64×64 chunks**. Each chunk keeps a *dirty rect*
+  and which of its 16×16 tiles are awake; only those cells are simulated. Settled matter sleeps.
 - The simulation runs at a **fixed 60 ticks/s**, decoupled from rendering. Each tick runs a
   movement pass (cellular automaton, bottom-up, with an alternating horizontal scan direction) and
   then a heat pass.

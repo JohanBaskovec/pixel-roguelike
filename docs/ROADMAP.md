@@ -303,8 +303,10 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
       immiscible ones (oil and water) stay apart
 - Faster and more credible gases (proposed, D-036; the plan, with measurements, is in
   `docs/PERFORMANCE.md` → Proposed next steps). In this order:
-  - [ ] Activity per 16 × 16 tile instead of one rectangle per chunk (a bullet's diagonal trail
-        wakes whole chunks today): movement, heat and gas passes
+  - [x] Activity per 16 × 16 tile instead of one rectangle per chunk: movement and gas density
+        passes (heat stays per chunk). Measured: 8–18% fewer cells visited, about 5% faster
+        firing in a room, no change elsewhere; the awake region while firing is broad stirred
+        air, not thin trails (PERFORMANCE → Benchmark log)
   - [ ] Gas as a field: every gas cell exchanges gas and heat with its four neighbours each tick,
         from the previous tick's values, with no randomness and no checkerboard; one array per
         species; pressure also relaxed between coarse blocks. Measured in a prototype

@@ -991,8 +991,8 @@ static int gas_is_mobile(const World *w, int x, int y, float n, float pv, float 
         if (gas_differs(pv, nn * w->temp[ni]) || n + nn < GAS_SPLIT_MOLES) {
             return GAS_MOBILE | GAS_PRESSURE;
         }
-        if (flags == 0 && (gas_mix_differs(g, n, h, nn) ||
-                           fabsf(gas_mix_density_atm(h, w->temp[ni]) - rs) > GAS_BUOY_TOL * rs)) {
+        if (flags == 0 &&
+            (gas_mix_differs(g, n, h, nn) || fabsf(w->rho[ni] - rs) > GAS_BUOY_TOL * rs)) {
             flags = GAS_MOBILE; // diffuse; rise, sink or spread
         }
     }
@@ -1282,32 +1282,46 @@ static void update_chunk(TickCtx *c) {
         }
     }
 
-    // Bottom to top; horizontal direction alternates every tick (no left/right bias).
+    // Bottom to top; horizontal direction alternates every tick (no left/right bias). Only the
+    // cells of the rect inside its woken tiles (up to 2 spans per tile row).
     bool left_to_right = (w->tick & 1) == 0;
-    for (int ly = r.max_y; ly >= r.min_y; ly--) {
-        int y = c->base_y + ly;
-        Cell *row = &w->cells[world_index(w, 0, y)];
-        for (int i = 0; i <= r.max_x - r.min_x; i++) {
-            int x = c->base_x + (left_to_right ? r.min_x + i : r.max_x - i);
-            Cell *cell = &row[x];
-            uint8_t b = g_elem_behavior[cell->element];
-            if (b <= BEHAVIOR_STATIC || cell->stamp == c->stamp) {
-                continue;
-            }
-            cell->stamp = c->stamp;
-            c->stats.cells_visited++;
-            switch (b) {
-                case BEHAVIOR_LIQUID:
-                    update_liquid(c, x, y);
-                    break;
-                case BEHAVIOR_GAS:
-                    update_gas(c, x, y);
-                    break;
-                case BEHAVIOR_POWDER:
-                    update_powder(c, x, y);
-                    break;
-                default:
-                    break;
+    for (int ty = r.max_y >> TILE_SHIFT; ty >= r.min_y >> TILE_SHIFT; ty--) {
+        int sx0[2], sx1[2];
+        int ns = dirty_rect_spans(&r, ty, sx0, sx1);
+        if (ns == 0) {
+            continue;
+        }
+        int ly_top = PR_MAX(r.min_y, ty * TILE_SIZE);
+        int ly_bottom = PR_MIN(r.max_y, ty * TILE_SIZE + TILE_SIZE - 1);
+        for (int ly = ly_bottom; ly >= ly_top; ly--) {
+            int y = c->base_y + ly;
+            Cell *row = &w->cells[world_index(w, 0, y)];
+            for (int s = 0; s < ns; s++) {
+                int k = left_to_right ? s : ns - 1 - s;
+                int n = sx1[k] - sx0[k];
+                for (int i = 0; i <= n; i++) {
+                    int x = c->base_x + (left_to_right ? sx0[k] + i : sx1[k] - i);
+                    Cell *cell = &row[x];
+                    uint8_t b = g_elem_behavior[cell->element];
+                    if (b <= BEHAVIOR_STATIC || cell->stamp == c->stamp) {
+                        continue;
+                    }
+                    cell->stamp = c->stamp;
+                    c->stats.cells_visited++;
+                    switch (b) {
+                        case BEHAVIOR_LIQUID:
+                            update_liquid(c, x, y);
+                            break;
+                        case BEHAVIOR_GAS:
+                            update_gas(c, x, y);
+                            break;
+                        case BEHAVIOR_POWDER:
+                            update_powder(c, x, y);
+                            break;
+                        default:
+                            break;
+                    }
+                }
             }
         }
     }
@@ -1345,9 +1359,9 @@ static PhaseScratch *get_scratch(World *w) {
     return w->sim_scratch;
 }
 
-// Gas densities (World.rho) of the chunks awake this tick, recomputed in parallel before the
-// movement pass (each job writes only its own chunk). A chunk whose cells change is awake the
-// next tick, so they are at most a tick old.
+// Gas densities (World.rho) of the cells awake this tick (each chunk's rect inside its woken
+// tiles), recomputed in parallel before the movement pass (each job writes only its own chunk). A
+// cell that changes wakes itself for the next tick, so they are at most a tick old.
 typedef struct GasRhoJob {
     World *w;
     const int *chunks;
@@ -1357,14 +1371,23 @@ static void gas_rho_job(void *user, int index) {
     const GasRhoJob *job = user;
     World *w = job->w;
     int ci = job->chunks[index];
+    const DirtyRect *r = &w->chunks[ci].cur;
     int x0 = (ci % w->chunks_x) << CHUNK_SHIFT, y0 = (ci / w->chunks_x) << CHUNK_SHIFT;
-    for (int y = y0; y < y0 + CHUNK_SIZE; y++) {
-        size_t row = world_index(w, x0, y);
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            size_t i = row + (size_t)x;
-            w->rho[i] = w->cells[i].element == ELEM_GAS
-                            ? gas_mix_density_atm(&w->gas[i], w->temp[i])
-                            : 0.0f;
+    for (int ty = r->min_y >> TILE_SHIFT; ty <= r->max_y >> TILE_SHIFT; ty++) {
+        int sx0[2], sx1[2];
+        int ns = dirty_rect_spans(r, ty, sx0, sx1);
+        int ly0 = PR_MAX(r->min_y, ty * TILE_SIZE);
+        int ly1 = PR_MIN(r->max_y, ty * TILE_SIZE + TILE_SIZE - 1);
+        for (int ly = ly0; ly <= ly1; ly++) {
+            size_t row = world_index(w, x0, y0 + ly);
+            for (int s = 0; s < ns; s++) {
+                for (int lx = sx0[s]; lx <= sx1[s]; lx++) {
+                    size_t i = row + (size_t)lx;
+                    w->rho[i] = w->cells[i].element == ELEM_GAS
+                                    ? gas_mix_density_atm(&w->gas[i], w->temp[i])
+                                    : 0.0f;
+                }
+            }
         }
     }
 }
@@ -1479,10 +1502,7 @@ void sim_tick(World *w, SimStats *stats) {
                     continue;
                 }
                 Chunk *chunk = world_chunk(w, ccx, ccy);
-                if (!dirty_rect_empty(&c->wake[k])) {
-                    DirtyRect *r = &c->wake[k];
-                    dirty_rect_add(&chunk->next, r->min_x, r->min_y, r->max_x, r->max_y);
-                }
+                dirty_rect_merge(&chunk->next, &c->wake[k]);
                 chunk->render_dirty |= c->render[k];
                 chunk->head_dirty_next |= c->liquid[k];
                 if (c->arr_lo[k] <= c->arr_hi[k]) { // cells moved in, with their temperatures

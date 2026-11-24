@@ -179,8 +179,12 @@ cell that did not move but still could (a probabilistic move that failed) keeps 
 (`keep_alive`). If nothing changes inside a chunk during a tick, its next rect is empty and the
 chunk sleeps until something wakes it: a neighbour's change, a player edit, or (M3) heat.
 
-One rectangle per chunk is coarse: a diagonal line of woken cells (a bullet's trail) makes the
-whole chunk awake. Finer tracking is proposed (`PERFORMANCE.md` → Proposed next steps).
+A rect also records which of the chunk's 16 tiles (4 × 4 tiles of 16 × 16 cells) it was woken
+in (`DirtyRect.tiles`, a 16-bit mask OR-ed in by every wake). The movement pass and the gas
+density pass process only the rect's cells inside those tiles (up to two runs of tiles per tile
+row, `dirty_rect_spans`), so a diagonal line of woken cells wakes a strip of tiles, not the whole
+chunk. Wakes from jobs merge by min/max and OR (`dirty_rect_merge`), so the result does not
+depend on the thread count. Water pressure and the heat pass still work on whole chunks.
 
 ### Parallel movement: 4-phase checkerboard
 

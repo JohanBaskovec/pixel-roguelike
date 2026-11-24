@@ -16,6 +16,7 @@ void test_hydrogen_rises_above_oxygen(void);
 void test_counts_conserved(void);
 void test_deterministic(void);
 void test_settled_world_sleeps(void);
+void test_dirty_rect_tiles(void);
 void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
@@ -128,6 +129,7 @@ int main(int argc, char **argv) {
     RUN(test_counts_conserved);
     RUN(test_deterministic);
     RUN(test_settled_world_sleeps);
+    RUN(test_dirty_rect_tiles);
     RUN(test_no_diagonal_leak);
     RUN(test_poured_water_spreads);
     RUN(test_falling_stream_has_no_chunk_bulges);
