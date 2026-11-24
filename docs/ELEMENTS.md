@@ -145,7 +145,8 @@ All are clamped to `MAX_MOVE` = 32.
 | `CLUMP_MAX_CELLS` | 20 | `sim/edit.c` | Solid clumps this small, held by nothing, break loose |
 | `KICK_ROWS` | 8 cells (40 cm) | `sim/creature.c` | Powder piles at most this high in a walker's path are kicked ahead |
 | `KICK_AHEAD` | 12 cells | `sim/creature.c` | Not kicked if powder rises higher within this many columns (a heap: climbed) |
-| `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from falling matter (plus fall speed / 4) |
+| `FALL_WIND_BASE` | 6 | `sim/sim.c` | Current from a falling stream (plus fall speed / 4) |
+| `FALL_WIND_LONE` | 4 | `sim/sim.c` | Current a lone falling cell gives the gas it displaces (never spreads, dies in about 16 ticks) |
 | Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |
 | `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
 | `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
@@ -204,7 +205,11 @@ Keep this list complete.
    a range, about 1300–1500 K for granite).
 10. Gas currents are a coarse stand-in for air flow: a direction and a speed per gas cell, not a
     solved velocity field (no vortices from pressure, no inertia beyond the current fading over
-    about 2 s). They are made by bodies and falling matter, not by pressure differences.
+    about 2 s). They are made by bodies and falling matter, not by pressure differences. A current
+    in gas exactly like the gas around it stops at once (it would change nothing there; a clod
+    falling through a clear sky would otherwise leave a churning trail for seconds), so a gust
+    does not carry across clean air into smoke beyond. A lone falling cell kicks only the gas it
+    displaces (`FALL_WIND_LONE`); only streams drag the air beside them.
 11. Creatures (M4c): each breath in also stirs the air around a person, swapping 2 L worth of gas cells
    near the mouth with gas up to 3.2 m away (`STIR_CELLS`, `STIR_FAR`); real rooms mix by air
    currents, which the game's diffusion is too slow for when breathing is sped up. Body heat is held at 37 °C with up to
@@ -218,7 +223,10 @@ Keep this list complete.
 13. Weapons (M6a): a bullet is one cell (5 cm), far bigger than a real 5.56 mm bullet; its
     penetration (about 30 cm of earth, one chip of rock) is a rough figure, not a ballistic model,
     and it does not ricochet. Spent bullets and casings are full cells of lead and brass at their
-    solid densities (a real casing is hollow). The rifle never runs out of ammunition. Muzzle
+    solid densities (a real casing is hollow). Bullets and casings start at room temperature,
+    though real ones leave at about 100 °C: a real bullet then holds about 50 J of heat, a cell of
+    lead at 400 K 19 kJ, which would heat a trail of air all the way down as it falls. The rifle
+    never runs out of ammunition. Muzzle
     velocity is real (900 m/s): a bullet crosses the screen in a few ticks, so the game draws a
     faint streak behind it (rendering only). The muzzle gas has no carbon monoxide or hydrogen
     (counted as CO₂ and water vapour), so it does not burn in a secondary flash; a gas cell with a

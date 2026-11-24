@@ -315,11 +315,19 @@ blast), which adds credibility rather than speed.
 Revised 2026-11-24, after step 2 and the in-game measurement of step 1. What is known: a busy
 scene keeps 120 000–200 000 gas cells awake, and today's rules cost about 100–140 ns per visited
 cell on this VM (whole tick, one thread); the cases measured here run at 6–11 ms per tick on 4
-threads. What is not known: the same on a desktop, which this VM's notes put at 2–3× faster.
+threads.
 
 1. Step 2 (tiles): done, about 5% (above).
-2. Measure on the player's machine (the HUD's Sim time while firing for 10 s, and the CPU), to
-   know how much is missing.
+2. Measured on the player's machine (done): a laptop Ryzen 7 4700U (8 cores, 8 threads), the
+   default level, firing at the sky for 10 s while sweeping from left to right: 2 million cells
+   updated, Sim 50 ms, 20 fps. The same scene here: 2.06 million, 74 ms on 4 threads (so that
+   laptop with 8 threads is about 1.5× this VM with 4). The cause was not the gas rules' cost per
+   cell but how much was awake: bullets fired upward knock soil out of the dirt ceiling, spent
+   bullets fall back, and every cell of debris falling through the sky churned the air along its
+   whole path for seconds (1.8 million cells with a current) and, for bullets, heated it (a cell
+   of lead at 400 K holds 350 times a real bullet's heat: the heat pass ran on 690 chunks). Fixed
+   (Benchmark log): lone falling cells barely kick the air, currents stop in uniform gas, bullets
+   and casings start at room temperature. The scene now costs about 8 ms per tick here at 10 s.
 3. Gas at 30 Hz by tile parity (step 4): half the tiles' gas cells each tick, rates doubled.
    Estimate: about 1.3× for the whole tick (gas rules are about 55% of it), at some cost in
    fidelity (buoyant rise and currents at most one cell per update).
@@ -365,6 +373,7 @@ threads. What is not known: the same on a desktop, which this VM's notes put at 
 | 2026-11-23 | M6a breath, muzzle, metals | same | gcc 13.3 -O3 | 1024×768 bench scene | 4 | — | 16.6 / 17.3 vs 18.3 / 16.4 (p50, new vs M6a heaps, alternately, `--ticks 200`) | Turbulent heat exchange in the heat pass (one more byte read per cell: the gas current), lungs, muzzle gas, lead and brass, powder lifted in mid-air, liquid flowing around bodies. No change beyond this VM's noise |
 | 2026-11-23 | M6a gas mixtures (D-035) | same | gcc 13.3 -O3 | 1024×768 bench scene; 4096×2048 fill 0.7; 1024² room: shooting into the air, CO2 ball (r = 100); default level; demo scene | 4 | — | bench 22.0 vs 18.2 (p50); 4096×2048: 203 vs 161; shooting 5.7–6.0 / 7.8–9.1 / 11.4–11.5 vs 7.1–7.9 / 11.2–11.8 / 13.6–13.8 ms at 1 / 5 / 10 s (two runs each, alternately); CO2 ball 4.7–5.2 / 9.1–9.4 / 11.0–12.0 vs 9.4–10.3 / 13.4–15.4 / 17.7–19.8; level: first tick 117 vs 271 ms, then asleep (was 13 ms for 2 s); demo (gas blobs expanding into a world of vacuum) 36 vs 14 ms at 8 s | A gas cell holds a mixture: Fick diffusion with a neighbour, column-window buoyancy on a per-tick density cache, gravity currents, in-cell burning, dew point. The cases that dropped the game to 10 fps are 1.2–2× faster; the bench soup of random single cells of pure gases is 20–25% slower (every cell differs), and gas expanding into a big vacuum 2.5× slower (it fills it faster, as more cells). Found on the way: still cells cost 153 ns (now a few loads when exactly equal, ~40 ns within tolerance); pressure churn from heating (tolerance 0.1% → 0.3%, 0.2% per 16 cells, 0.3% of 0.1 atm absolute); heat pass computes each pair once (shooting −20%). Left: a chunk's bounding-rect wake (a bullet trail wakes whole chunks) and few chunks per checkerboard phase (4 threads give 2.5×) |
 | 2026-11-24 | M6c tiles | same | gcc 13.3 -O3 | 1024×768 bench scene; 1024² room: firing, CO2 ball (r = 100); default level, firing | 4 | — | bench 17.1 / 19.1 vs 18.4 / 16.1 (p50, `--ticks 200`, alternately); firing 6.31 / 6.51 vs 6.64 / 6.86, CO2 ball 6.94 / 6.89 vs 7.13 / 6.83, level firing 11.0 / 10.6 vs 10.3 / 11.2 (ms/tick averaged over 10 s, alternately) | Activity per 16 × 16 tile (D-036 step 1) and cached densities in the gas sleep check. About 5% on firing in the room, the rest within noise; 8–18% fewer cells visited. Callgrind, firing, 1 thread: 43.1 G → 40.9 G instructions over the run. Estimated up to 2×: the awake region is broad stirred air, not thin trails |
+| 2026-11-24 | M6c clear air | same | gcc 13.3 -O3 | default level, firing at the sky for 10 s sweeping left to right (the player's test); 1024² room, firing; 1024×768 bench scene | 4 | — | sweep 7.6 / 6.7 vs 42.8 / 40.3 (ms/tick averaged over 10 s), at 10 s 8.5 / 7.7 vs 77.9 / 77.3, cells visited 156 000 vs 2 060 000, heat chunks 56 vs 692; room 6.2 / 6.9 vs 6.8 / 7.7; bench 19.8 / 19.8 vs 20.0 / 19.2 (p50) (all alternately) | Lone falling cells kick only the gas they displace (`FALL_WIND_LONE`), currents stop in gas exactly like its neighbours, bullets and casings fired at room temperature. Each part measured in the sweep: bullets at room temperature alone 2.0 M cells visited (the currents remain), with currents stopping in uniform gas 209 000, with lone cells as well 156 000 |
 
 Notes on the M1 baseline:
 - The bench scene is a worst case: 65% of the box is a random mix of water, three gases and

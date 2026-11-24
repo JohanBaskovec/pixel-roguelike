@@ -364,9 +364,18 @@ would only swap the cells they touch, and a room's air would stay perfectly stil
   air sleeps again (tested).
 - **Sources:** a creature's step pushes the air in front of it (speed 12) and drags a wake behind
   it (18); each breath out blows a puff from the mouth (14, rising a little); a bullet leaves a
-  current along its path (8), and the muzzle blast a full one. Liquid or powder falling through
-  gas kicks the displaced gas sideways and upward and drags the gas beside it down (6 plus the
-  fall speed / 4).
+  current along its path (8), and the muzzle blast a full one. A stream of liquid or powder
+  falling through gas (falling matter just above or below the falling cell) kicks the displaced
+  gas sideways and upward and drags the gas beside it down (6 plus the fall speed / 4); a lone
+  falling cell (a clod, a drop, a spent bullet) only kicks the gas it displaces, at 4
+  (`FALL_WIND_LONE`: it never spreads and dies in about 16 ticks).
+- **Currents stop in uniform gas.** A gas cell with a current whose four neighbours hold exactly
+  its mixture at exactly its temperature (or are solid) loses its current at once: moving it
+  would trade identical contents, and the mixing and heat exchange it speeds up have nothing to
+  act on. Currents act only where the gas is not uniform (smoke, breath, muzzle gas, warm air,
+  next to liquid or vacuum). The cost: a gust does not carry across clean air into smoke beyond
+  it. Without this, debris falling through a clear sky (bullets fired at a dirt ceiling) kept
+  1.8 million cells stirring for nothing.
 - Currents move cells, and they **mix** the gases they pass through: diffusion and heat exchange
   between gas cells are multiplied by `1 + GAS_TURB_PER_WIND · speed` (turbulence, D-034). Mass is
   conserved exactly (tested: walking along a striped room of nitrogen and a blend of the same
@@ -526,11 +535,11 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
 - **Firing.** While the trigger is held, the rifle fires every `RIFLE_INTERVAL` (5) ticks (720
   rounds/min) from the shooter's shoulder (row 8 of the body, 1.45 m up) toward the aim point,
   with a random spread of ±0.3°. The bullet is a free particle carrying one cell of lead
-  (`ELEM_BULLET`, 400 K), at 900 m/s (300 cells/tick). It starts at the muzzle, `RIFLE_LENGTH`
+  (`ELEM_BULLET`, at room temperature: see `ELEMENTS.md`), at 900 m/s (300 cells/tick). It starts at the muzzle, `RIFLE_LENGTH`
   (18 cells) along the line of fire, or in front of a closer wall: well clear of the body even
   when the shooter moves forward at the start of the next tick, before the bullet flies (it used
   to start at the edge of the body, then stop in the body and drop in front of the player). The
-  spent casing (`ELEM_CASING`, 370 K) is thrown up and back (1.5–4.5 m/s up) from the ejection
+  spent casing (`ELEM_CASING`, at room temperature) is thrown up and back (1.5–4.5 m/s up) from the ejection
   port, 7 cells along the rifle, or from above the head if the port is inside a wall.
 - **Flight.** A bullet faster than `BULLET_FAST` (30 m/s) covers its whole path for the tick in
   half-cell steps, at the end of the tick with the other particles (serial, deterministic, not

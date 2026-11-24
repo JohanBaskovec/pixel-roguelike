@@ -5,9 +5,14 @@
 
 #include <math.h>
 
-// Temperatures of a spent bullet and casing (K): warm from the shot.
-#define BULLET_TEMP_K 400.0f
-#define CASING_TEMP_K 370.0f
+// Temperatures of a fired bullet and its casing (K). Real ones leave warm (about 100 degC), but a
+// 4 g bullet then holds about 50 J and a 10 g casing about 300 J above the air's temperature. A
+// cell stands for a 5 cm cube: a bullet cell at 400 K would hold 19 kJ (1.4 kg of lead), 350
+// times too much, and heat a trail of air all the way down as it falls (a burst fired at the sky
+// kept the heat pass running over 700 chunks). So both start at room temperature: the heat they
+// really carry is negligible. (The shot's heat is in the muzzle gas, which holds the real amount.)
+#define BULLET_TEMP_K T_ROOM
+#define CASING_TEMP_K T_ROOM
 
 // Muzzle gas: the propellant (1.6 g, about what a 5.56 mm cartridge holds) leaves the muzzle as
 // hot gas behind the bullet, at MUZZLE_K after expanding. By mass, single-base powder gives about

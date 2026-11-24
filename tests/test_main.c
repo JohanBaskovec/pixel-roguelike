@@ -72,6 +72,8 @@ void test_burning_same_for_any_thread_count(void);
 void test_rifle_digs_dirt(void);
 void test_bullet_stops_at_iron(void);
 void test_bullet_stirs_air(void);
+void test_current_stops_in_uniform_air(void);
+void test_falling_debris_leaves_clear_air_still(void);
 void test_shooting_same_for_any_thread_count(void);
 void test_small_clumps_fall(void);
 void test_player_runs_and_jumps(void);
@@ -186,6 +188,8 @@ int main(int argc, char **argv) {
     RUN(test_rifle_digs_dirt);
     RUN(test_bullet_stops_at_iron);
     RUN(test_bullet_stirs_air);
+    RUN(test_current_stops_in_uniform_air);
+    RUN(test_falling_debris_leaves_clear_air_still);
     RUN(test_shooting_same_for_any_thread_count);
     RUN(test_small_clumps_fall);
     RUN(test_player_runs_and_jumps);

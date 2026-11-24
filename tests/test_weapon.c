@@ -14,6 +14,8 @@
 void test_rifle_digs_dirt(void);
 void test_bullet_stops_at_iron(void);
 void test_bullet_stirs_air(void);
+void test_current_stops_in_uniform_air(void);
+void test_falling_debris_leaves_clear_air_still(void);
 void test_shooting_same_for_any_thread_count(void);
 void test_small_clumps_fall(void);
 void test_player_runs_and_jumps(void);
@@ -119,6 +121,59 @@ void test_bullet_stirs_air(void) {
         }
     }
     EXPECT(stirred > 50);
+    world_destroy(w);
+}
+
+void test_current_stops_in_uniform_air(void) {
+    // A current in settled air (every neighbour exactly alike) changes nothing and stops at once;
+    // next to gas that differs it carries on.
+    World *w = test_world_box(64, 64, 120);
+    fill(w, 1, 1, 62, 62, EDIT_AIR);
+    sim_run_ticks(w, 5);
+    size_t i = world_index(w, 20, 30), j = world_index(w, 40, 30);
+    world_set_gas(w, 41, 30, ELEM_CO2, w->gas[j].m[GAS_N2], 7); // a different neighbour for j
+    w->cells[i].aux = gas_wind(2, GAS_WIND_MAX);
+    w->cells[j].aux = gas_wind(2, GAS_WIND_MAX);
+    world_wake_rect(w, 0, 0, 63, 63);
+    GasMix before = w->gas[i];
+    sim_tick(w, NULL);
+    EXPECT_EQ(w->cells[i].aux, 0);
+    EXPECT(memcmp(&w->gas[i], &before, sizeof(GasMix)) == 0);
+    int moving = 0;
+    for (int y = 28; y <= 32; y++) {
+        for (int x = 38; x <= 44; x++) {
+            moving += gas_wind_speed(w->cells[world_index(w, x, y)].aux) > 0;
+        }
+    }
+    EXPECT(moving > 0);
+    world_destroy(w);
+}
+
+void test_falling_debris_leaves_clear_air_still(void) {
+    // Clods falling through clear, settled air (debris shot out of a ceiling): a lone falling cell
+    // barely kicks the air, and a current in uniform air stops, so once they have landed the air
+    // is still and asleep (it used to churn along every path for seconds).
+    World *w = test_world_box(128, 320, 121);
+    fill(w, 1, 1, 126, 318, EDIT_AIR);
+    sim_run_ticks(w, 10);
+    for (int k = 0; k < 12; k++) {
+        int x = 8 + 10 * k, y = 4 + 6 * (k % 3);
+        world_set_cell(w, x, y, ELEM_SOIL, (uint32_t)k);
+        world_wake_rect(w, x - 1, y - 1, x + 1, y + 1);
+    }
+    sim_run_ticks(w, 150); // they fall about 300 cells (4.5 m... at up to 24 m/s) and land
+    int stirred = 0;
+    for (int y = 1; y < 318; y++) {
+        for (int x = 1; x < 127; x++) {
+            Cell c = w->cells[world_index(w, x, y)];
+            stirred += c.element == ELEM_GAS && gas_wind_speed(c.aux) > 0;
+        }
+    }
+    SimStats st;
+    sim_tick(w, &st);
+    EXPECT_EQ(test_count(w, ELEM_SOIL), 12);
+    EXPECT(stirred < 20);
+    EXPECT(st.cells_visited < 500);
     world_destroy(w);
 }
 

@@ -307,7 +307,8 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
         passes (heat stays per chunk). Measured: 8–18% fewer cells visited, about 5% faster
         firing in a room, no change elsewhere; the awake region while firing is broad stirred
         air, not thin trails (PERFORMANCE → Benchmark log)
-  - [ ] Measure on the player's machine (HUD Sim time while firing for 10 s, and the CPU)
+  - [x] Measure on the player's machine (Ryzen 7 4700U: firing at the sky for 10 s, Sim 50 ms).
+        Cause: debris falling through clear air stirred and heated it; fixed (about 8 ms here)
   - [ ] Gas at 30 Hz by tile parity (estimate about 1.3×); fewer wakes after an exchange
         (estimate about 10%); thread scaling for 8+ cores
   - [ ] *On hold:* gas as a field: every gas cell exchanges gas and heat with its four

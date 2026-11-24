@@ -46,9 +46,11 @@ and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the pla
 damage, and the content the user wants: enemies, smoke grenades, rockets, acid), **M6c –
 Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` → Proposed next steps,
 D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is too slow for busy
-scenes. One shooter firing for 10 s, or one big gas cloud, in a 1024 × 1024 room already costs
-11–12 ms of the 16.7 ms tick on 4 threads, and it grows with the area stirred; the target scene
-and the plan are in `docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
+scenes. Firing for 10 s, or one big gas cloud, in a 1024 × 1024 room costs 6–11 ms of the
+16.7 ms tick on 4 threads, and it grows with the area stirred. On the player's laptop (Ryzen 7
+4700U) firing at the sky for 10 s cost 50 ms per tick until debris falling through clear air
+stopped stirring it (now about 8 ms here); the target scene and the plan are in
+`docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
