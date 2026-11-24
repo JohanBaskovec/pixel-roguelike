@@ -141,13 +141,18 @@ void enemy_think(World *w, Creature *c) {
     }
     float cx = (float)c->x + (float)c->w * 0.5f, cy = (float)c->y + (float)c->h * 0.5f;
     float dx = 0.0f, dy = 0.0f;
-    bool chase = false;
     if (p) {
         dx = (float)p->x + (float)p->w * 0.5f - cx;
         dy = (float)p->y + (float)p->h * 0.5f - cy;
-        float range = walker ? WALKER_RANGE : FLYER_RANGE;
-        chase = dx * dx + dy * dy < range * range && in_sight(w, cx, cy, cx + dx, cy + dy);
     }
+    // It notices the player when it sees it on the screen, and chases until it is off it.
+    bool on_screen = p && fabsf(dx) <= (float)w->view_w * 0.5f && fabsf(dy) <= (float)w->view_h * 0.5f;
+    if (!on_screen) {
+        c->alert = 0;
+    } else if (!c->alert && in_sight(w, cx, cy, cx + dx, cy + dy)) {
+        c->alert = 1;
+    }
+    bool chase = c->alert;
     if (c->attack_cd > 0) {
         c->attack_cd--;
     }

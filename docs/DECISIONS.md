@@ -657,6 +657,10 @@ to watch).
   up by overlap. Rifle ammunition is counted only for a `Rifle` made with `rifle_init()` (a zero
   `Rifle` is endless, which keeps the weapon tests as they were). The restart key moves from `R`
   (now reload) to `F5`.
+- **Chase rule:** a monster notices the player when it sees it on the screen and chases until
+  the player is off the screen (`World.view_w/view_h`, in cells, set by the game each tick), even
+  with a wall between: there is no pathfinding yet (a search over the maze's rooms is the cheap
+  next step), so it pushes against the wall.
 - **Consequences:** Monster bodies start at room temperature, because a 310 K body in 293 K air
   kept hundreds of chunks in the heat pass (50 monsters: 12 ms a tick against 2 ms). Monsters
   cost little while frozen outside the simulated area (D-040). Monsters only bite; ranged enemies,

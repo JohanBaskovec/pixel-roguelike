@@ -105,6 +105,9 @@ typedef struct World {
     uint32_t creature_next_id;
     struct Pickup *pickups; // owned; crates (PICKUP_MAX)
     int32_t pickup_count;
+    // The size of the screen in cells (the game sets it each tick from the window and zoom): a
+    // monster notices the player when it sees it on the screen and chases it until it is off it.
+    int32_t view_w, view_h;
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.

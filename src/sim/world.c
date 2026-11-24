@@ -26,6 +26,8 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->chunks_x = width / CHUNK_SIZE;
     w->chunks_y = height / CHUNK_SIZE;
     w->seed = seed;
+    w->view_w = 720; // a 1440 x 900 window at zoom x2
+    w->view_h = 450;
     size_t n = (size_t)width * (size_t)height;
     w->cells = pr_aligned_alloc_zero(64, n * sizeof(Cell));
     w->temp = pr_aligned_alloc_zero(64, n * sizeof(float));

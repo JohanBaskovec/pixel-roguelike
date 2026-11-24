@@ -67,6 +67,7 @@ typedef struct Creature {
     uint8_t thrust;         // the jump key is held (the jetpack fires after JETPACK_DELAY ticks)
     uint8_t jet_hold;       // ticks `thrust` has been held without a break (saturates)
     uint8_t kind;           // CreatureKind
+    uint8_t alert;          // monsters: has seen the player and chases it until it is off the screen
     uint8_t hit_flash;      // ticks left of the flash after a hit (drawing)
     uint8_t attack_cd;      // monsters: ticks until the next bite
     float hp, hp_max;       // hit points (damage from bullets and bites; 0 is dead)

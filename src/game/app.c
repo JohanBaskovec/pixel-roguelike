@@ -644,6 +644,8 @@ static void run_tick(App *app) {
     // Only the 3 x 3 regions around the player are simulated (D-040); without a player, all.
     const Creature *c = player(app);
     pickups_collect(app->world, app->player, &app->rifle);
+    app->world->view_w = (int)(app->view.w / zoom(app)); // what monsters can see (enemy.c)
+    app->world->view_h = (int)(app->view.h / zoom(app));
     if (c) {
         world_simulate_near(app->world, c->x + c->w / 2, c->y + c->h / 2);
     } else {

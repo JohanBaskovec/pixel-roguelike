@@ -1,0 +1,5 @@
+# Language server (clangd, used by Zed, VS Code, ...): reads the compile commands CMake writes in
+# build/release (cmake -S . -B build/release); -Isrc is the fallback if that is not configured yet.
+CompileFlags:
+  CompilationDatabase: build/release
+  Add: [-Isrc]

@@ -85,6 +85,7 @@ void test_monsters_chase_and_bite(void);
 void test_rifle_ammunition_and_reload(void);
 void test_crates_are_picked_up(void);
 void test_level_has_crates_and_monsters(void);
+void test_monsters_chase_until_off_screen(void);
 void test_level_is_a_maze(void);
 void test_air_brush_spreads_oxygen(void);
 void test_walk_forward_while_shooting(void);
@@ -210,6 +211,7 @@ int main(int argc, char **argv) {
     RUN(test_rifle_ammunition_and_reload);
     RUN(test_crates_are_picked_up);
     RUN(test_level_has_crates_and_monsters);
+    RUN(test_monsters_chase_until_off_screen);
     RUN(test_level_is_a_maze);
     RUN(test_air_brush_spreads_oxygen);
     RUN(test_walk_forward_while_shooting);

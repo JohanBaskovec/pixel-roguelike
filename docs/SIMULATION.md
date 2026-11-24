@@ -620,11 +620,13 @@ pool. A dead body stays where it fell (it keeps falling and resting like any bod
 ticks, lets a droplet leave from a side cell until its blood is gone (36 cells: 54 droplets).
 
 *Monsters (enemy.c).* A walker (6 × 6 cells) and a flyer (11 × 11) are creatures that do not
-breathe. Within range (160 and 220 cells) of the live player and in sight (a straight line
-through void, gas, liquid and bodies) they chase it. The walker runs at 2.5 m/s and jumps when
+breathe. A monster notices the live player when it sees it (a straight line through void, gas,
+liquid and bodies) while the player is on the screen (`World.view_w` × `view_h` cells around the
+player, set by the game from the window and zoom each tick; 720 × 450 by default), and then
+chases it (`alert`), through walls too since there is no pathfinding, until the player is off
+the screen again. The walker runs at 2.5 m/s and jumps when
 the player is higher or something at foot level blocks it; the flyer sets its own velocity
-(no gravity while alive) at 3 m/s, slowing near the player, and falls when dead. Out of range or
-sight they wander (the walker as the test creature does; the flyer drifts and bobs). Touching
+(no gravity while alive) at 3 m/s, slowing near the player, and falls when dead. Not alerted they wander (the walker as the test creature does; the flyer drifts and bobs). Touching
 the player (a cell apart or less) they bite for 10 and 6 hp every 40 ticks. Frozen outside the
 simulated area like all creatures (D-040).
 

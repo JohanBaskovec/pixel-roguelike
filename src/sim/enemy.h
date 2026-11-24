@@ -4,7 +4,9 @@
 //
 // A monster is a creature (creature.h) whose body is a box of body cells: a walker (6 x 6 cells,
 // 30 cm) that runs and jumps after the player, a flyer (11 x 11, 55 cm) that flies at the player.
-// Both chase the player while it is near and in sight, bite when they touch it, and have hit
+// Both notice the player when they see it (a straight line of sight) while it is on the screen
+// (World.view_w x view_h around the player), then chase it, walls or not (there is no
+// pathfinding), until it is off the screen again; they bite when they touch it, and have hit
 // points. A hit takes hit points and scatters blood (droplets: free particles of ELEM_BLOOD that
 // land as liquid). A dead body stays where it fell and bleeds on for a while.
 
@@ -14,13 +16,11 @@
 #define WALKER_H      6
 #define WALKER_HP     40.0f
 #define WALKER_SPEED  (2.5f / CELL_SIZE_M * TICK_SECONDS) // cells per tick
-#define WALKER_RANGE  160 // cells: it chases the player within this distance, if it sees it
 #define WALKER_BITE   10.0f
 #define FLYER_W       11
 #define FLYER_H       11
 #define FLYER_HP      30.0f
 #define FLYER_SPEED   (3.0f / CELL_SIZE_M * TICK_SECONDS)
-#define FLYER_RANGE   220
 #define FLYER_BITE    6.0f
 #define BITE_TICKS    40 // between bites
 

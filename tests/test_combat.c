@@ -16,6 +16,7 @@ void test_monsters_chase_and_bite(void);
 void test_rifle_ammunition_and_reload(void);
 void test_crates_are_picked_up(void);
 void test_level_has_crates_and_monsters(void);
+void test_monsters_chase_until_off_screen(void);
 
 static World *room(uint64_t seed, int width) {
     World *w = test_world_box(width, 128, seed);
@@ -185,4 +186,37 @@ void test_level_has_crates_and_monsters(void) {
     EXPECT_EQ(flyers[0], flyers[1]);
     EXPECT_EQ(ammo[0], ammo[1]);
     EXPECT_EQ(health[0], health[1]);
+}
+
+void test_monsters_chase_until_off_screen(void) {
+    // A walker that has seen the player keeps chasing when a wall comes between them (no
+    // pathfinding: it pushes against it), until the player is off the screen.
+    World *w = room(135, 512);
+    int pl = scene_spawn_player(w, 40);
+    int wi = enemy_spawn(w, KIND_WALKER, 200, 126 - WALKER_H + 1);
+    int si = enemy_spawn(w, KIND_WALKER, 300, 126 - WALKER_H + 1); // starts behind a wall
+    EXPECT(pl >= 0 && wi >= 0 && si >= 0);
+    Creature *seer = &w->creatures[wi], *blind = &w->creatures[si];
+    for (int y = 1; y <= 126; y++) { // a wall of rock at x = 250
+        Edit rock = {250, y, 252, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+        sim_apply_edit(w, &rock);
+    }
+    sim_run_ticks(w, 10);
+    EXPECT(seer->alert);
+    EXPECT(!blind->alert); // it does not see the player through the wall
+    sim_run_ticks(w, 60);
+    EXPECT(seer->alert);
+    // Then a wall between: it goes on chasing, pressing toward the player.
+    for (int y = 1; y <= 126; y++) {
+        Edit rock = {120, y, 122, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+        sim_apply_edit(w, &rock);
+    }
+    sim_run_ticks(w, 100);
+    EXPECT(seer->alert);
+    EXPECT(seer->x >= 120 && seer->x < 160); // against the wall, not wandering off
+    // The screen shrinks to less than the distance: it gives up.
+    w->view_w = 100;
+    sim_run_ticks(w, 2);
+    EXPECT(!seer->alert);
+    world_destroy(w);
 }
