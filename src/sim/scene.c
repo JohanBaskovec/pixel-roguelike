@@ -230,6 +230,33 @@ void scene_level(World *w) {
             }
         }
     }
+    // Wood to burn, where nothing else is: stacks of planks on the floor, and shelves in the air.
+    for (int cy = 0; cy < m.rows; cy++) {
+        for (int cx = 0; cx < m.cols; cx++) {
+            int x0 = m.x0 + cx * m.px, y0 = m.y0 + cy * m.py, floor_y = y0 + MAZE_ROOM_H - 1;
+            uint32_t r = rng_range(&rng, 100);
+            bool planks = r < 25, shelf = !planks && r < 40;
+            if (!planks && !shelf) {
+                continue;
+            }
+            int ww = planks ? 10 : 70, wh = planks ? 8 : 3;
+            int x = x0 + 8 + (int)rng_range(&rng, (uint32_t)(MAZE_ROOM_W - 16 - ww));
+            int y = planks ? floor_y - wh + 1 : floor_y - 24;
+            bool free_ = true;
+            for (int yy = y; yy < y + wh && free_; yy++) {
+                for (int xx = x; xx < x + ww && free_; xx++) {
+                    free_ = g_elem_behavior[world_elem(w, xx, yy)] == BEHAVIOR_GAS;
+                }
+            }
+            for (int k = 0; k < w->pickup_count && free_; k++) {
+                const Pickup *p = &w->pickups[k];
+                free_ = x + ww <= p->x || x >= p->x + p->w || y + wh <= p->y || y >= p->y + p->h;
+            }
+            if (free_) {
+                fill_rect(w, x, y, x + ww - 1, y + wh - 1, ELEM_WOOD, &rng);
+            }
+        }
+    }
     world_wake_rect(w, 0, 0, w->width - 1, w->height - 1);
     world_wake_heat(w, 0, 0, w->width - 1, w->height - 1);
 }

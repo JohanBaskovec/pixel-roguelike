@@ -36,6 +36,8 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 23 | Molten brass | LIQUID | 7600 (approx.) | 470 (approx.) | 70 (approx.) | freezes 1208 K → brass; painted at 1300 K | `#D8A848`, glows | 6a |
 | 24 | Gas (a mixture of species 6–10) | GAS | its mixture's (air: 1.2922) | its mixture's (air: 1005) | its mixture's (air: 0.026) | its water vapour condenses | mixed from its species | 6a |
 | 25 | Blood | LIQUID | 1060 | 3600 | 0.5 | none (no freezing or boiling yet); starts at 293.15 K | `#8A0F14` α 0.92 | 6b |
+| 26 | Wood | STATIC | 600 | 1700 | 0.15 | catches fire at 523 K (250 °C) → burning wood | `#9A6A3A` | 6b |
+| 27 | Burning wood | STATIC | 600 | 1700 | 0.15 | goes out below 480 K → wood; burns while oxygen reaches it; painted at 900 K (not in the toolbar) | `#4A2A14`, glows | 6b |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -253,6 +255,18 @@ Keep this list complete.
     50 monsters cost 12 ms a tick). Their size (6 × 6 and 11 × 11 cells), speed, hit points and
     bite are game values (`WALKER_*`, `FLYER_*`, `RIFLE_DAMAGE` 12 hp, `BITE_TICKS`). Blood's
     droplets start at room temperature too, like bullets (the heat they carry is negligible).
+19. Burning wood (M6b, D-044): the chemistry is real (cellulose C₆H₁₀O₅ + 6 O₂ → 6 CO₂ + 5 H₂O,
+    1.185 kg of O₂ per kg of wood, 16 MJ/kg, a fire needs 16% oxygen by volume), but a wood cell
+    is not a 5 cm cube of wood to the fire: in this 5 cm slice, burning one would take the oxygen
+    of 2400 cells of air, and a room of air could hardly burn a log. So a cell holds
+    `WOOD_FUEL_SCALE` = 2% of the fuel of its mass (1.5 g: O₂, CO₂ and H₂O are scaled with it) and
+    burns in `WOOD_BURN_TICKS` = 240 ticks (4 s) at full rate; its heat is `WOOD_HEAT_SCALE` = 10×
+    too high for that fuel (what keeps the fire going: wood beside it is heated by conduction at 1/1000 of
+    a real second per tick, and by flame contact, `WOOD_SPREAD` = 4× conduction, up to ignition).
+    Oxygen for the burn is drawn from the 256 gas cells nearest the flame (within 16 cells), in
+    proportion, if their mean oxygen is at least 16% by volume; the products enter the nearest
+    gas cell, hot. Heat released: `WOOD_FUEL_HEAT` 70% into the wood (the rest into that gas cell,
+    up to `WOOD_FLAME_K` 1400 K, and the excess into the wood). A cell burns away without ash.
 
 ## Adding an element (checklist)
 

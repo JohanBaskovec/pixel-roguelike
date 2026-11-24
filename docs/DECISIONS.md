@@ -685,3 +685,23 @@ to watch).
   sampling, and a monster outside the window (twice the screen) has no route. Routes follow
   digging within 20 ticks. A smarter walker (jumping up shafts with the jetpack-less jump is
   impossible anyway) and monsters that open doors are not needed yet.
+
+## D-044 — Wood and fire
+
+- **Status:** Accepted (2026-11-24), asked for by the user.
+- **Decision:** Two elements, `ELEM_WOOD` (a static solid) and `ELEM_BURNING_WOOD`. Ignition and
+  going out are phase changes of the heat pass (523 K up, 480 K down, no latent heat), so the
+  heat machinery (lava, the heat brush, hot gas) lights it with no new code; the burn itself runs
+  in the movement pass (`update_burning_wood`), where the only change to the loop is one test on
+  skipped static cells. A fire needs 16% oxygen by volume in the air it draws on (the nearest 256
+  gas cells), takes oxygen in proportion, and puts carbon dioxide and water vapour into the
+  nearest gas cell with exact stoichiometry.
+- **Deviation:** A 5 cm cube of real wood is far more fuel than a 5 cm slice of air can burn (a
+  cell needs the oxygen of 2400 cells), and fires would die after a cell or two. A cell holds 2%
+  of its fuel, burns in 4 s at full rate, and its heat is multiplied by 10, with flame contact
+  heating the wood beside it, so fires spread and burn out a log in tens of seconds; the fire
+  still dies where the air falls below 16% oxygen (tested). In ELEMENTS → Deviations 19.
+- **Consequences:** A burning room fills with CO₂ and steam and the player, who breathes, suffers
+  (D-027). Wood is a solid to bullets (they stop). Burning wood cells keep their chunk in the
+  heat pass until they are out. No ash or charcoal, no flames drawn apart from the glow of hot
+  cells, and wood does not fall when what holds it burns away (it is static).

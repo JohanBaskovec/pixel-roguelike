@@ -428,6 +428,25 @@ releasing `heat_per_kg` J per kg of a. So far one: **hydrogen burning**, 2 H₂ 
   mixtures never burn (tested). Hydrogen meeting air burns where the two have mixed. Light a
   mixture with the Heat brush.
 
+### Burning wood (M6b; D-044)
+
+Code: `update_burning_wood()` in `src/sim/sim.c`; constants (`WOOD_*`) in `elements.h`; ignition
+and going out are phase changes in the heat pass (`g_elem_above[ELEM_WOOD]`, `g_elem_below
+[ELEM_BURNING_WOOD]`, no latent heat; `aux`, the share burnt, survives both). Wood heated to
+523 K becomes *burning wood*, which is visited every tick (it keeps itself awake) and:
+1. looks at the 256 gas cells nearest it (a breadth-first walk through gas, 16 cells at most). If
+   all together hold less than 16% oxygen by moles (volume), it smoulders: nothing burns, and it
+   goes out when it has cooled below 480 K (the fire also goes out in water, which cools it).
+2. otherwise takes the oxygen it needs from them in proportion (at most a quarter of what is
+   there), burns that much wood (`aux` counts the share burnt up to 255, then the cell is void),
+   and puts the carbon dioxide and water vapour of the burn into the nearest gas cell. Mass in
+   the gas is exact: per kg of wood 1.185 kg of O₂ in, 0.556 kg of H₂O and 1.629 kg of CO₂ out.
+3. releases the heat: 30% into that gas cell (the flame, which rises; up to 1400 K), the rest
+   into the wood, which heats the unburnt wood beside it at four times the conduction rate.
+Deviations (a cell holds 2% of a cube's fuel, heat 10× too high for it) are ELEMENTS → Deviations
+19. Tested: a lit log burns on and the changes of O₂, CO₂ and H₂O have the stoichiometric ratios;
+in pure nitrogen it does not burn; in 21% oxygen it burns and in 14% it does not.
+
 ### Free particles (M4b; D-026)
 
 Code: `src/sim/particle.c`. Fast-moving matter leaves the grid while it flies, as in Noita, and

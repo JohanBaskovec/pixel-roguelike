@@ -214,7 +214,10 @@ static void apply_chunk(void *user, int index) {
             if (to != e) {
                 c.element = to;
                 // At rest: a new liquid keeps its flow direction, a new gas has no current.
-                c.aux = g_elem_behavior[to] == BEHAVIOR_GAS ? 0 : (uint8_t)(c.aux & 0x80);
+                bool wood = (e == ELEM_WOOD || e == ELEM_BURNING_WOOD) &&
+                            (to == ELEM_WOOD || to == ELEM_BURNING_WOOD);
+                c.aux = wood ? c.aux // how much has burnt stays
+                             : (g_elem_behavior[to] == BEHAVIOR_GAS ? 0 : (uint8_t)(c.aux & 0x80));
                 c.stamp = (uint8_t)(w->tick - 1);
                 w->cells[i] = c;
                 w->temp[i] = t_new;

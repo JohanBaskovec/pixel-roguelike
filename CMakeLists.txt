@@ -145,6 +145,7 @@ if(PR_BUILD_TESTS)
     tests/test_creature.c
     tests/test_weapon.c
     tests/test_combat.c
+    tests/test_wood.c
     tests/test_powder.c
     tests/test_reaction.c
   )

@@ -30,6 +30,8 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_MOLTEN_LEAD] = {"Molten lead", BEHAVIOR_LIQUID, 10660.0f, 142.0f,   16.0f,   700.0f,  0xA8AEB8, 255,  6,  4},
     [ELEM_BRASS]    = {"Brass",          BEHAVIOR_STATIC, 8500.0f,  380.0f,   110.0f,  293.15f, 0xB8923A, 255,  8,  0},
     [ELEM_MOLTEN_BRASS] = {"Molten brass", BEHAVIOR_LIQUID, 7600.0f, 470.0f,  70.0f,   1300.0f, 0xD8A848, 255,  8,  3},
+    [ELEM_WOOD]     = {"Wood",           BEHAVIOR_STATIC, 600.0f,   1700.0f,  0.15f,   293.15f, 0x9A6A3A, 255, 16,  0},
+    [ELEM_BURNING_WOOD] = {"Burning wood", BEHAVIOR_STATIC, 600.0f, 1700.0f,  0.15f,   900.0f,  0x4A2A14, 255, 22,  0},
     [ELEM_BLOOD]    = {"Blood",          BEHAVIOR_LIQUID, 1060.0f,  3600.0f,  0.5f,    293.15f, 0x8A0F14, 235, 12,  3},
     // A gas cell: its properties come from its mixture; these (air's) stand for any gas in the
     // tables (buoyancy against liquids, conduction tables).
@@ -44,6 +46,7 @@ const PhaseChange g_elem_below[ELEM_COUNT] = {
     [ELEM_MOLTEN_IRON] = {1811.0f, ELEM_IRON,  247e3f},  // solidifying
     [ELEM_MOLTEN_LEAD] = {600.6f,  ELEM_LEAD,  23.0e3f}, // solidifying
     [ELEM_MOLTEN_BRASS] = {1208.0f, ELEM_BRASS, 168e3f}, // solidifying
+    [ELEM_BURNING_WOOD] = {WOOD_OUT_K, ELEM_WOOD, 0.0f}, // goes out
 };
 const PhaseChange g_elem_above[ELEM_COUNT] = {
     [ELEM_ICE]   = {273.15f, ELEM_WATER,       334e3f},  // melting
@@ -54,6 +57,7 @@ const PhaseChange g_elem_above[ELEM_COUNT] = {
     [ELEM_LEAD]  = {600.6f,  ELEM_MOLTEN_LEAD, 23.0e3f}, // melting
     [ELEM_CASING] = {1208.0f, ELEM_MOLTEN_BRASS, 168e3f}, // melting
     [ELEM_BRASS] = {1208.0f, ELEM_MOLTEN_BRASS, 168e3f}, // melting
+    [ELEM_WOOD]  = {WOOD_IGNITE_K, ELEM_BURNING_WOOD, 0.0f}, // catches fire (sim.c)
 };
 // clang-format on
 

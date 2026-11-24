@@ -545,7 +545,8 @@ void test_level_is_a_maze(void) {
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             open += g_elem_behavior[world_elem(w, x, y)] == BEHAVIOR_GAS ||
-                    world_elem(w, x, y) == ELEM_BODY; // monsters stand in it
+                    world_elem(w, x, y) == ELEM_BODY || // monsters stand in it
+                    world_elem(w, x, y) == ELEM_WOOD; // and wood lies in it
         }
     }
     EXPECT_EQ(open, (int64_t)rooms * MAZE_ROOM_W * MAZE_ROOM_H +
@@ -564,7 +565,7 @@ void test_level_is_a_maze(void) {
             int nx = x + dx[k], ny = y + dy[k];
             if (nx < 0 || ny < 0 || nx >= W || ny >= H || mark[ny * W + nx] ||
                 (g_elem_behavior[world_elem(w, nx, ny)] != BEHAVIOR_GAS &&
-                 world_elem(w, nx, ny) != ELEM_BODY)) {
+                 world_elem(w, nx, ny) != ELEM_BODY && world_elem(w, nx, ny) != ELEM_WOOD)) {
                 continue;
             }
             mark[ny * W + nx] = 1;

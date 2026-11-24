@@ -186,7 +186,9 @@ void world_set_cell(World *w, int x, int y, ElementId e, uint32_t random_bits) {
     c.stamp = (uint8_t)(w->tick - 1);
     c.shade = (uint8_t)random_bits;
     // Liquids: random initial flow direction, zero speed. Gases: no current.
-    c.aux = gas ? 0 : (uint8_t)((random_bits >> 8) & 0x80);
+    // Wood: `aux` is how much has burnt, none.
+    bool wood = e == ELEM_WOOD || e == ELEM_BURNING_WOOD;
+    c.aux = gas || wood ? 0 : (uint8_t)((random_bits >> 8) & 0x80);
     w->cells[i] = c;
     w->temp[i] = g_elem_defs[e].spawn_temp;
     if (s >= 0) {

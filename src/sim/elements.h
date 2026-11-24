@@ -35,6 +35,8 @@ enum {
     ELEM_MOLTEN_BRASS = 23,
     ELEM_GAS = 24, // a gas cell: a mixture of the gas species (GasMix)
     ELEM_BLOOD = 25, // blood (M6b): a liquid a little denser than water
+    ELEM_WOOD = 26,         // wood (M6b, D-044): solid, burns
+    ELEM_BURNING_WOOD = 27, // wood on fire: burns while oxygen reaches it; `aux` is how much is gone
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.
@@ -107,6 +109,26 @@ typedef struct Reaction {
 extern const Reaction g_reactions[REACTION_COUNT];
 extern uint8_t g_reaction_of[256];
 extern float g_min_ignite_k; // lowest ignition temperature of any reaction
+
+// Burning wood (M6b, D-044; sim.c update_burning_wood). Wood heated to WOOD_IGNITE_K catches fire
+// and goes out below WOOD_OUT_K. A burning cell takes oxygen from the gas cells beside it that
+// hold at least WOOD_MIN_O2 of it by volume (a fire dies in air below 16% oxygen), at most
+// WOOD_BURN_TICKS ticks for a whole cell, and gives off carbon dioxide and water vapour into them
+// (cellulose, C6H10O5 + 6 O2 -> 6 CO2 + 5 H2O: per kg of wood 1.185 kg O2, 0.556 kg H2O, the
+// rest CO2) and WOOD_LHV J per kg of wood, which heats the cell (up to WOOD_FLAME_K).
+#define WOOD_IGNITE_K   523.15f // 250 degC (piloted ignition of wood: 250-300 degC)
+#define WOOD_OUT_K      480.0f
+#define WOOD_FLAME_K    1400.0f
+#define WOOD_BURN_TICKS 240 // 10 s for a cell at full burn
+#define WOOD_FUEL_SCALE 0.02f // see below
+#define WOOD_HEAT_SCALE 10.0f
+#define WOOD_SPREAD     4.0f // flame contact heats unburnt wood this many times faster than conduction
+#define WOOD_FUEL_HEAT  0.7f // share of the heat of combustion that goes back into the wood
+#define WOOD_MIN_O2     0.16f
+#define WOOD_LHV        16.0e6f
+#define WOOD_O2_PER_KG  1.18519f // 6 O2 per C6H10O5
+#define WOOD_H2O_PER_KG 0.55602f // 5 H2O
+#define WOOD_CO2_PER_KG (1.0f + WOOD_O2_PER_KG - WOOD_H2O_PER_KG) // mass is conserved exactly
 
 // Gas species (D-035): a gas cell holds a mass of each, in this order.
 #define GAS_SPECIES 5

@@ -76,7 +76,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Water vapour, Dirt, Rock, Iron, Ice, Eraser |
 | `N` / `G` | Nitrogen / Air (every pixel the same mixture: 21% oxygen, 0.04% CO2, the rest nitrogen), at 1 atm |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
-| `J` / `L` / `O` | Sand / Lava (1600 K) / Oil |
+| `J` / `L` / `O` / `V` | Sand / Lava (1600 K) / Oil / Wood (burns from 250 °C, needs 16% oxygen, gives CO₂ and water: light it with the Heat brush or lava) |
 | `X` | Dig: loosens dirt into loose soil and rock into rubble, which fall |
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame). Heat lights hydrogen mixed with oxygen (773 K) |
 | `Space` | Pause / resume |

@@ -856,6 +856,123 @@ static bool react(TickCtx *c, int x, int y) {
     return false;
 }
 
+// ---- Burning wood (M6b, D-044). docs/SIMULATION.md -> Burning wood ----
+
+// A flame draws air from the WOOD_AIR_CELLS nearest gas cells (within WOOD_AIR_RADIUS), a quarter
+// of the oxygen of each at most per tick: a cell is a 5 cm cube of wood (75 g, which needs 90 g of
+// oxygen, the air of 2400 cells) and the gas next to it alone could not feed it; a real flame
+// draws air in from a whole volume.
+#define WOOD_AIR_CELLS  256
+#define WOOD_AIR_RADIUS 16
+#define WOOD_AIR_FRAC   0.25f
+
+// One tick of a burning wood cell at (x, y). It takes oxygen from the gas cells beside it that
+// hold at least WOOD_MIN_O2 of it by volume (at most the cell burns in WOOD_BURN_TICKS), burns that much wood (its `aux` counts the share gone: a whole cell
+// at 255, when it disappears), puts the carbon dioxide and water vapour of that burn into the
+// cells the oxygen came from (hot, at the wood's temperature) and the rest of the heat of
+// combustion into the wood (up to WOOD_FLAME_K; more is dropped, as FLAME_MAX_K). Mass is
+// conserved exactly in the gas; without oxygen it smoulders (it only cools, and goes out below
+// WOOD_OUT_K: heat pass).
+static void update_burning_wood(TickCtx *c, int x, int y) {
+    World *w = c->w;
+    size_t i = world_index(w, x, y);
+    keep_alive(c, x, y); // burning: visit it again next tick
+    const float m_cell = g_elem_mass[ELEM_WOOD] * WOOD_FUEL_SCALE; // the fuel in a cell, kg
+    const float need = m_cell / (float)WOOD_BURN_TICKS * WOOD_O2_PER_KG; // kg of O2 a tick
+    int32_t near[WOOD_AIR_CELLS];
+    int n_near = world_gas_region(w, x, y, x, y, WOOD_AIR_RADIUS, WOOD_AIR_CELLS, near);
+    // The air the flame draws on: it burns only if that air is at least WOOD_MIN_O2 oxygen by
+    // volume (moles) on the whole, and takes the oxygen from all of it, each cell in proportion.
+    float o2_mol = 0.0f, all_mol = 0.0f, o2_kg = 0.0f;
+    for (int q = 0; q < n_near; q++) {
+        const GasMix *g = &w->gas[near[q]];
+        o2_mol += g->m[GAS_O2] * g_species_inv_molar[GAS_O2];
+        o2_kg += g->m[GAS_O2];
+        all_mol += gas_moles(g);
+    }
+    if (n_near == 0 || o2_mol < WOOD_MIN_O2 * all_mol) {
+        return; // smoulders
+    }
+    float drawn = PR_MIN(need, WOOD_AIR_FRAC * o2_kg);
+    float draw_share = drawn / o2_kg;
+    int n = n_near;
+    size_t ni[WOOD_AIR_CELLS];
+    float draw[WOOD_AIR_CELLS];
+    for (int q = 0; q < n_near; q++) {
+        ni[q] = (size_t)near[q];
+        draw[q] = w->gas[near[q]].m[GAS_O2] * draw_share;
+    }
+    float tw = w->temp[i];
+    // The oxygen leaves the cells it was drawn from (at their temperatures)...
+    for (int k = 0; k < n; k++) {
+        size_t j = ni[k];
+        GasMix *g = &w->gas[j];
+        float energy = (gas_heat_cap(g) - draw[k] * g_species_cp[GAS_O2]) * w->temp[j];
+        g->m[GAS_O2] -= draw[k];
+        w->temp[j] = energy / gas_heat_cap(g);
+    }
+    // ... and the products, hot, enter the nearest gas cell (the one above the wood first): a
+    // flame, which rises.
+    float burnt_all = drawn / WOOD_O2_PER_KG;
+    float co2 = burnt_all * WOOD_CO2_PER_KG, h2o = burnt_all * WOOD_H2O_PER_KG;
+    float prod_cp = co2 * g_species_cp[GAS_CO2] + h2o * g_species_cp[GAS_H2O];
+    // The heat of combustion: WOOD_FUEL_HEAT of it goes back into the wood (radiation and
+    // conduction from the flame, which keeps it burning and lights the wood beside it); the rest
+    // heats the products and the gas cell they enter (the flame, up to WOOD_FLAME_K; what does
+    // not fit goes into the wood too). The hot cell rises and air flows in behind it.
+    float heat = burnt_all * WOOD_LHV * WOOD_HEAT_SCALE;
+    float to_gas = heat * (1.0f - WOOD_FUEL_HEAT);
+    {
+        size_t j = (size_t)near[0];
+        GasMix *g = &w->gas[j];
+        float cap_before = gas_heat_cap(g);
+        g->m[GAS_CO2] += co2;
+        g->m[GAS_H2O] += h2o;
+        float cap = gas_heat_cap(g);
+        // Energy: the cell's own, the products at ambient (they are made from wood and oxygen
+        // at ambient), and the heat released.
+        float energy = cap_before * w->temp[j] + prod_cp * T_ROOM + to_gas;
+        float t_gas = PR_MIN(energy / cap, WOOD_FLAME_K);
+        to_gas = PR_MAX(energy - t_gas * cap, 0.0f); // what the flame cannot hold
+        heat = heat * WOOD_FUEL_HEAT + to_gas;
+        w->temp[j] = t_gas;
+        ctx_arrive(c, (int)(j % (size_t)w->width), (int)(j / (size_t)w->width), w->cells[j],
+                   w->temp[j]);
+    }
+    tw += heat * g_elem_inv_cap[ELEM_BURNING_WOOD];
+    // Flame contact: the burning cell also heats the unburnt wood beside it, WOOD_SPREAD times
+    // as fast as conduction does (heat is moved, not made).
+    for (int k = 0; k < 4; k++) {
+        int nx = x + k_dir4[k][0], ny = y + k_dir4[k][1];
+        if (world_elem(w, nx, ny) != ELEM_WOOD) {
+            continue;
+        }
+        size_t j = world_index(w, nx, ny);
+        float q = PR_MIN(WOOD_SPREAD * g_heat_coef[ELEM_BURNING_WOOD][ELEM_WOOD], 0.2f * g_elem_cap[ELEM_WOOD]) *
+                  PR_MAX(tw - w->temp[j], 0.0f);
+        w->temp[j] += q * g_elem_inv_cap[ELEM_WOOD];
+        tw -= q * g_elem_inv_cap[ELEM_BURNING_WOOD];
+        ctx_arrive(c, nx, ny, w->cells[j], w->temp[j]);
+    }
+    w->temp[i] = tw;
+    ctx_arrive(c, x, y, w->cells[i], w->temp[i]);
+    // The share gone: a random whole number of steps (of 1/255 of a cell) with the right mean.
+    float steps = burnt_all * (255.0f / m_cell);
+    int inc = (int)steps;
+    if (rng_unit(&c->rng) < steps - (float)inc) {
+        inc++;
+    }
+    Cell *self = &w->cells[i];
+    if ((int)self->aux + inc >= 255) {
+        *self = (Cell){ELEM_VOID, c->stamp, self->shade, 0}; // burnt away
+        w->temp[i] = 0.0f;
+    } else {
+        self->aux = (uint8_t)(self->aux + inc);
+    }
+    ctx_wake(c, x - 1, y - 1, x + 1, y + 1, true, false);
+    c->stats.reactions++;
+}
+
 // ---- Condensation of water vapour (D-035) ----
 
 // Dew point (K) for a vapour partial pressure p (Pa): Antoine's equation inverted.
@@ -1399,7 +1516,15 @@ static void update_chunk(TickCtx *c) {
                     int x = c->base_x + (left_to_right ? sx0[k] + i : sx1[k] - i);
                     Cell *cell = &row[x];
                     uint8_t b = g_elem_behavior[cell->element];
-                    if (b <= BEHAVIOR_STATIC || cell->stamp == c->stamp) {
+                    if (b <= BEHAVIOR_STATIC) {
+                        if (PR_UNLIKELY(cell->element == ELEM_BURNING_WOOD) &&
+                            cell->stamp != c->stamp) {
+                            cell->stamp = c->stamp;
+                            update_burning_wood(c, x, y);
+                        }
+                        continue;
+                    }
+                    if (cell->stamp == c->stamp) {
                         continue;
                     }
                     cell->stamp = c->stamp;
