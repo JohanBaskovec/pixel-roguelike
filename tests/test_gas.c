@@ -19,6 +19,7 @@ void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
 void test_co2_blob_sinks_and_pools(void);
 void test_warm_air_rises(void);
+void test_warm_bubble_rises_as_a_whole(void);
 void test_gas_same_for_any_thread_count(void);
 void test_pressurised_tank_drives_water_up_a_pipe(void);
 void test_air_holds_water_up_a_vacuum_tube(void);
@@ -351,6 +352,50 @@ void test_warm_air_rises(void) {
         }
     }
     EXPECT(wsum > 0.0 && sum / wsum < 100.0); // it started at 115
+    world_destroy(w);
+}
+
+// Mean row and count of the gas cells more than dk above room temperature, and the highest of them.
+static double warm_cells(const World *w, double dk, int *count, int *top) {
+    double sum = 0.0;
+    *count = 0;
+    *top = w->height;
+    for (int y = 1; y < w->height - 1; y++) {
+        for (int x = 1; x < w->width - 1; x++) {
+            size_t i = world_index(w, x, y);
+            if (w->cells[i].element == ELEM_GAS && (double)w->temp[i] > (double)T_ROOM + dk) {
+                sum += y;
+                (*count)++;
+                *top = PR_MIN(*top, y);
+            }
+        }
+    }
+    return *count ? sum / *count : -1.0;
+}
+
+void test_warm_bubble_rises_as_a_whole(void) {
+    // A bubble of air 1 m across at +100 K, near the floor of a room of still air: it rises as a
+    // body (its warm core climbs, about 1 m/s for a real thermal of that size) rather than coming
+    // apart into thin streaks that cool where they are.
+    World *w = test_world_box(128, 256, 125);
+    paint(w, 1, 1, 126, 254, EDIT_AIR);
+    for (int y = 1; y < 255; y++) {
+        for (int x = 1; x < 127; x++) {
+            if ((x - 64) * (x - 64) + (y - 220) * (y - 220) <= 100) {
+                w->temp[world_index(w, x, y)] = T_ROOM + 100.0f;
+            }
+        }
+    }
+    world_wake_rect(w, 0, 0, 127, 255);
+    world_wake_heat(w, 0, 0, 127, 255);
+    int n, top;
+    sim_run_ticks(w, 15);
+    warm_cells(w, 30.0, &n, &top);
+    EXPECT(top > 220 - 10 - 24); // no streak shot out of it (the bubble's top was row 210)
+    sim_run_ticks(w, 165);
+    double y_hot = warm_cells(w, 30.0, &n, &top);
+    EXPECT(n > 50);             // most of it still warm
+    EXPECT(y_hot < 220.0 - 40); // its warm core rose at least 2 m in 3 s
     world_destroy(w);
 }
 

@@ -49,8 +49,9 @@ D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is t
 scenes. Firing for 10 s, or one big gas cloud, in a 1024 × 1024 room costs 6–11 ms of the
 16.7 ms tick on 4 threads, and it grows with the area stirred. On the player's laptop (Ryzen 7
 4700U) firing at the sky for 10 s cost 50 ms per tick until debris falling through clear air
-stopped stirring it (now about 8 ms here); the target scene and the plan are in
-`docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
+stopped stirring it (now about 8 ms here). A few lava pools slow it down more and more over
+minutes (pressure over the heat spreads too slowly: PERFORMANCE → Proposed next steps → Order).
+The target scene and the plan are in `docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack

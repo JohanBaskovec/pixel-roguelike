@@ -40,6 +40,7 @@ void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
 void test_co2_blob_sinks_and_pools(void);
 void test_warm_air_rises(void);
+void test_warm_bubble_rises_as_a_whole(void);
 void test_gas_same_for_any_thread_count(void);
 void test_pressurised_tank_drives_water_up_a_pipe(void);
 void test_air_holds_water_up_a_vacuum_tube(void);
@@ -156,6 +157,7 @@ int main(int argc, char **argv) {
     RUN(test_gas_mixture_stays_mixed);
     RUN(test_co2_blob_sinks_and_pools);
     RUN(test_warm_air_rises);
+    RUN(test_warm_bubble_rises_as_a_whole);
     RUN(test_gas_same_for_any_thread_count);
     RUN(test_pressurised_tank_drives_water_up_a_pipe);
     RUN(test_air_holds_water_up_a_vacuum_tube);

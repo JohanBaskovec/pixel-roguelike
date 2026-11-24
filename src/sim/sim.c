@@ -623,7 +623,6 @@ static inline bool gas_touches_void(const World *w, int x, int y) {
 static bool gas_equalize(TickCtx *c, int x, int y, int dx, int dy, float pv, int *px, int *py) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
-    float t = w->temp[i];
     // Half the time the full reach (where a gentle gradient shows), else 1..GAS_REACH cells.
     int reach = rng_bit(&c->rng) ? GAS_REACH : 1 + (int)rng_range(&c->rng, GAS_REACH);
     // Cheap test first: the partner it would most likely pick (the cell `reach` away, else the
@@ -645,7 +644,7 @@ static bool gas_equalize(TickCtx *c, int x, int y, int dx, int dy, float pv, int
     if (qx == x && qy == y) {
         return false;
     }
-    if (fabsf(w->temp[world_index(w, qx, qy)] - t) > GAS_JUMP_MAX_DT) {
+    if (fabsf(w->temp[world_index(w, qx, qy)] - w->temp[i]) > GAS_JUMP_MAX_DT) {
         qx = x + dx;
         qy = y + dy;
     }
@@ -705,22 +704,23 @@ static inline float rho_at(const World *w, int x, int y) {
 }
 
 // The buoyant drive of the gas at (x, y) (density rs) and the height at which it applies; 0 if
-// stable.
-static float gas_buoyancy(const World *w, int x, int y, float rs, int *scale) {
+// stable. dir -1: rising (the window ahead is above, and must be denser); dir +1: sinking (the
+// window ahead is below, and must be lighter). The window behind includes the cell.
+static float gas_buoyancy(const World *w, int x, int y, float rs, int dir, int *scale) {
     float sa = 0.0f, sb = rs, drive = 0.0f;
     int na = 0, nb = 1, h = 0;
     bool open_b = true;
     *scale = 0;
     for (int k = 0; k < GAS_BUOY_SCALES; k++) {
         for (; h < k_buoy_h[k]; h++) {
-            int ya = y - 1 - h;
+            int ya = y + dir * (1 + h);
             if (world_elem(w, x, ya) != ELEM_GAS) {
-                return drive; // the column above ends: no taller window
+                return drive; // the column ahead ends: no taller window
             }
             sa += rho_at(w, x, ya);
             na++;
             if (h > 0 && open_b) {
-                int yb = y + h;
+                int yb = y - dir * h;
                 if (world_elem(w, x, yb) == ELEM_GAS) {
                     sb += rho_at(w, x, yb);
                     nb++;
@@ -730,7 +730,7 @@ static float gas_buoyancy(const World *w, int x, int y, float rs, int *scale) {
             }
         }
         float ma = sa / (float)na, mb = sb / (float)nb;
-        float c = (ma - mb) / (ma + mb);
+        float c = (float)(-dir) * (ma - mb) / (ma + mb);
         if (c > GAS_BUOY_TOL) {
             float d = c * sqrtf((float)k_buoy_h[k]);
             if (d > drive) {
@@ -742,18 +742,56 @@ static float gas_buoyancy(const World *w, int x, int y, float rs, int *scale) {
     return drive;
 }
 
-// Lifts the gas at (x, y), of density rs, to the top of the denser gas above it (at most h rows):
-// that column shifts down one row.
-static void gas_lift(TickCtx *c, int x, int y, float rs, int h) {
-    World *w = c->w;
-    int top = y - 1;
-    while (y - top < h && world_elem(w, x, top - 1) == ELEM_GAS &&
-           rho_at(w, x, top - 1) > rs * (1.0f + GAS_BUOY_TOL)) {
-        top--;
+// Buoyant moves in a column. Rows of gas from (x, y + dir) on, in direction dir, clearly heavier
+// (heavier) or clearly lighter (!heavier) than ref: their number if that layer ends within
+// MAX_MOVE rows (on other gas or on something that is not gas), else -1 (it goes on).
+static int gas_layer(const World *w, int x, int y, int dir, float ref, bool heavier) {
+    for (int d = 1; d <= MAX_MOVE; d++) {
+        int yy = y + dir * d;
+        if (world_elem(w, x, yy) != ELEM_GAS) {
+            return d - 1;
+        }
+        float r = rho_at(w, x, yy);
+        if (heavier ? r <= ref * (1.0f + GAS_BUOY_TOL) : r >= ref * (1.0f - GAS_BUOY_TOL)) {
+            return d - 1;
+        }
     }
-    for (int ty = y; ty > top; ty--) {
-        swap_cells(c, x, ty, x, ty - 1);
+    return -1;
+}
+
+// Moves the gas at (x, y) `depth` rows in direction dir; the rows it passes shift back one.
+static void gas_shift(TickCtx *c, int x, int y, int dir, int depth) {
+    for (int k = 0; k < depth; k++) {
+        swap_cells(c, x, y + dir * k, x, y + dir * (k + 1));
     }
+}
+
+// The gas at (x, y), of density rs, moves by buoyancy: up through heavier gas (dir -1) or down
+// through lighter gas (dir +1); h is the window height that showed the drive (gas_buoyancy).
+// - If the layer ahead ends within MAX_MOVE rows, the cell crosses it to its far side and the
+//   layer shifts back one row: a warm blob rises as a whole (cold air on it sinks through it), a
+//   heavy blob sinks as a whole, two layers turn over cleanly.
+// - Nothing clearly denser (lighter) just ahead, a smooth gradient: one row.
+// - The layer ahead is thick, but the cell's own layer is thin: the cell just ahead crosses the
+//   cell's layer to its far side instead (the case above, seen from the other side), at this
+//   cell's drive: a lone warm cell rises one row, a thin warm blob shifts up a row as a whole. The
+//   cell does not dive into the thick layer (that peeled a warm blob into thin rising streaks).
+// - Both layers thick (a deep warm layer under cold air): a finger h rows into the layer ahead,
+//   which is how such layers overturn (plumes).
+static void gas_buoyant_move(TickCtx *c, int x, int y, float rs, int dir, int h) {
+    const World *w = c->w;
+    bool rising = dir < 0;
+    int across = gas_layer(w, x, y, dir, rs, rising);
+    if (across >= 0) {
+        gas_shift(c, x, y, dir, PR_MAX(across, 1));
+        return;
+    }
+    int own = gas_layer(w, x, y + dir, -dir, rho_at(w, x, y + dir), !rising);
+    if (own >= 0) {
+        gas_shift(c, x, y + dir, -dir, PR_MAX(own, 1));
+        return;
+    }
+    gas_shift(c, x, y, dir, PR_CLAMP(h, 1, MAX_MOVE));
 }
 
 // Mean density of the gas in column x, rows y - GAS_SPREAD_H + 1 .. y (stopping upward at a cell
@@ -1004,6 +1042,21 @@ static bool gas_follow_wind(TickCtx *c, int x, int y) {
 #define GAS_MOBILE   1
 #define GAS_PRESSURE 2
 
+// Does a neighbour's density at 1 atm (rn; k: its k_dir4 direction) give the gas cell of density
+// rs something to do? Beside it, any difference (heavy gas spreads under light). Above or below,
+// only an unstable one: heavier gas above, lighter gas below. Lighter gas lying on heavier is at
+// rest: that alone is no reason to stay awake (and a cell kept awake for it could be thrown off a
+// warm blob's edge as a stray streak).
+static inline bool gas_density_unstable(int k, float rs, float rn) {
+    if (k == 0) {
+        return rn > rs * (1.0f + GAS_BUOY_TOL); // above
+    }
+    if (k == 3) {
+        return rn < rs * (1.0f - GAS_BUOY_TOL); // below
+    }
+    return fabsf(rn - rs) > GAS_BUOY_TOL * rs;
+}
+
 static int gas_is_mobile(const World *w, int x, int y, float n, float pv, float rs) {
     int flags = 0;
     size_t i = world_index(w, x, y);
@@ -1024,7 +1077,7 @@ static int gas_is_mobile(const World *w, int x, int y, float n, float pv, float 
             return GAS_MOBILE | GAS_PRESSURE;
         }
         if (flags == 0 &&
-            (gas_mix_differs(g, n, h, nn) || fabsf(w->rho[ni] - rs) > GAS_BUOY_TOL * rs)) {
+            (gas_mix_differs(g, n, h, nn) || gas_density_unstable(k, rs, w->rho[ni]))) {
             flags = GAS_MOBILE; // diffuse; rise, sink or spread
         }
     }
@@ -1111,18 +1164,28 @@ static void update_gas(TickCtx *c, int x, int y) {
     int scale = 1;
     if (up == ELEM_GAS && rho_at(w, x, y - 1) >= rs * (1.0f - GAS_BUOY_TOL)) {
         // (Clearly lighter gas just above: stable here, no need to look further.)
-        float drive = gas_buoyancy(w, x, y, rs, &scale);
+        float drive = gas_buoyancy(w, x, y, rs, -1, &scale);
         p_up = (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f);
     } else if (g_elem_behavior[up] == BEHAVIOR_LIQUID) {
         p_up = g_buoy_p[up][ELEM_GAS];
     }
     if (p_up > 0 && rng_chance16(&c->rng, p_up)) {
-        if (scale > 1) {
-            gas_lift(c, x, y, rs, scale);
+        if (up == ELEM_GAS) {
+            gas_buoyant_move(c, x, y, rs, -1, scale);
         } else {
-            swap_cells(c, x, y, x, y - 1);
+            swap_cells(c, x, y, x, y - 1); // a bubble in liquid
         }
         return;
+    }
+    // ... or sink into clearly lighter gas just below (the same drive, looking down).
+    if (world_elem(w, x, y + 1) == ELEM_GAS && rho_at(w, x, y + 1) < rs * (1.0f - GAS_BUOY_TOL)) {
+        int down_scale = 1;
+        float drive = gas_buoyancy(w, x, y, rs, 1, &down_scale);
+        if (drive > 0.0f &&
+            rng_chance16(&c->rng, (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f))) {
+            gas_buoyant_move(c, x, y, rs, 1, down_scale);
+            return;
+        }
     }
     // 1b. Heavy gas resting on something spreads sideways under lighter gas beside it, where its
     //     column weighs more (a gravity current): a pool of CO2 flattens out over the floor, and

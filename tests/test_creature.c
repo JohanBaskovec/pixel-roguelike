@@ -190,7 +190,8 @@ void test_creature_suffocates_in_sealed_room(void) {
 }
 
 void test_creature_body_heat(void) {
-    // In a sealed room of cold air (0 degC), the body stays near 37 degC and warms the air near it.
+    // In a sealed room of cold air (0 degC), the body stays near 37 degC and warms the air: most
+    // near it, and the whole room (the warm air rises off the body and spreads under the ceiling).
     World *w = air_room(128, 64, 77);
     for (int i = 0; i < w->width * w->height; i++) {
         if (g_elem_behavior[w->cells[i].element] == BEHAVIOR_GAS) {
@@ -225,7 +226,8 @@ void test_creature_body_heat(void) {
     }
     body /= CREATURE_W * CREATURE_H;
     EXPECT(fabs(body - (double)CREATURE_BODY_K) < 2.0);
-    EXPECT(nn > 0 && nf > 0 && near / nn > far / nf + 2.0);
+    EXPECT(nn > 0 && nf > 0 && near / nn > far / nf + 1.0);
+    EXPECT(far / nf > 273.15 + 1.0);
     EXPECT(c->heat_w > 0.0f);
     world_destroy(w);
 }

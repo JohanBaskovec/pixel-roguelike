@@ -316,6 +316,11 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
         Cause: debris falling through clear air stirred and heated it; fixed (about 8 ms here)
   - [x] Thread scaling: costliest chunk jobs first, workers spinning briefly between batches
         (15–20% on 4 threads)
+  - [x] Warm gas rises as a body, heavy gas sinks as one, layers turn over cleanly (D-039,
+        after the user asked whether hot air should rise)
+  - [ ] Continuous heat sources (lava pools) slow the game more and more: an artificial
+        overpressure over the heat (35 kPa) spreads slowly, keeps a growing area awake and
+        pushes the lava around. Needs pressure to even out fast (the velocity item below)
   - [ ] Gas at 30 Hz by tile parity (estimate about 1.3×); fewer wakes after an exchange
         (estimate about 10%)
   - [ ] *On hold:* gas as a field: every gas cell exchanges gas and heat with its four

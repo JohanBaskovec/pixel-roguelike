@@ -587,3 +587,25 @@ to watch).
   the time), and stands in water up to about 40 cm. Gameplay and the view decide sizes from here
   on, not a human's measurements.
 
+## D-039 — Buoyancy moves by layers: rising and sinking, crossing whole layers
+
+- **Status:** Accepted (2026-11-24), after the user asked whether hot air should rise (it barely
+  did) and reported lava pools slowing the game down.
+- **Context:** Gas rose by one rule only: a light cell lifted up to 16 rows into denser gas above
+  it (D-030). A heavy blob sank as a whole that way (the light gas under it was lifted through
+  it), but a warm blob, the mirror case, did not rise: its top cells were lifted one by one into
+  the cold air as thin streaks that cooled in place, and the rest stayed where it was. A 1.2 m
+  bubble at +107 K moved its centre 1 m in 5 s; a real one rises at about 1.3 m/s.
+- **Decision:** A heavy cell can also sink through lighter gas below, with the same window drive.
+  A move crosses the layer ahead to its far side if that layer ends within `MAX_MOVE` rows; if
+  the layer ahead is thick but the cell's own layer is thin, the cell just ahead crosses the
+  cell's layer instead (at the cell's drive); only when both layers are thick does a cell dive
+  into the other gas (a finger). A stable vertical density difference (lighter gas above) is no
+  longer a reason for a gas cell to stay awake: cells kept awake for it were thrown off a warm
+  blob's edges as stray streaks. (It does not make warm air over cold sleep: that stays awake
+  while heat conducts across the boundary and pressure follows.)
+- **Consequences:** the bubble rises at about 1.5 m/s and reaches the ceiling of a 12 m room in
+  4 s; CO₂ over oxygen turns over cleanly (mean rows 44.7 and 18.3 in the test, against 37.3 and
+  25.7). A big CO₂ cloud in air mixes a little more as it sinks (fingers both ways): about 15%
+  more work in that case. Lava pools are not fixed by this: their cost comes from pressure (see
+  PERFORMANCE → Proposed next steps).

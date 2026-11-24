@@ -281,7 +281,10 @@ Each tick, a gas cell:
    within `GAS_EQ_TOL`, 0.3%; mole fractions within `GAS_MIX_TOL`, 0.1%; densities within
    `GAS_BUOY_TOL`, 0.02%; and the pressure of the cells `GAS_REACH` (16) to the right and below
    within `GAS_EQ_TOL_FAR`, 0.2%, so a smooth pressure gradient does not freeze) also sleeps;
-   this second check runs after steps 1 and 2.
+   this second check runs after steps 1 and 2. A density difference with the cell above or below
+   counts only if it is unstable (heavier gas above, lighter below): lighter gas lying on heavier
+   is at rest. (Warm air over cold still stays awake while heat conducts across the boundary and
+   its pressure follows.)
 1. **Follows its current** (gas wind, see Gas currents): moving air carries the gas along.
 2. **Burns** (Reactions) and **condenses** water vapour (Phase changes) when that applies.
 3. **Buoyancy.** It rises through denser gas above. Densities are compared **at 1 atm** for each
@@ -294,11 +297,25 @@ Each tick, a gas cell:
    `GAS_BUOY_SCALES` windows of the cell's column (1, 4, 8 and 16 rows above it, against as many
    from it down) give a contrast at each height; the drive is the largest contrast times
    √height (bigger structures rise faster: buoyant speed grows as the square root of their size),
-   and the cell rises with probability `K_BUOY · drive`. At height 1 it trades places with the cell
-   above; at a bigger one it is **lifted** to the top of the denser gas above it (up to that height)
-   and that column shifts down a row, so a heavy layer or blob sinks as a whole. (A quick test
-   first: gas clearly lighter just above means stable.) As a **bubble** under liquid it rises
-   through it.
+   and the cell rises with probability `K_BUOY · drive`. The same drive, looking down, lets a cell
+   with clearly lighter gas just below **sink**. How far it moves (`gas_buoyant_move`) depends on
+   the layer it would cross:
+   - If the layer ahead (the denser gas above when rising, the lighter gas below when sinking)
+     ends within `MAX_MOVE` (32) rows, the cell crosses it to its far side and the layer shifts
+     back one row: a warm blob rises as a whole (the cold air on it sinks through it), a heavy blob
+     sinks as a whole, and two layers turn over cleanly.
+   - Nothing clearly denser just above (a smooth gradient, seen only by the windows): one row.
+   - The layer ahead is thick but the cell's own layer is thin (a warm blob under open cold air):
+     the cell just ahead crosses the cell's layer instead, at this cell's drive, so the blob shifts
+     up a row. The cell does not dive into the thick layer: with lifting alone, a warm blob's top
+     cells were lifted 16 rows into the cold air one by one, and the blob came apart into thin
+     rising streaks that cooled in place (tested: a 1.2 m bubble at +107 K now rises at about
+     1.5 m/s, a real thermal of that size at about 1.3 m/s).
+   - Both layers thick (a deep warm layer under cold air, a big CO₂ cloud in air): a finger, as
+     many rows into the layer ahead as the window height that showed the drive. That is how such
+     layers overturn (plumes), with mixing.
+   (A quick test first: gas clearly lighter just above means it does not rise.) As a **bubble**
+   under liquid it rises through it.
 4. **Heavy gas spreads sideways** (a gravity current). A cell resting on something (not on lighter
    gas), next to lighter gas, compares the weight of the `GAS_SPREAD_H` (8) rows at and above it
    with that of the column 1, 4, 8 or 16 cells to the side (the hydrostatic pressure at its height;
