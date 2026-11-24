@@ -2,7 +2,9 @@
 
 #include "core/log.h"
 #include "sim/creature.h"
+#include "sim/enemy.h"
 #include "sim/particle.h"
+#include "sim/pickup.h"
 #include "sim/scene.h"
 
 #include <SDL3/SDL.h>
@@ -142,7 +144,7 @@ static void reset_world(App *app) {
         scene_level_start(app->world, &sx, &sy);
     }
     app->player = scene_spawn_player_from(app->world, sx, sy);
-    app->rifle = (Rifle){0};
+    rifle_init(&app->rifle);
     app->trigger = false;
     app->follow = true;
 }
@@ -267,6 +269,8 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             } else if (k == SDLK_B) {
                 app->brush_square = !app->brush_square;
             } else if (k == SDLK_R) {
+                rifle_reload(&app->rifle);
+            } else if (k == SDLK_F5) {
                 reset_world(app);
                 camera_follow(app);
             } else if (k == SDLK_HOME) {
@@ -546,7 +550,7 @@ static void draw_panel(App *app) {
         y += 10.0f;
         ui_text(ui, x, y, 0x9AA0AA, "PLAYER");
         y += 14.0f;
-        ui_text(ui, x, y, 0xE8E8E8, "%s %3d%%  shots %u", k_pstate[c->state],
+        ui_text(ui, x, y, 0xE8E8E8, "%s air %3d%%  shots %u", k_pstate[c->state],
                 (int)(c->health * 100.0f + 0.5f), app->rifle.shots);
         y += 12.0f;
     }
@@ -583,7 +587,7 @@ static void draw_panel(App *app) {
         "P  pressure  T  temperature",
         "K  creature at the cursor",
         "Space  pause  . step",
-        "R  reset   Esc  quit",
+        "R reload  F5 new  Esc quit",
     };
     float hy = app->panel.h - (float)PR_ARRAY_COUNT(help) * 12.0f - 8.0f;
     for (int i = 0; i < (int)PR_ARRAY_COUNT(help); i++) {
@@ -639,6 +643,7 @@ static void run_tick(App *app) {
     control_player(app);
     // Only the 3 x 3 regions around the player are simulated (D-040); without a player, all.
     const Creature *c = player(app);
+    pickups_collect(app->world, app->player, &app->rifle);
     if (c) {
         world_simulate_near(app->world, c->x + c->w / 2, c->y + c->h / 2);
     } else {
@@ -720,6 +725,88 @@ static void draw_rifle_and_tracers(App *app) {
     }
 }
 
+// Boxes for what has no sprite yet: monsters (over their body cells), crates, and the HP and
+// ammunition of the player.
+static void fill_world_rect(App *app, float x, float y, float w, float h, uint32_t rgb) {
+    float x0, y0, x1, y1;
+    world_to_screen(app, x, y, &x0, &y0);
+    world_to_screen(app, x + w, y + h, &x1, &y1);
+    SDL_SetRenderDrawColor(app->renderer, (uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb,
+                           255);
+    SDL_FRect r = {x0, y0, PR_MAX(x1 - x0, 1.0f), PR_MAX(y1 - y0, 1.0f)};
+    SDL_RenderFillRect(app->renderer, &r);
+}
+
+static void draw_actors(App *app) {
+    const World *w = app->world;
+    for (int i = 0; i < w->pickup_count; i++) {
+        const Pickup *p = &w->pickups[i];
+        if (p->taken) {
+            continue;
+        }
+        if (p->kind == PICKUP_AMMO) {
+            fill_world_rect(app, (float)p->x, (float)p->y, (float)p->w, (float)p->h, 0x3A4A22);
+            fill_world_rect(app, (float)p->x + 1, (float)p->y + 1, (float)p->w - 2,
+                            (float)p->h - 2, 0xC8B040);
+        } else {
+            fill_world_rect(app, (float)p->x, (float)p->y, (float)p->w, (float)p->h, 0xF0F0F0);
+            fill_world_rect(app, (float)p->x + 1, (float)p->y + 1, (float)p->w - 2,
+                            (float)p->h - 2, 0xD02828);
+            float cx = (float)p->x + (float)p->w * 0.5f, cy = (float)p->y + (float)p->h * 0.5f;
+            fill_world_rect(app, cx - 3.0f, cy - 0.5f, 6.0f, 1.0f, 0xFFFFFF);
+            fill_world_rect(app, cx - 0.5f, cy - 2.0f, 1.0f, 4.0f, 0xFFFFFF);
+        }
+    }
+    for (int i = 0; i < w->creature_count; i++) {
+        const Creature *c = &w->creatures[i];
+        if (c->kind != KIND_WALKER && c->kind != KIND_FLYER) {
+            continue;
+        }
+        uint32_t rgb = c->kind == KIND_WALKER ? 0x4FA04A : 0x9A4AB0;
+        if (c->state == CREATURE_DEAD) {
+            rgb = c->kind == KIND_WALKER ? 0x2C4A2A : 0x4A2C55;
+        } else if (c->hit_flash > 0) {
+            rgb = 0xFFFFFF;
+        }
+        fill_world_rect(app, (float)c->x, (float)c->y, (float)c->w, (float)c->h, rgb);
+        if (c->state != CREATURE_DEAD) { // an eye, on the side it faces
+            float ex = c->facing > 0 ? (float)(c->x + c->w) - 2.5f : (float)c->x + 1.0f;
+            fill_world_rect(app, ex, (float)c->y + (float)c->h * 0.25f, 1.5f, 1.5f, 0xFF3030);
+        }
+    }
+}
+
+static void draw_hud(App *app) {
+    const Creature *c = player(app);
+    if (!c) {
+        return;
+    }
+    Ui hud;
+    ui_begin(&hud, app->renderer, 0, 0, false);
+    float x = app->view.x + 16.0f, y = app->view.y + app->view.h - 44.0f;
+    float bw = 220.0f, bh = 14.0f;
+    float f = PR_CLAMP(c->hp / c->hp_max, 0.0f, 1.0f);
+    SDL_SetRenderDrawBlendMode(app->renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(app->renderer, 30, 8, 8, 255);
+    SDL_FRect back = {x - 2, y - 2, bw + 4, bh + 4};
+    SDL_RenderFillRect(app->renderer, &back);
+    SDL_SetRenderDrawColor(app->renderer, 200, 30, 30, 255);
+    SDL_FRect bar = {x, y, bw * f, bh};
+    SDL_RenderFillRect(app->renderer, &bar);
+    ui_text(&hud, x + 6, y + 3, 0xFFFFFF, "HP %d / %d", (int)ceilf(c->hp), (int)c->hp_max);
+    const Rifle *r = &app->rifle;
+    if (r->reload > 0) {
+        ui_text(&hud, x, y - 14, 0xFFC060, "RELOADING");
+    } else if (r->limited && r->mag == 0 && r->reserve == 0) {
+        ui_text(&hud, x, y - 14, 0xFF6040, "NO AMMO");
+    }
+    ui_text(&hud, x + bw + 16, y + 3, 0xE8E8E8, "AMMO %d / %d", r->mag, r->reserve);
+    if (c->state == CREATURE_DEAD) {
+        ui_text(&hud, app->view.x + app->view.w * 0.5f - 80, app->view.y + app->view.h * 0.4f,
+                0xFF6040, "YOU DIED   F5 restarts");
+    }
+}
+
 static void draw_world(App *app) {
     float z = zoom(app);
     float W = (float)app->world->width, H = (float)app->world->height;
@@ -791,7 +878,9 @@ bool app_frame(App *app, double frame_dt) {
     }
     camera_follow(app);
     draw_world(app);
+    draw_actors(app);
     draw_rifle_and_tracers(app);
+    draw_hud(app);
     draw_brush_outline(app);
     SDL_SetRenderClipRect(app->renderer, NULL);
     draw_panel(app);

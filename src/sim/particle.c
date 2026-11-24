@@ -2,6 +2,8 @@
 
 #include "core/rng.h"
 #include "sim/edit.h"
+#include "sim/enemy.h"
+#include "sim/weapon.h"
 
 #include <math.h>
 
@@ -229,6 +231,16 @@ static void bullet_step(World *w, Particle *p) {
                 }
                 in_liquid = false;
             } else {
+                if (e == ELEM_BODY) {
+                    // It hits a creature: damage and blood (the player is not hurt by its own
+                    // bullets), and it stops.
+                    int ci = creature_at(w, tx, ty);
+                    if (ci >= 0 && w->creatures[ci].kind != KIND_PLAYER) {
+                        creature_hit(w, &w->creatures[ci], RIFLE_DAMAGE, cx, cy, ux, uy);
+                    }
+                    speed = 0.0f;
+                    break;
+                }
                 float r = bullet_resistance(e);
                 if (r < 0.0f) {
                     speed = 0.0f; // stops in front of it

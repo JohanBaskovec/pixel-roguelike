@@ -289,6 +289,10 @@ Asked for by the user, not designed yet (each needs the gas rework of M6c to run
 scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [x] Bodies at half size (player 17 × 5 cells, 85 cm) and zoom ×2 by default, the world's scale
       unchanged (asked for after play-testing; D-038)
+- [x] HP bar (100 hp), limited ammunition (30-round magazine, pack of 90, `R` reloads), ammunition
+      and health crates (walk on them), two monsters that chase and bite the player (a 6 × 6
+      walker and an 11 × 11 flyer), with hit points; bullets hurt them and scatter blood; dead
+      bodies stay and bleed; all scattered over the maze (boxes, no sprites; D-042)
 - [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour), at the
       same half size
 - [ ] Smoke grenades (smoke as one more gas species, or as fine particles carried by the air)

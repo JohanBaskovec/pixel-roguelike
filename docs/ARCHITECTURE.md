@@ -140,9 +140,12 @@ any cell's element indexes them without a bounds check. Unknown IDs, and the pse
 carries and its stored temperature (24 bytes; 3 MB). A flying particle is not on the grid: the
 cell it left is empty. See `SIMULATION.md` → Free particles.
 
-**Creatures (M4c).** `World.creatures` holds up to `CREATURE_MAX` (64) `Creature`s: position,
-velocity, walking and breathing state, health. Their bodies are `ELEM_BODY` cells on the grid.
-See `SIMULATION.md` → Creatures.
+**Creatures (M4c).** `World.creatures` holds up to `CREATURE_MAX` (128) `Creature`s: position,
+velocity, walking and breathing state, health, hit points and kind (person, player, walker,
+flyer). Their bodies are `ELEM_BODY` cells on the grid. `enemy.c` holds the monsters' behaviour,
+damage and blood; `pickup.c` the crates (`World.pickups`: boxes, not cells). `game/app.c` draws
+monsters and crates as boxes over the world, and the HP bar and ammunition counts. See
+`SIMULATION.md` → Creatures and → Monsters, damage, blood and crates.
 
 ## Simulation tick
 

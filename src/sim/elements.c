@@ -30,6 +30,7 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_MOLTEN_LEAD] = {"Molten lead", BEHAVIOR_LIQUID, 10660.0f, 142.0f,   16.0f,   700.0f,  0xA8AEB8, 255,  6,  4},
     [ELEM_BRASS]    = {"Brass",          BEHAVIOR_STATIC, 8500.0f,  380.0f,   110.0f,  293.15f, 0xB8923A, 255,  8,  0},
     [ELEM_MOLTEN_BRASS] = {"Molten brass", BEHAVIOR_LIQUID, 7600.0f, 470.0f,  70.0f,   1300.0f, 0xD8A848, 255,  8,  3},
+    [ELEM_BLOOD]    = {"Blood",          BEHAVIOR_LIQUID, 1060.0f,  3600.0f,  0.5f,    293.15f, 0x8A0F14, 235, 12,  3},
     // A gas cell: its properties come from its mixture; these (air's) stand for any gas in the
     // tables (buoyancy against liquids, conduction tables).
     [ELEM_GAS]      = {"Gas",            BEHAVIOR_GAS,    1.2922f,  1005.0f,  0.026f,  293.15f, 0x9CC8F0, 110, 30,  3},

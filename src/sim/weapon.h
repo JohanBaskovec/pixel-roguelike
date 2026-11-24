@@ -18,10 +18,30 @@
 #define RIFLE_LENGTH       9      // cells (45 cm, at the body's half size)
 #define RIFLE_PORT         4      // ejection port, cells along the rifle from the shoulder
 
+// Ammunition (M6b): a magazine of RIFLE_MAG rounds and a reserve; R reloads, which takes
+// RIFLE_RELOAD_TICKS. A zero Rifle has endless ammunition (the tests'); rifle_init() limits it.
+#define RIFLE_MAG          30
+#define RIFLE_RESERVE_START 90
+#define RIFLE_RESERVE_MAX  240
+#define RIFLE_RELOAD_TICKS 100 // 1.7 s
+// Hit points a bullet takes from a creature.
+#define RIFLE_DAMAGE 12.0f
+
 typedef struct Rifle {
     int32_t cooldown; // ticks until it can fire again
     uint32_t shots;   // fired so far; seeds each shot's randomness
+    int32_t mag;      // rounds in the magazine (limited ammunition only)
+    int32_t reserve;  // rounds in the pack
+    int32_t reload;   // ticks of reloading left (0: not reloading)
+    uint8_t limited;  // rounds are counted
 } Rifle;
+
+// A rifle with limited ammunition: a full magazine and RIFLE_RESERVE_START rounds in the pack.
+void rifle_init(Rifle *r);
+
+// Starts reloading (the shot in progress is not lost). False if there is nothing to do: the
+// magazine is full, the pack empty, or it is already reloading.
+bool rifle_reload(Rifle *r);
 
 // Where the rifle's stock rests: the shooter's shoulder, in cells.
 void rifle_shoulder(const Creature *c, float *x, float *y);

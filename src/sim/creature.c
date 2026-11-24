@@ -1,6 +1,7 @@
 #include "sim/creature.h"
 
 #include "core/rng.h"
+#include "sim/enemy.h"
 #include "sim/particle.h"
 
 #include <math.h>
@@ -421,17 +422,20 @@ static float rand01(uint64_t h) {
 
 static void physics(World *w, Creature *c) {
     bool alive = c->state != CREATURE_DEAD;
+    bool flier = alive && c->kind == KIND_FLYER; // its own thrust sets its velocity (enemy.c)
     c->submerged = submerged_fraction(w, c);
     float f = c->submerged;
     // Gravity, and buoyancy for the submerged part (water: 1000 kg/m^3).
-    c->vy += PARTICLE_GRAVITY * (1.0f - f * 1000.0f / BODY_DENSITY);
+    if (!flier) {
+        c->vy += PARTICLE_GRAVITY * (1.0f - f * 1000.0f / BODY_DENSITY);
+    }
     if (f > 0.0f) {
         c->vx *= 1.0f - WATER_DRAG * f;
         c->vy *= 1.0f - WATER_DRAG * f;
         int my = c->y + CREATURE_MOUTH;
         bool head_under = g_elem_behavior[world_elem(w, c->x - 1, my)] == BEHAVIOR_LIQUID &&
                           g_elem_behavior[world_elem(w, c->x + c->w, my)] == BEHAVIOR_LIQUID;
-        if (alive && f > 0.5f && head_under) {
+        if (alive && !flier && f > 0.5f && head_under) {
             c->vy -= SWIM_ACCEL; // head under: swim up
         }
     }
@@ -447,7 +451,9 @@ static void physics(World *w, Creature *c) {
     }
     c->vy = PR_CLAMP(c->vy, -FALL_MAX, FALL_MAX);
     float speed = c->speed * (c->state == CREATURE_IMPAIRED ? 0.5f : 1.0f);
-    if (alive && (c->grounded || f > 0.0f)) {
+    if (flier) {
+        // velocity set by enemy_think
+    } else if (alive && (c->grounded || f > 0.0f)) {
         c->vx = (float)c->walk * speed * (f > 0.0f ? 0.5f : 1.0f);
     } else if (alive) {
         // Air control (a game deviation: a real jumper cannot steer): in the air the walking
@@ -699,6 +705,12 @@ static void update_one(World *w, Creature *c) {
     uint64_t h =
         pr_splitmix64(w->seed ^ (w->tick * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)c->id << 32));
     bool alive = c->state != CREATURE_DEAD;
+    if (c->hit_flash > 0) {
+        c->hit_flash--;
+    }
+    if (alive && (c->kind == KIND_WALKER || c->kind == KIND_FLYER)) {
+        enemy_think(w, c);
+    }
     if (alive && c->wander && rand01(h) < 1.0f / 180.0f) {
         float u = rand01(pr_splitmix64(h));
         c->walk = (int8_t)(u < 0.4f ? -1 : (u < 0.8f ? 1 : 0)); // about every 3 s
@@ -711,7 +723,13 @@ static void update_one(World *w, Creature *c) {
     }
     physics(w, c);
     if (!alive) {
+        if (c->bleed > 0.0f) {
+            enemy_bleed(w, c);
+        }
         return;
+    }
+    if (c->kind == KIND_WALKER || c->kind == KIND_FLYER) {
+        return; // monsters do not breathe or give off heat
     }
     float work = c->walk != 0 && c->grounded ? WORK_WALKING : 1.0f;
     if (--c->breath_timer <= 0) {
@@ -818,6 +836,7 @@ int creature_spawn_sized(World *w, int x, int y, int cw, int ch) {
     c->facing = 1;
     c->id = id;
     c->health = 1.0f;
+    c->hp = c->hp_max = PERSON_HP;
     c->metabolism_scale = 1.0f;
     c->speed = CREATURE_WALK_SPEED;
     c->breath_timer = BREATH_TICKS;

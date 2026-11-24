@@ -35,6 +35,7 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 22 | Brass | STATIC | 8500 | 380 | 110 | melts 1208 K → molten brass | `#B8923A` | 6a |
 | 23 | Molten brass | LIQUID | 7600 (approx.) | 470 (approx.) | 70 (approx.) | freezes 1208 K → brass; painted at 1300 K | `#D8A848`, glows | 6a |
 | 24 | Gas (a mixture of species 6–10) | GAS | its mixture's (air: 1.2922) | its mixture's (air: 1005) | its mixture's (air: 0.026) | its water vapour condenses | mixed from its species | 6a |
+| 25 | Blood | LIQUID | 1060 | 3600 | 0.5 | none (no freezing or boiling yet); starts at 293.15 K | `#8A0F14` α 0.92 | 6b |
 
 Notes
 - **Dirt** is a bulk soil value. Real soil ranges from 1200 to 1700 kg/m³, and k from 0.25 (dry) to
@@ -247,6 +248,11 @@ Keep this list complete.
 17. Jetpack (M6b, D-041): the player has an infinite jetpack, a game invention. Held for 12 ticks
     (0.2 s) in the air, `W` adds 2.2 g of upward acceleration (1.2 g net of gravity) up to 5 m/s
     of rise (`JETPACK_ACCEL`, `JETPACK_MAX_RISE`). It exerts no force on the air yet.
+18. Monsters (M6b, D-042): they do not breathe and give off no body heat, and their bodies start
+    at room temperature (a 310 K body in 293 K air keeps its chunks in the heat pass for minutes:
+    50 monsters cost 12 ms a tick). Their size (6 × 6 and 11 × 11 cells), speed, hit points and
+    bite are game values (`WALKER_*`, `FLYER_*`, `RIFLE_DAMAGE` 12 hp, `BITE_TICKS`). Blood's
+    droplets start at room temperature too, like bullets (the heat they carry is negligible).
 
 ## Adding an element (checklist)
 

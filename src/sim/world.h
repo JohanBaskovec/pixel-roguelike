@@ -63,6 +63,21 @@ typedef struct Chunk {
 
 _Static_assert(sizeof(Chunk) == 32, "Chunk must stay 32 bytes");
 
+// A crate lying on the ground (M6b): a box, not cells. Walking on it picks it up (pickup.h).
+typedef enum PickupKind {
+    PICKUP_AMMO = 0,
+    PICKUP_HEALTH = 1,
+} PickupKind;
+
+#define PICKUP_MAX 256
+
+typedef struct Pickup {
+    int32_t x, y;  // top-left cell
+    int16_t w, h;  // size in cells
+    uint8_t kind;  // PickupKind
+    uint8_t taken; // picked up: no longer there
+} Pickup;
+
 typedef struct World {
     int32_t width, height; // cells; multiples of CHUNK_SIZE
     int32_t chunks_x, chunks_y;
@@ -88,6 +103,8 @@ typedef struct World {
     struct Creature *creatures;    // owned; creatures (creature.h)
     int32_t creature_count;
     uint32_t creature_next_id;
+    struct Pickup *pickups; // owned; crates (PICKUP_MAX)
+    int32_t pickup_count;
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.

@@ -643,3 +643,21 @@ to watch).
 - **Consequences:** The level is all air, so the player digs and shoots through walls to shortcut
   the maze. Rooms are narrower than the simulated area (D-040), which holds about 9 rooms.
   Jetpack exhaust pushing on the air, fuel and heat are later work.
+
+## D-042 — Hit points, monsters, blood and crates
+
+- **Status:** Accepted (2026-11-24), asked for by the user.
+- **Decision:** A creature has hit points (`hp`, 100 for the player), separate from `health`, the
+  oxygen state. Bullets that reach a body cell take 12 hp and stop (the player's own bullets do
+  not hurt it). A hit and a dead body's bleeding throw droplets of a new liquid, `ELEM_BLOOD`, as
+  free particles: blood is real matter that pools and flows, not a decoration. Monsters are
+  creatures (a 6 × 6 walker and an 11 × 11 flyer, drawn as boxes over their body cells) with
+  `enemy_think()` setting their movement before `physics()`; they do not breathe and give off no
+  heat. Crates are not cells: `Pickup` boxes in `World.pickups`, falling while open below, picked
+  up by overlap. Rifle ammunition is counted only for a `Rifle` made with `rifle_init()` (a zero
+  `Rifle` is endless, which keeps the weapon tests as they were). The restart key moves from `R`
+  (now reload) to `F5`.
+- **Consequences:** Monster bodies start at room temperature, because a 310 K body in 293 K air
+  kept hundreds of chunks in the heat pass (50 monsters: 12 ms a tick against 2 ms). Monsters
+  cost little while frozen outside the simulated area (D-040). Monsters only bite; ranged enemies,
+  knockback, the player's death screen beyond a message, and sprites are later work.

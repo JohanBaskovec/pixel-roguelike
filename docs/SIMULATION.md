@@ -606,6 +606,40 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
   result is the same on 1 and 4 threads; running while firing ahead, then back over its own
   casings, the player covers more than 150 of the 160 cells it covers without shooting.
 
+### Monsters, damage, blood and crates (M6b; D-042)
+
+*Hit points.* A creature has `hp` of `hp_max` (100 for the player, `WALKER_HP` 40, `FLYER_HP` 30);
+`creature_hit()` takes some, flashes the body, throws blood, and kills at 0 (state dead, `bleed`
+set to 1.5 droplets per body cell). It is separate from `health`, the oxygen state (breathing).
+A bullet that reaches a body cell (particle.c) takes `RIFLE_DAMAGE` (12 hp) from that creature
+and stops; the player is not hurt by its own bullets.
+
+*Blood.* A hit throws 5 + hp/3 droplets from the cell in front of the body, back along the
+bullet's path with a spread: free particles of `ELEM_BLOOD` (a liquid), which land as pixels and
+pool. A dead body stays where it fell (it keeps falling and resting like any body) and, every 5
+ticks, lets a droplet leave from a side cell until its blood is gone (36 cells: 54 droplets).
+
+*Monsters (enemy.c).* A walker (6 × 6 cells) and a flyer (11 × 11) are creatures that do not
+breathe. Within range (160 and 220 cells) of the live player and in sight (a straight line
+through void, gas, liquid and bodies) they chase it. The walker runs at 2.5 m/s and jumps when
+the player is higher or something at foot level blocks it; the flyer sets its own velocity
+(no gravity while alive) at 3 m/s, slowing near the player, and falls when dead. Out of range or
+sight they wander (the walker as the test creature does; the flyer drifts and bobs). Touching
+the player (a cell apart or less) they bite for 10 and 6 hp every 40 ticks. Frozen outside the
+simulated area like all creatures (D-040).
+
+*Ammunition and crates.* `Rifle` counts rounds (`rifle_init`; a zero `Rifle` has endless ones, for
+tests): a 30-round magazine and a pack of 90 (at most 240). `R`, or pulling the trigger on an
+empty magazine, reloads: `RIFLE_RELOAD_TICKS` (100) with no shots, then the magazine is filled
+from the pack. Crates (`Pickup`, pickup.c) are boxes of 9 × 7 cells, not cells: they fall a cell a
+tick while the cells under them are open, and the player picks one up by touching it. Ammunition
+gives 60 rounds (not if the pack is full), health 40 hp (not if unhurt); a crate that is not
+needed stays.
+
+*The level.* `scene_level()` scatters, per room (not the start room, which only holds a crate
+of ammunition), a walker (10%), a flyer (8%), an ammunition crate (12%) or a health crate (8%);
+monsters and crates stand on solid floor, flyers float at a random height.
+
 **Known limitations.** The body is a rectangle and does not bend, crouch or climb. It is a cell
 thick, like everything (the world is a 5 cm slice). Wading only slows it down. Falling does no
 damage. Exhaled air is not humid.

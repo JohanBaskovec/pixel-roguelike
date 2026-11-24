@@ -7,9 +7,10 @@ temperature, density and behaviour. It draws on *Oxygen Not Included* and *Noita
 multithreaded simulation of a 4096 × 2048 pixel world (one pixel is 5 cm), water with pressure,
 heat with melting, freezing and boiling, gases as mixtures with pressure (air, CO2, hydrogen,
 water vapour) that diffuse, rise, sink, condense and burn, powders and digging, lava and molten
-metals, creatures that breathe, and a player who runs, jumps and fires a rifle whose bullets and
-casings are real pixels. The sandbox tools are still there: you can paint any of it, heat and
-cool it, and watch. Not done: enemies, health, world generation, saving. Busy scenes (long
+metals, creatures that breathe, and a player (100 hp, limited ammunition, crates to pick up) who runs, jumps, flies with a
+jetpack and fires a rifle whose bullets and casings are real pixels, against monsters that
+chase and bite and bleed when shot. The sandbox tools are still there: you can paint any of it, heat and
+cool it, and watch. Not done: ranged enemies, world generation, saving. Busy scenes (long
 bursts of fire, big gas clouds) can drop below 60 ticks per second; the plan to fix that is in
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -80,7 +81,8 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame). Heat lights hydrogen mixed with oxygen (773 K) |
 | `Space` | Pause / resume |
 | `.` | Advance one tick (pauses) |
-| `R` | Reset the level |
+| `R` | Reload the rifle (a magazine of 30; the pack holds 90 to start, 240 at most) |
+| `F5` | Restart: a new level |
 | `Esc` | Quit |
 
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells

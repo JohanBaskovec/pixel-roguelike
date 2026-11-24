@@ -31,7 +31,7 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4c – Creatures** and
 **M5 – Matter variety and reactions** and **M6a – Action roguelike: the player and the rifle** are
 implemented. The game is an action roguelike: a maze of air-filled rooms carved in dirt in a 4096 × 2048
-world, a player (drawn at half size: 85 cm, D-038) who runs, jumps, flies with an infinite jetpack (hold the jump key) and fires an automatic rifle whose bullets are real
+world, a player (drawn at half size: 85 cm, D-038) who runs, jumps, flies with an infinite jetpack (hold the jump key), has 100 hp and limited ammunition (R reloads; crates to walk on), and fires an automatic rifle whose bullets are real
 pixels (they fly, dig, stir the air and pile up with their casings, and melt; each shot blows
 hot muzzle gas), a toolbar to paint water,
 steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,
@@ -44,7 +44,7 @@ breathe the air in and out at real rates and give off body heat, powders and dig
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom ×2), tests
 and a benchmark; only the 3 × 3 regions of 512 × 512 cells around the player are simulated (time
 stops outside, D-040). Next: **M6b – Roguelike, next** (HP, heat damage, and the content the user
-wants: enemies, smoke grenades, rockets, acid), **M6c –
+wants: ranged enemies, smoke grenades, rockets, acid; the walking and flying monsters, crates and blood are done), **M6c –
 Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` → Proposed next steps,
 D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is too slow for busy
 scenes. Firing for 10 s, or one big gas cloud, in a 1024 × 1024 room costs 6–11 ms of the
@@ -146,8 +146,8 @@ src/core/     common.h (macros, PR_ASSERT, aligned alloc, timer), rng.h, log.h, 
 src/sim/      elements (definition table + lookup tables), world (grid, chunks, dirty rects),
               sim (movement rules, gas mass and pressure, convection, tick), pressure (water
               bodies, transfers, jets), heat (conduction, phase changes), particle (free
-              particles, bullet flight), creature (bodies, breathing, the player's body), weapon
-              (the rifle), edit (brush strokes, edit queue, small clumps), scene (box, level,
+              particles, bullet flight), creature (bodies, breathing, the player's body), enemy
+              (monsters, damage, blood), pickup (crates), weapon (the rifle), edit (brush strokes, edit queue, small clumps), scene (box, level,
               demo, bench).
               HEADLESS: no SDL video/render/events
 src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)

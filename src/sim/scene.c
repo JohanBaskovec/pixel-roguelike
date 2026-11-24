@@ -3,6 +3,9 @@
 #include "core/rng.h"
 #include "sim/creature.h"
 #include "sim/edit.h"
+#include "sim/enemy.h"
+#include "sim/particle.h"
+#include "sim/pickup.h"
 
 #include <math.h>
 
@@ -184,8 +187,51 @@ void scene_level(World *w) {
         Edit air = {t, y, W - t - 1, y, 0, EDIT_SQUARE, EDIT_AIR, 1, EDIT_PAINT};
         sim_apply_edit(w, &air);
     }
-    world_wake_rect(w, 0, 0, W - 1, H - 1);
-    world_wake_heat(w, 0, 0, W - 1, H - 1);
+    // Crates and monsters scattered over the rooms (not the start room, which only gets a crate of
+    // ammunition near the player).
+    int sx, sy;
+    scene_level_start(w, &sx, &sy);
+    for (int cy = 0; cy < m.rows; cy++) {
+        for (int cx = 0; cx < m.cols; cx++) {
+            int x0 = m.x0 + cx * m.px, y0 = m.y0 + cy * m.py, floor_y = y0 + MAZE_ROOM_H - 1;
+            bool start = sx >= x0 && sx < x0 + MAZE_ROOM_W && sy >= y0 && sy < y0 + MAZE_ROOM_H;
+            if (start) {
+                pickup_add(w, PICKUP_AMMO, sx + 60, floor_y);
+                continue;
+            }
+            uint32_t r = rng_range(&rng, 100);
+            int kind = r < 10 ? 0 : r < 18 ? 1 : r < 30 ? 2 : r < 38 ? 3 : -1;
+            if (kind < 0) {
+                continue;
+            }
+            // A spot on the floor (on solid ground, not over a shaft), or anywhere for a flyer.
+            for (int tries = 0; tries < 8; tries++) {
+                int x = x0 + 8 + (int)rng_range(&rng, (uint32_t)(MAZE_ROOM_W - 16 - FLYER_W));
+                bool ground = true;
+                for (int k = 0; k < FLYER_W; k++) {
+                    ground = ground && !particle_passes(w, x + k, floor_y + 1);
+                }
+                if (kind == 1) { // flyer, in the air
+                    int y = y0 + 6 + (int)rng_range(&rng, (uint32_t)(MAZE_ROOM_H - 12 - FLYER_H));
+                    if (enemy_spawn(w, KIND_FLYER, x, y) >= 0) {
+                        break;
+                    }
+                } else if (ground) {
+                    if (kind == 0) {
+                        if (enemy_spawn(w, KIND_WALKER, x, floor_y - WALKER_H + 1) >= 0) {
+                            break;
+                        }
+                    } else {
+                        pickup_add(w, kind == 2 ? PICKUP_AMMO : PICKUP_HEALTH, x + PICKUP_W / 2,
+                                   floor_y);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    world_wake_rect(w, 0, 0, w->width - 1, w->height - 1);
+    world_wake_heat(w, 0, 0, w->width - 1, w->height - 1);
 }
 
 int scene_spawn_player(World *w, int x) {
@@ -202,6 +248,7 @@ int scene_spawn_player_from(World *w, int x, int y) {
         if (id >= 0) {
             Creature *c = &w->creatures[id];
             c->speed = PLAYER_SPEED;
+            c->kind = KIND_PLAYER;
             c->aimed = 1;
             return id;
         }

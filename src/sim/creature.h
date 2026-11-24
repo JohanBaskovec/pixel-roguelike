@@ -10,7 +10,7 @@
 #include "sim/particle.h"
 #include "sim/world.h"
 
-#define CREATURE_MAX   64
+#define CREATURE_MAX   128
 #define CREATURE_MAX_W 16
 #define CREATURE_MAX_H 48
 // Bodies are drawn at half a person's size (25 cm x 85 cm at 5 cm per cell), for the view to show
@@ -37,6 +37,15 @@
 #define JETPACK_ACCEL    (2.2f * PARTICLE_GRAVITY)
 #define JETPACK_MAX_RISE (5.0f / CELL_SIZE_M * TICK_SECONDS)
 
+// What a creature is (M6b). Monsters do not breathe and give off no body heat (they are boxes of
+// body cells that chase the player: enemy.h); the player is not hurt by its own bullets.
+typedef enum CreatureKind {
+    KIND_PERSON = 0, // the test creature: breathes, wanders
+    KIND_PLAYER = 1,
+    KIND_WALKER = 2, // a small monster that walks
+    KIND_FLYER = 3,  // a monster that flies
+} CreatureKind;
+
 typedef enum CreatureState {
     CREATURE_OK = 0,
     CREATURE_IMPAIRED = 1, // little oxygen: slower
@@ -57,6 +66,11 @@ typedef struct Creature {
     uint8_t jump;           // wants to jump (done when it stands on something; then cleared)
     uint8_t thrust;         // the jump key is held (the jetpack fires after JETPACK_DELAY ticks)
     uint8_t jet_hold;       // ticks `thrust` has been held without a break (saturates)
+    uint8_t kind;           // CreatureKind
+    uint8_t hit_flash;      // ticks left of the flash after a hit (drawing)
+    uint8_t attack_cd;      // monsters: ticks until the next bite
+    float hp, hp_max;       // hit points (damage from bullets and bites; 0 is dead)
+    float bleed;            // droplets of blood a dead body still has to bleed
     uint8_t aimed;          // `facing` is set from outside (the player aims), not from `walk`
     uint8_t holding;        // holds a breath in (it could not breathe out: the mouth is in liquid)
     float speed;            // walking speed, cells per tick
@@ -79,6 +93,9 @@ int creature_spawn(World *w, int x, int y);
 
 // The same, with a body of w x h cells (at most CREATURE_MAX_W x CREATURE_MAX_H).
 int creature_spawn_sized(World *w, int x, int y, int cw, int ch);
+
+// Hit points of a person and of the player.
+#define PERSON_HP 100.0f
 
 // Moves, breathes and heats every creature. sim_tick calls it first.
 void creatures_update(World *w);

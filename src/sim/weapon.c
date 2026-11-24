@@ -135,9 +135,38 @@ static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y
     r->shots++;
 }
 
+void rifle_init(Rifle *r) {
+    *r = (Rifle){0};
+    r->limited = 1;
+    r->mag = RIFLE_MAG;
+    r->reserve = RIFLE_RESERVE_START;
+}
+
+bool rifle_reload(Rifle *r) {
+    if (!r->limited || r->reload > 0 || r->mag >= RIFLE_MAG || r->reserve <= 0) {
+        return false;
+    }
+    r->reload = RIFLE_RELOAD_TICKS;
+    return true;
+}
+
 bool rifle_update(World *w, Rifle *r, int shooter, float aim_x, float aim_y, bool trigger) {
     if (r->cooldown > 0) {
         r->cooldown--;
+    }
+    if (r->limited) {
+        if (r->reload > 0) {
+            if (--r->reload == 0) {
+                int take = PR_MIN(RIFLE_MAG - r->mag, r->reserve);
+                r->mag += take;
+                r->reserve -= take;
+            }
+            return false;
+        }
+        if (trigger && r->mag == 0) {
+            rifle_reload(r); // pulling the trigger on an empty magazine reloads
+            return false;
+        }
     }
     if (!trigger || r->cooldown > 0 || shooter < 0 || shooter >= w->creature_count) {
         return false;
@@ -147,6 +176,9 @@ bool rifle_update(World *w, Rifle *r, int shooter, float aim_x, float aim_y, boo
         return false;
     }
     fire(w, r, c, aim_x, aim_y);
+    if (r->limited) {
+        r->mag--;
+    }
     r->cooldown = RIFLE_INTERVAL;
     return true;
 }

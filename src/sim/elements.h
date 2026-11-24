@@ -34,6 +34,7 @@ enum {
     ELEM_BRASS = 22, // solid brass (molten casings, solidified)
     ELEM_MOLTEN_BRASS = 23,
     ELEM_GAS = 24, // a gas cell: a mixture of the gas species (GasMix)
+    ELEM_BLOOD = 25, // blood (M6b): a liquid a little denser than water
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.
