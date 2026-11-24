@@ -65,7 +65,7 @@ Notes
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
-  steam above 100 °C (L = 2257 kJ/kg); steam → water below 100 °C. **Lead and brass** (M6a): spent
+  water vapour above 100 °C (L = 2257 kJ/kg); vapour → water at its dew point (M6a). **Lead and brass** (M6a): spent
   bullets and solid lead melt at 327.5 °C; casings and solid brass at 935 °C (cartridge brass,
   70% copper and 30% zinc, melts between about 915 and 955 °C; one point is used). Molten metal
   solidifies into solid lead or brass, not back into bullets or casings. Molten brass's density,
@@ -75,9 +75,6 @@ Notes
   4 °C); gases follow the ideal gas law.
 
 ## Derived values at 5 cm cells
-
-(Cells will become 10 cm, D-037: the masses and thermal masses per cell below are then 8× larger,
-and the constants given in cells in the next section are rescaled. Not implemented yet.)
 
 These are handy for sanity-checking (`V_cell = 1.25e-4 m³`).
 
@@ -107,7 +104,7 @@ All are clamped to `MAX_MOVE` = 32.
 
 | Global | Value | Where | Meaning |
 |---|---|---|---|
-| `K_BUOY` | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
+| `K_BUOY` (`K_BUOY_16` = 65536) | 1.0 | `sim/elements.h` | Scales the buoyancy swap probability between fluids |
 | `GAS_DIFFUSE_K` | 3.3% | `sim/sim.c` | Diffusion: a pair trades this share of each species' mole-fraction difference (times their mean moles) when picked, about every other tick: 2.5e-3 m²/s (deviation 12) |
 | `GAS_MIX_TOL`, `GAS_BUOY_TOL` | 0.1%, 0.02% | `sim/sim.c` | Mole fractions, and densities at 1 atm, closer than this count as equal (no move; may sleep) |
 | `GAS_BUOY_SCALES` | 1, 4, 8, 16 rows | `sim/sim.c` | Buoyancy: column windows compared above and below; drive = contrast × √height |
@@ -137,6 +134,7 @@ All are clamped to `MAX_MOVE` = 32.
 | `LIFT_SIDE` | 0.6 cells/tick | `sim/creature.c` | Powder in mid-air a body moves into slides off it this fast as it falls |
 | `FLOW_SIDE` | 8 columns | `sim/creature.c` | How far beside a body moving up or down its displaced liquid goes to the surface |
 | `PROPELLANT_KG`, `MUZZLE_K` | 1.6 g, 1500 K | `sim/weapon.c` | Muzzle gas per shot (55% CO₂, 27% water vapour, 18% N₂ by mass) and its temperature |
+| `MUZZLE_REACH` | 6 cells | `sim/weapon.c` | Muzzle gas is mixed into the gas of this many cells along the line of fire |
 | `GAS_TURB_PER_WIND` | 23 | `sim/world.h` | Turbulence: heat exchange and diffusion between gas cells × (1 + this × current speed) |
 | `RIFLE_BULLET_SPEED` | 900 m/s (300 cells/tick) | `sim/weapon.h` | Muzzle velocity |
 | `RIFLE_INTERVAL` | 5 ticks | `sim/weapon.h` | Between shots: 720 rounds per minute |
@@ -151,7 +149,7 @@ All are clamped to `MAX_MOVE` = 32.
 | Reaction H₂ + O₂ | 773 K, 7.94 kg O₂/kg, 120 MJ/kg | `sim/elements.c` | Hydrogen burning into steam (`g_reactions`) |
 | `FLAME_MAX_K` | 3000 K | `sim/elements.h` | Hottest a reaction product gets |
 | `POWDER_SINK_P16` | 3000/65536 | `sim/sim.c` | Chance per tick that a powder sinks one cell through liquid (≈ 0.15 m/s) |
-| `WALK_SPEED` | 1.4 m/s | `sim/creature.c` | Walking speed (half when impaired or in liquid) |
+| `CREATURE_WALK_SPEED` | 1.4 m/s | `sim/creature.h` | Walking speed (half when impaired or in liquid) |
 | `STEP_UP` | 4 cells | `sim/creature.c` | Highest ledge (20 cm) walked up without stopping |
 | `BREATH_TICKS`, `INHALE_TICKS` | 257, 103 | `sim/creature.c` | One breath every 4.3 s (14 a minute); breathing in takes 1.7 s, then out |
 | `TIDAL_CELLS` | 4 cells (0.5 L) | `sim/creature.c` | Air breathed in and out per breath at rest (×3 walking) |
@@ -196,8 +194,8 @@ Keep this list complete.
 6. Gas pressure pushes on liquids, but gas-driven flow is rate limited (`GAS_LIQUID_INTERVAL`),
    so a barometer fills in about 20 s rather than at once.
 7. Buoyancy between gases compares column windows (1 to 16 rows) and moves a cell or shifts a
-   column at a time: a coarse stand-in for flow (a warm pocket rises at about a third of the real
-   speed). A gradient gentler than the tolerances is left alone.
+   column at a time: a coarse stand-in for flow (a 50 cm pocket 30 K warmer than the room rises at
+   about 0.2 m/s, slower than a real one). A gradient gentler than the tolerances is left alone.
 8. Reactions (M5): products are not heated beyond `FLAME_MAX_K` (3000 K), since dissociation is
    not modelled; the rest of the heat is dropped. All the fuel the oxidiser in a cell allows burns
    in one tick.
@@ -240,4 +238,8 @@ Keep this list complete.
    (M6) will depend on them.
 3. If it is paintable, add it to the toolbar in `src/game/`.
 4. Add behaviour tests for anything new (a new behaviour, a phase change, a reaction).
+   A new **gas** is a species, not a cell element of its own: give it an element row for its
+   properties, then add it to `GAS_SPECIES`, the `GAS_*` indices and `g_species_elem`
+   (`sim/elements.h`, `sim/elements.c`) with its molar mass. Every gas cell then carries it
+   (4 more bytes per cell).
 5. Update "Gameplay deviations" if anything is non-physical.

@@ -17,7 +17,7 @@ the player. The sandbox tools stay available for now.
 
 | From | We take | We leave (for now) |
 |---|---|---|
-| *Oxygen Not Included* | Gases you must manage (O2, CO2, H2); temperature as a core system; heavy gases sinking and light ones rising; digging orders instead of direct control; colony-scale thinking | The tile grid. ONI simulates 1 m tiles; we simulate pixels |
+| *Oxygen Not Included* | Gases you must manage (O2, CO2, H2); temperature as a core system; heavy gases sinking and light ones rising | The tile grid (ONI simulates 1 m tiles; we simulate pixels). Since the game became an action roguelike (D-031): digging orders instead of direct control, colony-scale thinking. Separate elements for mixtures ("water" and "dirty water"): here gases mix in a cell (D-035), and liquids should too (roadmap M6c) |
 | *Noita* | Every pixel simulated; falling-sand liquids and powders; fully destructible terrain; emergent chaos; chunked multithreaded simulation | (Undecided) Its roguelike structure and wand-crafting |
 
 ## Pillars
@@ -43,12 +43,16 @@ switches tools and elements and controls time (pause, step, speed).
   textured rather than flat.
 - Gases are invisible in reality, but here they are drawn as faint tints so you can read them, as
   in ONI. This is a deliberate deviation from realism.
-- Later: hot cells glow (blackbody colour), a temperature overlay view, simple lighting.
+- Hot cells glow (blackbody colour), and there is a temperature overlay view. Later: simple
+  lighting.
 
 ## Decided physics choices
 
 - Vacuum is a perfect insulator; there is no heat radiation (D-017).
-- Water pressure uses a pressure field while keeping one element per pixel (D-018, milestone M2b).
+- Water pressure comes from labelled bodies of still liquid, one element per pixel (D-018,
+  milestone M2b).
+- A gas pixel holds a mixture of gases; air is one such mixture (D-035).
+- One pixel is 5 cm (D-037).
 - Creatures breathe at real rates by default (≈250 mL/min of O₂ at rest), with an optional
   gameplay speed-up (roadmap M4c).
 
@@ -56,17 +60,17 @@ switches tools and elements and controls time (pause, step, speed).
 
 These are intentionally unresolved. Record answers in `DECISIONS.md` when they are made.
 
-- **Genre.** Is this a colony sim (ONI), a roguelike with a player character (Noita, and the repo
-  name), or a hybrid?
-- **Agents.** Are there colonists who carry out orders, a single avatar, or both? (The creature
-  engine in roadmap M4c — bodies that push gas and water around, breathing at real rates — is
-  needed either way.)
-- **Physical scale.** ~~How big is one pixel?~~ Decided: **10 cm** (`DECISIONS.md` D-037), for
-  performance and a pixel-exact default zoom. The code still uses the earlier working assumption
-  of 5 cm until the switch is done (ROADMAP M6c).
-- **Gas model.** Gas can be one particle per pixel (Noita) or carry a mass per pixel with pressure
-  (ONI). The plan is to start with particles and move to mass and pressure in M4; see
-  `DECISIONS.md` D-005.
+- **Genre.** ~~Colony sim, roguelike or hybrid?~~ Decided: an action roguelike with a player
+  character (D-031).
+- **Agents.** A single avatar, the player (D-031). Enemies that shoot back are wanted (roadmap
+  M6b); they would use the creature engine (bodies that push gas and water around and breathe).
+  Colonists who carry out orders are not planned.
+- **Physical scale.** ~~How big is one pixel?~~ Decided: **5 cm** (`DECISIONS.md` D-037; 10 cm
+  was considered for speed and rejected). It sets character size, gas masses and heat time
+  scales.
+- **Gas model.** ~~One particle per pixel (Noita) or a mass per pixel with pressure (ONI)?~~
+  Decided: each gas pixel holds a mass of each gas, with pressure (D-024, D-035). How gas moves
+  is being reworked for speed (D-036, proposed).
 - **World.** Is the world one fixed-size map or streamed and procedurally generated? Do worlds
   persist?
 - **Progression.** What does the player want, and what kills them or the colony?

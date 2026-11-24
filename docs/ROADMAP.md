@@ -281,6 +281,13 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 
 ## M6b – Roguelike, next
 
+Asked for by the user, not designed yet (each needs the gas rework of M6c to run well in a busy
+scene; the target scene is in `PERFORMANCE.md` → Budgets):
+- [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour)
+- [ ] Smoke grenades (smoke as one more gas species, or as fine particles carried by the air)
+- [ ] Rockets (a blast: hot gas at high pressure, digging and debris)
+- [ ] Acid that eats through walls (a liquid that reacts with solids)
+
 - [ ] Simulate only what is near the player (the visible part of the level plus a margin), so the
       world can be as big as we want (with world streaming, M6)
 - [ ] Smooth zooming
@@ -290,41 +297,6 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 
 ## M6c – Simulation, next
 
-- **Switch to 10 cm cells** (decided, D-037; first, before the gas rework below). Sizes, speeds
-  and physical values stay the same in metres, seconds and kilograms.
-  - [ ] `CELL_SIZE_M = 0.1` (`sim/elements.h`). What derives from it follows by itself: cell
-        volume and masses (1 L, 1 kg of water, 1.2 g of air), gravity for particles and bodies,
-        walking, running and jump speeds, bullet speed (150 cells per tick), heat exchange
-        between cells, gas pressure as a height of liquid (1 atm = 103 cells of water). Check each
-  - [ ] Bodies: the player 1.85 m × 45 cm (18–19 × 4–5 cells, to settle; 37 × 9 today), the
-        test creature, mouth and shoulder rows, the largest body allowed
-  - [ ] Lengths written in cells, halved: step height (4 → 2, 20 cm), kick height and look-ahead
-        (8 → 4, 12 → 6), rifle length and ejection port (18 → 9, 7 → 3 or 4), muzzle gas reach,
-        breath and head windows (16 → 8), stir distance (64 → 32), liquid flow-around distance,
-        particle landing search, condensation and gas region radii (to judge one by one)
-  - [ ] Volumes written in cells, divided by 8: a breath (4 cells → half a cell), air stirred per
-        breath (16 → 2), cells a breath draws from
-  - [ ] Falling in the grid: gravity step (`GRAVITY_INC_P16` 57 000 → 28 500), terminal fall
-        speed, splash and jet thresholds, powder sinking in liquid, creature fall limit, particle
-        speed limit, the speed below which a bullet just falls (30 m/s = 5 cells per tick)
-  - [ ] Gases: `GAS_DIFFUSE_K` 0.0333 → 0.0083 (the same 2.5e-3 m²/s), current speeds (a current
-        at full speed would be 5.8 m/s instead of 2.9: rescale the sources or keep), the
-        turbulence factor re-derived, liquid spread values (cells per tick) retuned by eye.
-        Reach and window sizes in cells (pressure reach 16, buoyancy windows 1–16) can stay
-  - [ ] To check, expected unchanged: bullet resistance per cell (30 cm of earth is 3 cells at
-        150 cells per tick), tolerances, probabilities, everything in kelvin, pascals or seconds
-  - [ ] To settle: small-clump limit (20 cells today: keep the count, or the area, 5 cells); world
-        size (proposed: keep 4096 × 2048 cells, now 410 × 205 m; asleep cells cost nothing);
-        level and demo scenes (hills, strata and boulders are written in cells)
-  - [ ] Game: default zoom 3 (frames the scene like zoom 1.5 today, pixel-exact), brush sizes,
-        the rifle overlay and tracers
-  - [ ] Tests: about 290 checks, many of them in cells or in masses per cell; room sizes in the
-        gas and creature tests (a room one cell deep holds twice the air per square metre)
-  - [ ] Docs: SIMULATION (units, every length in cells), ELEMENTS (derived values, the constants
-        table, deviations), ARCHITECTURE (memory), CLAUDE.md, README
-  - [ ] Measure before and after on the firing and CO2 cases (same room in metres: 512 × 512
-        cells), the default level and `pr-bench`; log it in PERFORMANCE. Then re-judge the gas
-        rework below on those numbers
 - [ ] Liquid mixtures (asked for: ONI's separate "water" and "dirty water" felt strange): a liquid
       cell carries what is dissolved or suspended in it (dirt, salt, pollution), the same way a gas
       cell carries its species; dirty water dilutes, mixes and settles. Miscible liquids mix,

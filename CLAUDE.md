@@ -43,9 +43,12 @@ follow Torricelli, splashes), creatures that walk, swim,
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom 1), tests
 and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the player, HP, heat
-damage), **M6c – Simulation, next** (first the switch from 5 cm to **10 cm cells**, decided in
-D-037 but not implemented: the code and docs still describe 5 cm; then faster gases: the plan is
-in `docs/PERFORMANCE.md` → Proposed next steps, D-036) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
+damage, and the content the user wants: enemies, smoke grenades, rockets, acid), **M6c –
+Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` → Proposed next steps,
+D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is too slow for busy
+scenes. One shooter firing for 10 s, or one big gas cloud, in a 1024 × 1024 room already costs
+11–12 ms of the 16.7 ms tick on 4 threads, and it grows with the area stirred; the target scene
+and the plan are in `docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack
@@ -161,11 +164,11 @@ benchmark all link.
 
 - No allocation, logging, SDL calls, or locks. No calls through function pointers per cell;
   dispatch with a `switch` on the element's phase/behaviour.
-- Read element properties from the property tables (`g_elem_density[id]`, etc.), which fit in L1.
-  Do not chase pointers.
-- Movement rules use integer and comparison logic, with densities from the quantised table. Most
-  floating point belongs in the heat pass. The exception is fluid buoyancy and convection, which
-  read temperatures (with an integer fast path when temperatures are equal).
+- Read element properties from the property tables (`g_elem_density_q[id]`, etc.), which fit in
+  L1. Do not chase pointers.
+- Liquid and powder rules use integer and comparison logic, with densities from the quantised
+  table (floating point only for convection). Gas rules are floating point: a gas cell's
+  properties come from its mixture (`World.gas`), not from the tables.
 - Use `elem_temp(e, t)` for any physical use of a temperature (`temp` also holds latent heat).
 - Never iterate the whole world when only dirty chunks or rects need work.
 - Never let a cell move, or a rule read, more than 32 px from the cell being updated (the
@@ -202,7 +205,7 @@ benchmark all link.
   work. **Never quote performance numbers from a Debug build.**
 - Run `ctest -j4` (Release, then the ASan build) before committing. Run `pr-bench` before
   committing changes to `src/sim/`. While iterating, run only the tests you touch
-  (`pr-tests <name>`); the full suites take about 12 s (Release) and 1 min (ASan) on 4 cores.
+  (`pr-tests <name>`); the full suites take about 20 s (Release) and 2 min (ASan) on 4 cores.
 - After threading changes, run the `thread_count` tests under TSan (`-R thread_count`).
 - Keep tests fast: the smallest world that shows the behaviour (sizes round up to 64) and only
   the ticks it needs. `pr-tests` prints each test's time; a test over a few seconds in Release

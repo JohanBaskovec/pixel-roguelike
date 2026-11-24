@@ -3,12 +3,15 @@
 A 2D side-view game where every pixel is simulated: gases, liquids and solids, each with its own
 temperature, density and behaviour. It draws on *Oxygen Not Included* and *Noita*.
 
-**Status:** milestones M1 (sandbox box), M2 (multithreading, big world, camera), M2b (water
-pressure) and M3 (temperature) are done. You can paint water, steam, gases (oxygen, CO2,
-hydrogen) and solids (dirt, rock, iron, ice) into a 4096 × 2048 box with dirt walls, heat and
-cool them, and watch them behave: water levels out, fills communicating vessels, convects, freezes
-and boils; hot air rises; hot iron glows.
-See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** an action roguelike in the making. Done so far (milestones M1 to M6a): a
+multithreaded simulation of a 4096 × 2048 pixel world (one pixel is 5 cm), water with pressure,
+heat with melting, freezing and boiling, gases as mixtures with pressure (air, CO2, hydrogen,
+water vapour) that diffuse, rise, sink, condense and burn, powders and digging, lava and molten
+metals, creatures that breathe, and a player who runs, jumps and fires a rifle whose bullets and
+casings are real pixels. The sandbox tools are still there: you can paint any of it, heat and
+cool it, and watch. Not done: enemies, health, world generation, saving. Busy scenes (long
+bursts of fire, big gas clouds) can drop below 60 ticks per second; the plan to fix that is in
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Tech
 
@@ -70,7 +73,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `P` | Pressure view: water coloured by depth below its surface, gas by pressure (log scale, green = 1 atm) |
 | `T` | Temperature view |
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Water vapour, Dirt, Rock, Iron, Ice, Eraser |
-| `N` / `G` | Nitrogen / Air (21% oxygen cells, evenly spread among nitrogen), at 1 atm |
+| `N` / `G` | Nitrogen / Air (every pixel the same mixture: 21% oxygen, 0.04% CO2, the rest nitrogen), at 1 atm |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `J` / `L` / `O` | Sand / Lava (1600 K) / Oil |
 | `X` | Dig: loosens dirt into loose soil and rock into rubble, which fall |

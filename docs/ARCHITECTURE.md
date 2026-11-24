@@ -73,8 +73,9 @@ typedef struct Cell {
     ElementId element;
     uint8_t   stamp;                 // low 8 bits of the tick in which it was last updated/moved
     uint8_t   shade;                 // random at creation; colour variation; moves with the cell
-    uint8_t   aux;                   // per-behaviour scratch. Liquids: bit 7 flow direction,
-                                     // bits 0-6 fall speed (1/16 px/tick)
+    uint8_t   aux;                   // per-behaviour scratch. Liquids and powders: bit 7 flow
+                                     // direction, bits 0-6 fall speed (1/16 px/tick). Gases: a
+                                     // current (bits 3-7 speed, bits 0-2 direction)
 } Cell;                              // 4 bytes
 
 typedef struct DirtyRect { int16_t min_x, min_y, max_x, max_y; } DirtyRect;  // chunk-local, inclusive
@@ -155,8 +156,8 @@ sim_tick(world):
         added to this tick's rects
     water pressure: relabel chunks whose still liquid changed (parallel), rebuild bodies with a
         union-find (serial); chunks whose body top rose are added to this tick's rects
-    gas block counts: each chunk with a non-empty cur rect counts each gas in its 8 x 8 blocks
-        (parallel; read-only during the movement pass)
+    gas densities: each chunk with a non-empty cur rect recomputes World.rho, its gas cells'
+        densities at 1 atm, for buoyancy (parallel)
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
         the first phase rotates with the tick; the chunks of a phase run in parallel;
         after each phase, the phase's water-pressure transfer requests are applied (serial;
@@ -173,10 +174,13 @@ Rule details are in `SIMULATION.md`.
 
 Each chunk tracks a rectangle of cells that may change this tick. When a cell changes (it moves,
 swaps or changes element), the code expands the *next* dirty rect of every chunk touched by that
-cell's 3×3 neighbourhood (`world_wake_cell`, `world_wake_pair`). A cell that did not move but
-still could (a probabilistic move that failed) keeps only itself awake (`world_keep_alive`). If
-nothing changes inside a chunk during a tick, its next rect is empty and the chunk sleeps until
-something wakes it: a neighbour's change, a player edit, or (M3) heat.
+cell's 3×3 neighbourhood (`ctx_wake` inside the movement pass, `world_wake_rect` outside it). A
+cell that did not move but still could (a probabilistic move that failed) keeps only itself awake
+(`keep_alive`). If nothing changes inside a chunk during a tick, its next rect is empty and the
+chunk sleeps until something wakes it: a neighbour's change, a player edit, or (M3) heat.
+
+One rectangle per chunk is coarse: a diagonal line of woken cells (a bullet's trail) makes the
+whole chunk awake. Finer tracking is proposed (`PERFORMANCE.md` → Proposed next steps).
 
 ### Parallel movement: 4-phase checkerboard
 
@@ -189,8 +193,10 @@ into the neighbouring chunks. Two chunks in the same phase always have one full 
 between them. Each worker reaches at most 32 px into that gap, so their regions never overlap.
 
 **Invariant: no single tick may move a cell more than 32 px from its start, and no rule may read
-further than 32 px from the cell it updates**, in any direction. Liquid spreading and lookahead,
-gas drift and any future projectile must clamp to this. Debug builds assert it on every swap.
+further than 32 px from the cell it updates**, in any direction. Liquid spreading and lookahead
+and every gas rule clamp to this. Debug builds assert it on every swap. What runs serially is
+not bound by it: creatures (start of the tick), water-pressure transfers (after each phase) and
+free particles (end of the tick), which is how a bullet crosses 300 cells in a tick.
 
 **How a phase runs** (`sim_tick` in `src/sim/sim.c`):
 1. List the phase's chunks with a non-empty dirty rect. Give each a `TickCtx`: its chunk, its RNG,
@@ -263,8 +269,9 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
 - One `SDL_Texture` (`SDL_PIXELFORMAT_XRGB8888`, `SDL_TEXTUREACCESS_STREAMING`), the same size as
   the world (32 MB at 4096 × 2048), plus a world-sized staging buffer in system memory.
 - A lookup table `lut[element][shade]` holds the final colour: the base colour varied by shade,
-  then blended over the void colour by the element's alpha (gases, water). Conversion is one
-  table load per cell.
+  then blended over the void colour by the element's alpha (water). Conversion is one table load
+  per cell, except gas cells, whose colour is mixed from their species and pressure
+  (`gas_color`), and glowing cells.
 - Each frame, only render-dirty chunks **inside the camera view** are converted (in parallel on
   the job pool) and uploaded. Dirty chunks outside the view keep their flag until they come into
   view. Uploads are one `SDL_UpdateTexture` per chunk row, spanning that row's dirty chunks: a few
@@ -283,8 +290,9 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
   levels keep every cell the same size on screen.
 - It is clamped so the view stays inside the world (a world smaller than the view is centred),
   and snapped to whole screen pixels so the image does not shimmer while panning.
-- Controls: middle-drag or WASD/arrows to pan, Ctrl+wheel to zoom around the cursor, Home to fit
-  the whole world (also the start view).
+- Controls: middle-drag or arrows to pan (WASD too when there is no player), Ctrl+wheel to zoom
+  around the cursor, Home to fit the whole world, `F` to follow the player again. The game starts
+  at zoom 1, following the player.
 - Overlays are alternative colour mappings in the same conversion step: pressure view (`P`,
   depth below the body's top) and temperature view (`T`). While one is on, everything visible is
   redrawn every frame.

@@ -87,7 +87,7 @@ to watch).
 - **Status:** Accepted
 - **Decision:** Internal units are SI, and temperature is in Kelvin. Element properties start
   from real-world values. Deviations are explicit global factors or per-element overrides, listed
-  in `ELEMENTS.md`. The working cell size is 5 cm (to become 10 cm: D-037).
+  in `ELEMENTS.md`. The working cell size is 5 cm (confirmed in D-037).
 - **Consequences:** Behaviour is believable and makes sense to anyone familiar with physics. Heat
   needs `HEAT_TIME_SCALE` to be playable.
 
@@ -544,34 +544,22 @@ to watch).
   per-cell grain (to be drawn as noise). Estimates in this project have been 2–4× optimistic:
   measure each step in the game before removing what it replaces.
 
-## D-037 — Cells are 10 cm, not 5 cm
+## D-037 — Cells stay 5 cm (10 cm considered and rejected)
 
-- **Status:** Accepted (2026-11-24). **Not implemented yet:** the code, the tests and the other
-  docs still describe 5 cm cells. The work is listed in ROADMAP M6c.
-- **Context:** The cell size was a working assumption (D-008, VISION "Physical scale"). At 5 cm a
-  view framed as the user wants it (zoom 1.5) holds 480 000 cells, and gas over that many cells
-  does not fit in a tick: firing into the air or a big gas cloud costs 11–12 ms per tick on 4
-  threads (PERFORMANCE → Proposed next steps), before enemies, smoke, rockets or acid exist. At
-  5 cm the user also found zoom 1 too far and zoom 2 too close, and 1.5 is not pixel-exact.
-- **Decision:** One cell is a 10 cm cube (`CELL_SIZE_M = 0.1`): 1 litre, 1 kg of water, 1.2 g of
-  air at 1 atm. Everything keeps its size, speed and physical values in metres, seconds and
-  kilograms; what is written in cells is rescaled. The default zoom becomes 3 (integer, so
-  pixel-exact), which frames the scene like zoom 1.5 does today.
-- **Alternatives:** keep 5 cm and rely on the gas rework alone (D-036; its gain is not yet
-  measured in the game); 15 cm (9× fewer cells, but a 12 × 3 cell player and 15 cm bullets and
-  walls: too coarse for "every pixel is simulated").
-- **Consequences:**
-  - **4× fewer cells** for the same scene in metres (120 000 in view at zoom 3 instead of
-    480 000), so about 4× less simulation work, probably more for gas (pressure and mixing cross a
-    room in half as many cells). An estimate from cell counts, to be measured after the switch;
-    the gas rework (D-036) is then re-judged on those numbers.
-  - **Coarser detail.** The thinnest wall, a bullet, a casing and a drop of water are 10 cm
-    (a drop is 1 litre). The player is 18–19 × 4–5 cells instead of 37 × 9 (about Noita's scale),
-    so it will want a drawn sprite sooner. Each cell covers 3 × 3 screen pixels at the default
-    zoom.
-  - **The world is a slice 10 cm deep**, not 5 cm: a room of the same size in metres holds twice
-    the air, a pool twice the water, and a body twice the volume (a sealed room lasts twice as
-    long).
-  - A cell may move up to 3.2 m per tick (`MAX_MOVE` stays 32 cells), and a bullet crosses 150
-    cells per tick instead of 300.
-  - Memory for a world of the same size in metres is a quarter (gas: 48 MB instead of 190 MB).
+- **Status:** Accepted (2026-11-24). No code change: `CELL_SIZE_M` stays 0.05.
+- **Context:** Gas is too slow for a busy scene (PERFORMANCE → Proposed next steps), and going to
+  10 cm cells was considered as the cheapest speed-up: the same scene in metres would hold 4×
+  fewer cells (120 000 in view at zoom 3 instead of 480 000 at zoom 1.5), for about 4× less work,
+  estimated from cell counts and never measured. It was decided for a day, then withdrawn by the
+  user: the game stays at 5 cm and the simulation is made fast enough at that scale.
+- **Decision:** One cell is a 5 cm cube. Performance comes from the gas rework (D-036), activity
+  tracking per tile, and simulating only near the player (ROADMAP M6b, M6c).
+- **Why not 10 cm:** coarser detail everywhere: the thinnest wall, a bullet, a casing and a drop
+  of water would be 10 cm, the player 18–19 × 4–5 cells instead of 37 × 9, and each cell 3 × 3
+  screen pixels at the zoom that frames the scene as wanted. 15 cm was ruled out earlier for the
+  same reason (a 12 × 3 cell player).
+- **Consequences:** The performance target must be met at 5 cm: about 1.1 million cells in view
+  at zoom 1. If the gas rework falls short, the levers left are gas at 30 Hz and, last, a coarser
+  gas grid or a larger cell; both would reopen this decision. About 20 constants are written in
+  cells (body sizes, step height, rifle length, breathing volumes, fall speeds), so the cell size
+  is not a one-line change.

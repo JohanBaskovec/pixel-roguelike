@@ -6,11 +6,9 @@ How matter behaves. Code lives in `src/sim/`. Every rule here needs a behaviour 
 
 - **SI units internally.** Temperatures are in **Kelvin** (shown as °C in the UI), density in
   kg/m³, heat capacity in J/(kg·K), conductivity in W/(m·K).
-- **Physical cell size: 1 px = 5 cm today**, and each cell is treated as a cube
-  (`CELL_SIZE_M = 0.05`, volume 1.25 × 10⁻⁴ m³). A water cell therefore weighs 0.125 kg.
-  **It will become 10 cm** (decided, D-037; not implemented yet: ROADMAP M6c). Until then,
-  everything in this document describes 5 cm cells: every length in cells below halves, and
-  every mass or volume per cell is multiplied by 8.
+- **Physical cell size: 1 px = 5 cm** (decided, D-037), and each cell is treated as a cube
+  (`CELL_SIZE_M = 0.05`, volume 1.25 × 10⁻⁴ m³). A water cell therefore weighs 0.125 kg. The
+  world is a slice one cell (5 cm) deep.
 - **Gravity** is `g = 9.81 m/s²`. At 60 ticks/s and 5 cm/px that is ≈ 0.0545 px/tick².
 - **Time:** one tick = 1/60 s of game time for movement. Heat uses an explicit time-scale factor
   (see below).
@@ -24,7 +22,7 @@ Each element has exactly one behaviour, used for dispatch in the movement pass:
 | `NONE` | never; it is "nothing" | void | M1 |
 | `STATIC` | never moves on its own; changes only through player edits, phase changes or reactions | dirt, rock, iron, ice | M1 |
 | `LIQUID` | falls, flows diagonally, spreads sideways | water | M1 |
-| `GAS` | drifts, diffuses, stratifies by density | oxygen, CO2, hydrogen, steam | M1 (steam M3) |
+| `GAS` | flows by pressure, diffuses, rises or sinks by density | gas: a mixture of oxygen, CO2, hydrogen, water vapour and nitrogen (see Gases) | M1 (mixtures M6a) |
 | `POWDER` | falls, slides diagonally, piles up; no sideways spread; sinks slowly in liquids | sand, loose soil, rubble | M5 |
 
 **Void** is vacuum: no mass, no heat capacity, no conduction. It is what a cell becomes when
@@ -68,8 +66,9 @@ world edge read as the pseudo element `ELEM_OUT`, which behaves as static.
 both orthogonal neighbours it passes between are static. Otherwise matter leaks through
 1-pixel-thin diagonal walls.
 
-Density comparisons use a pre-quantised integer table (`g_elem_density_q`, g/m³). From M3, gas
-buoyancy uses temperature-adjusted density (see Heat → Convection).
+Density comparisons use a pre-quantised integer table (`g_elem_density_q`, g/m³); a gas cell
+counts as air there, so a liquid or powder always displaces gas. Gas against gas compares the two
+mixtures' real densities (see Gases).
 
 ### Liquids
 
@@ -208,8 +207,8 @@ the source is, such as the other arm of a U-tube.)
 **Moving gas out of the way.** When water moves into a gas cell Q, and the gas there is at about
 the pressure of the gas above the source (within `GAS_SAME_REGION`, 5%: one region, e.g. one room
 of air), the gas simply takes the source's place. Otherwise the gas at Q is **compressed** into
-the cells of its kind around Q, and the gas above the source **expands** into the cell the water
-left. Both are spread over up to `GAS_REGION_CELLS` (256) cells of that gas within
+the gas cells around Q, and the gas above the source **expands** into the cell the water
+left. Both are spread over up to `GAS_REGION_CELLS` (256) gas cells within
 `GAS_REGION_RADIUS` (16), found by a breadth-first walk through gas (`world_gas_region`): one
 cell of volume moved at a single spot would change its pressure by tens of percent, which is
 207 × that many cells of water head, and the water would chase those spots in a cascade. Gas
@@ -247,9 +246,9 @@ problem altogether, and is also cheaper (no gradient traces).
 - Liquid entering a cell of a lighter liquid lifts that liquid's column by one cell (its cell goes
   to the first free cell above the column); with no free cell above, there is no transfer. The
   lighter liquid is never moved to the source, which may be far away.
-- Gas pressure is resolved to one cell of liquid (490 Pa for water). Under mixed air, the oxygen
-  and nitrogen cells' pressures can stay up to ~3% apart (see Gases), and a pool there may keep
-  trading a few cells per tick between surface spots under one and the other.
+- Gas pressure is resolved to one cell of liquid (490 Pa for water). Gas pressure itself evens
+  out only to within 0.3% between neighbouring cells (about 300 Pa at 1 atm, see Gases), which
+  is under one cell of water.
 - A gas bubble inside a liquid is just a lighter fluid that rises; its pressure does not follow
   its depth.
 - Transfers move a cell from the top of the body to the opening in one step. Visually this reads
@@ -277,8 +276,8 @@ Each tick, a gas cell:
    still air costs a few loads. A cell like its neighbours only **within tolerance** (pressures
    within `GAS_EQ_TOL`, 0.3%; mole fractions within `GAS_MIX_TOL`, 0.1%; densities within
    `GAS_BUOY_TOL`, 0.02%; and the pressure of the cells `GAS_REACH` (16) to the right and below
-   within `GAS_EQ_TOL_FAR`, 0.2%, so a smooth pressure gradient does not freeze) also sleeps,
-   after the checks below that apply anywhere.
+   within `GAS_EQ_TOL_FAR`, 0.2%, so a smooth pressure gradient does not freeze) also sleeps;
+   this second check runs after steps 1 and 2.
 1. **Follows its current** (gas wind, see Gas currents): moving air carries the gas along.
 2. **Burns** (Reactions) and **condenses** water vapour (Phase changes) when that applies.
 3. **Buoyancy.** It rises through denser gas above. Densities are compared **at 1 atm** for each
@@ -323,7 +322,7 @@ Each tick, a gas cell:
      (temperatures mix by heat capacity; energy is conserved). Pressures count as equal within
      `GAS_EQ_TOL` (0.3%) for partners under 8 cells apart and `GAS_EQ_TOL_FAR` (0.2%) further, so a
      smooth gradient evens out to about 0.2% per 16 cells of path (tested: two rooms at 2 and 1 atm
-     joined by a gap end at 1.5 atm, within 2%); differences under 0.3% of 0.1 atm always count as
+     joined by a gap end at 1.5 atm, within 3%); differences under 0.3% of 0.1 atm always count as
      equal. A 1700-atm cell of boiling water vapour gives half its gas each time: it expands within
      ticks. Thin gas drifting in a vacuum (under `GAS_SPLIT_MOLES`, touching void) is not fed by gas
      more than `GAS_FEED_RATIO` (2.1) times denser: dense gas expands into a vacuum by splitting,
@@ -341,7 +340,8 @@ seconds; a ball of CO₂ sinks, spreads over the whole floor within 10 s and sta
 under clean air, thinning; a warm pocket rises; the same result on 1 and 4 threads.
 
 **Known limitations.** Buoyant motion is a cell or a column shift at a time, a coarse stand-in for
-flow; a warm pocket rises at about a third of the speed a real one would. A gradient gentler than
+flow; a 50 cm pocket of air 30 K warmer than the room rises at about 0.2 m/s (measured), slower
+than a real one. A gradient gentler than
 the tolerances freezes (asleep) until something wakes it. Gas pressure is not hydrostatic (air's
 own weight, 12 Pa per metre, is ignored).
 
@@ -397,15 +397,17 @@ lands back into it.
 
 - A particle holds a position and velocity in floating point (cells, cells per tick), the `Cell`
   it carries and its stored temperature. While it flies, it is not on the grid (the cell it left
-  is empty) and exchanges no heat. Only liquids fly so far.
-- **Launched by** jets (Liquid pressure → Jets) and splashes (Liquids → fall speed).
+  is empty) and exchanges no heat. Liquids fly (jets, splashes), and since M6a so do bullets,
+  casings, debris and kicked or lifted powder.
+- **Launched by** jets (Liquid pressure → Jets), splashes (Liquids → fall speed), the rifle and
+  bullet impacts (Rifle and bullets), and bodies kicking or lifting powder (Creatures).
 - **Each tick, after the movement pass**, serially in list order: gravity
   (`PARTICLE_GRAVITY` = 9.81 m/s² = 0.0545 cells/tick²), speed limited to
   `PARTICLE_MAX_SPEED` (24 cells/tick), then the move in half-cell sub-steps. It flies through
   void, gas and falling liquid (a jet crosses a thin falling stream), and not diagonally between
   two blocked cells. When the next cell blocks it, it **lands** in the cell it is in.
-- **Landing** puts its cell back on the grid. Gas there is squeezed into the gas of its kind
-  around (spread out, `world_gas_region`). If something has settled into that cell, it lands in
+- **Landing** puts its cell back on the grid. Gas there is squeezed into the gas cells around
+  (spread out, `world_gas_region`). If something has settled into that cell, it lands in
   the nearest free cell (void or gas): straight up first, then rings up to `LAND_SEARCH` (8)
   away, then as a last resort up through liquid to its surface. If it still cannot land, it
   waits there and tries again next tick. Landing while moving down with nothing below (it hit
@@ -413,7 +415,9 @@ lands back into it.
 - The list holds `PARTICLE_MAX` (131072). When it is full, jets fall back to placing cells, and
   splashes are skipped (they are allowed only while it is under half full).
 - **Falling streams stay on the grid** (D-014 still applies): turning every falling cell into a
-  particle would cost far more for little gain. Particles carry jets and splashes.
+  particle would cost far more for little gain. Particles carry what flies fast.
+- A fast bullet is a particle with its own step (not bound by the 32-cell reach, as particles
+  run serially): see Rifle and bullets. Powders in flight pass through creatures' bodies.
 
 **Known limitations.** A jet through a hole a few cells wide comes out in pulses rather than a
 steady stream (the cells at the opening do not all ask every tick). Water painted in mid-air is
@@ -604,7 +608,7 @@ T_i'   = T_i + Σ_j a_ij · (T_j − T_i) / C_i       // physical temperatures o
   temperature, even with all four neighbours pushing the same way. There is no overshoot with
   extreme contrasts, e.g. 3000 K hydrogen on 100 K iron (tested).
 - **Turbulence between gas cells.** Where either of two gas cells has a current (gas wind), their
-  coefficient is multiplied by `1 + TURB_PER_WIND · speed` (23 per unit, up to 31): an eddy
+  coefficient is multiplied by `1 + GAS_TURB_PER_WIND · speed` (23 per unit, up to 31): an eddy
   diffusivity of u·l (the current's speed, 2.9 m/s at full speed, times one cell) is about 700
   times air's thermal diffusivity as sped up. Most currents then exchange at the stability limit:
   stirred gas mixes its heat as fast as the grid allows, as turbulent air does (swapping cells
@@ -639,10 +643,9 @@ air lost its heat to its surroundings before it could rise (tested: hot gas rise
 
 - **Moving cells carry their temperature**, including water-pressure transfers (tested with a
   U-tube whose hot side flows into the cold side).
-- **Gases:** density follows the ideal gas law, `ρ(T) = ρ_ref · T_ref / T` (`T_ref` 0 °C, steam
-  100 °C). Buoyancy compares densities at the cells' physical temperatures, including the same gas
-  above when it is colder by more than `CONVECTION_MIN_K`. Warm air rises through cold air. When
-  temperatures are equal, the precomputed integer table is used (fast path).
+- **Gases:** a gas cell's density (at 1 atm) follows the ideal gas law for its mixture and its
+  temperature, `ρ = M · P_atm / (R · T)`, so warm air is lighter than the same air cold and rises
+  through it (see Gases → buoyancy; the same rule handles composition and temperature).
 - **Liquids:** a still cell with the same still liquid above it that is denser (colder, for
   water) swaps with it with probability `min(1, K_CONVECTION · Δρ/ρ)`; `K_CONVECTION` = 200, so
   water 10 K warmer at 25 °C rises with p ≈ 0.5. Water uses its real density curve (Thiesen;
@@ -652,8 +655,9 @@ air lost its heat to its surroundings before it could rise (tested: hot gas rise
   are simulated so convection can start. Cells that could convect stay awake until it is done.
 - Tested: a pool 100 cells deep, warm only at the bottom, warms at the top within 20 s.
 
-**Known limitation:** buoyant gas rises cell by cell, exchanging places with the cold gas above
-it, so a hot pocket rises while mixing rather than as a tight plume.
+**Known limitation:** buoyant gas rises a cell or a column shift at a time, so a hot pocket rises
+slowly and smears rather than as a tight plume (measured: a 50 cm pocket 30 K warmer than the room
+rises at about 0.2 m/s).
 
 ### Phase changes
 
@@ -699,6 +703,7 @@ below 100 °C (no evaporation from surfaces yet).
 
 - Movement never creates or destroys liquid or solid cells: their per-element counts stay
   constant without edits or phase changes.
-- Gas mass is conserved per gas (gas cells split and merge, so their count changes).
+- Gas mass is conserved per species (gas cells split and merge, so their count changes), except
+  where water vapour condenses (conserved on average) or hydrogen burns (the total is conserved).
 - Without boundary losses, total thermal energy `Σ C_i·T_i` stays constant within float tolerance
-  (M3); a gas cell's C is its mass times its specific heat.
+  (M3); a gas cell's C is the sum of its species' masses times their specific heats.

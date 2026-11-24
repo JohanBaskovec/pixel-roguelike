@@ -29,13 +29,22 @@ with 6–8 cores.
 | M1 | 1024 × 768 (0.8 M cells), single-threaded | 60 ticks/s with the whole box churning |
 | M2 | 4096 × 2048 (8.4 M cells), multithreaded | 60 ticks/s with ≈ 2 M active cells (desktop, not yet verified; see ROADMAP) |
 
+**The scene to hold at 60 ticks/s** (the user's target, 2026-11-23; not met yet): a firefight on
+screen at zoom 1 (about 1.1 million cells in view, at 5 cm per cell: D-037), with tens of bullets
+in flight, enemies shooting back, the player jumping into water, walls coming apart cell by
+cell, and the air stirred and heated all around; later smoke grenades, rockets and acid. Solids,
+powders, liquids, bullets and bodies are cheap enough already; **gas is what does not fit**
+(Proposed next steps, below). The tables above predate gases with pressure and heat: the gas
+work has no budget line of its own yet, and today it takes most of the tick.
+
 ## Techniques we rely on
 
 Ordered by impact.
 
 1. **Sleeping chunks and dirty rects.** Do no work where nothing changes. This is the biggest win
    by far. Every new rule must leave settled cells in a state where they stop marking themselves
-   dirty. For example, a gas random walk into the same gas must not mark the chunk dirty.
+   dirty. For example, a gas cell that matches its neighbours within the tolerances must not keep
+   itself awake.
 2. **Multithreading.** A 4-phase checkerboard over chunks (`ARCHITECTURE.md`). Use one worker per
    core minus one. Jobs are whole chunks, so per-job overhead stays small.
 3. **Compact cells.** A 4-byte `Cell` gives 16 cells per cache line. Temperature lives in a
@@ -44,13 +53,14 @@ Ordered by impact.
    enough to stay in L1. Do not chase pointers per cell.
 5. **Branch-light inner loops.** Skip `STATIC` and `NONE` with one table lookup. Dispatch the
    remaining behaviours through a `switch`, never through function pointers.
-6. **Integer movement logic.** Quantised densities and an integer RNG. No floating point in the
-   movement pass, apart from M3 fluid buoyancy (convection).
+6. **Integer movement logic** for liquids and powders: quantised densities and an integer RNG,
+   with floating point only for convection. Gas rules are floating point throughout (mixtures,
+   pressure, densities), which is one reason gas cells cost 10 times more than the others.
 7. **Upload only dirty chunks** to the texture.
 8. **No allocation after startup.** All buffers are allocated once and aligned to 64 bytes.
    Per-chunk metadata is padded to cache lines to avoid false sharing between workers.
-9. **Heat at reduced frequency where possible** (every N ticks with a scaled dt), and only on
-   heat-active chunks.
+9. **Heat only on heat-active chunks** (and their neighbours). Running it every N ticks with a
+   scaled dt is an idea, not implemented: it runs every tick.
 
 Planned experiments, decided by data only:
 - A permanent 1-cell wall ring at the world edge, so neighbour reads need no bounds check.
@@ -78,6 +88,7 @@ Planned experiments, decided by data only:
 - **Tests' speed:** each test is its own CTest test (`ctest -j4` runs them in parallel), the
   sanitizer build compiles at `-O1`, and tests use the smallest world and fewest ticks that show
   their behaviour. Release: 75 s → 12 s; ASan + UBSan: about 14 min → 1 min (4 cores, M6a).
+  With 86 tests (after gas mixtures): about 20 s and 2 min.
 - **External profilers:** `perf` / Hotspot (Linux), Instruments (macOS), and Superluminal or VS
   Profiler (Windows). Use a `RelWithDebInfo` build. Tracy may be added later; it needs a
   `DECISIONS.md` entry because it is a dependency.
@@ -94,26 +105,8 @@ Written 2026-11-23, after gas mixtures (D-035) made the two play-tested cases on
 Nothing in this section is built. Numbers marked *measured* come from this machine (4-core VM,
 gcc 13.3 `-O3`); everything else is an estimate, and two earlier estimates in this project were
 2–4× too optimistic, so each step should be prototyped and measured before the old code is
-removed. The proposed decision is D-036.
-
-### 0. 10 cm cells first (decided, D-037)
-
-Cells go from 5 cm to 10 cm before anything below is built (the work list is in ROADMAP M6c).
-The same scene in metres then holds 4× fewer cells, with no change to any rule:
-
-| | 5 cm (today) | 10 cm |
-|---|---|---|
-| Cells in view at the framing the user wants | 480 000 (zoom 1.5, not pixel-exact) | 120 000 (zoom 3) |
-| The test room below (51 × 51 m) | 1024 × 1024 cells | 512 × 512 cells |
-| Gas memory, 205 × 102 m world | 190 MB | 48 MB |
-
-**Estimates, not measurements:** about 4× less work per tick for the same scene, probably more
-for gas (pressure and mixing cross a room in half as many cells, so regions settle and sleep
-sooner), less for costs that do not depend on the cell count (creatures, per-chunk overheads).
-The field prototype's fully active screenful (8.5 ms at 5 cm on 4 threads) would be about 2 ms.
-Every number in the rest of this section was measured at 5 cm. After the switch, the firing and
-CO2 cases are measured again, and steps 1–6 are re-judged on those numbers: step 2 (tiles) is
-likely still worth it, steps 1 and 3 may be needed less urgently, or only for smoke and blasts.
+removed. The proposed decision is D-036. Cells stay 5 cm (D-037), so the speed has to come from
+here and from simulating only near the player (ROADMAP M6b).
 
 ### Where the time goes today (measured)
 
@@ -258,10 +251,9 @@ blast), which adds credibility rather than speed.
 
 ### Order
 
-0. Step 0 (10 cm cells), then measure again.
 1. Step 2 (tiles): small, safe, useful under every option.
 2. Step 1 (field pass) with coarse pressure relaxation, behind the existing tests, measured on
-   the firing and CO2 cases against the numbers after step 0, before `update_gas()` is removed.
+   the firing and CO2 cases against today's numbers before `update_gas()` is removed.
 3. Step 3 (velocity), after a stand-alone prototype of thin walls.
 4. Steps 4 and 5 as measurements ask for them.
 
