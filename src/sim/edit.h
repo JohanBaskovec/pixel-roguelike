@@ -30,6 +30,8 @@ typedef struct Edit {
     ElementId element; // EDIT_PAINT: ELEM_VOID erases; EDIT_AIR paints air
     uint8_t only_void; // EDIT_PAINT: only replace void cells
     uint8_t mode;      // EditMode
+    float pressure;    // EDIT_PAINT of a gas or air: the pressure it is painted at, atm (0: 1 atm),
+                       // at most what the gas can hold before it turns liquid (gas_max_pressure)
 } Edit;
 
 #define EDIT_QUEUE_CAP 256

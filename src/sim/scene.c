@@ -36,7 +36,7 @@ void scene_empty_box(World *w, int thickness) {
 }
 
 static void blob(World *w, int x, int y, int r, ElementId e) {
-    Edit ed = {x, y, x, y, r, EDIT_CIRCLE, e, 0, EDIT_PAINT};
+    Edit ed = {x, y, x, y, r, EDIT_CIRCLE, e, 0, EDIT_PAINT, 0.0f};
     sim_apply_edit(w, &ed);
 }
 
@@ -67,7 +67,7 @@ void scene_demo(World *w) {
     int rx0 = W * 13 / 16, rx1 = W - 40, ry0 = H - 17 - 160, ry1 = H - 17;
     fill_rect(w, rx0, ry0, rx1, ry1, ELEM_ROCK, &rng);
     for (int y = ry0 + 6; y <= ry1 - 6; y++) {
-        Edit air = {rx0 + 6, y, rx1 - 6, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+        Edit air = {rx0 + 6, y, rx1 - 6, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &air);
     }
     int id = creature_spawn(w, (rx0 + rx1) / 2, ry1 - 6 - CREATURE_H);
@@ -185,7 +185,7 @@ void scene_level(World *w) {
     }
     // Air in every open cell.
     for (int y = t; y < H - t; y++) {
-        Edit air = {t, y, W - t - 1, y, 0, EDIT_SQUARE, EDIT_AIR, 1, EDIT_PAINT};
+        Edit air = {t, y, W - t - 1, y, 0, EDIT_SQUARE, EDIT_AIR, 1, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &air);
     }
     // Crates and monsters scattered over the rooms (not the start room, which only gets a crate of

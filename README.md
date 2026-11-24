@@ -66,7 +66,9 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | Right mouse | Erase (paint void), including the box walls |
 | Shift + left mouse | Paint only into empty (void) cells |
 | Mouse wheel, `[` / `]` | Brush radius 0–256 px (0 = one pixel) |
+| `-` / `=` | Gas and Air brushes: paint at half / twice the pressure (1 atm to start; limited to what the gas can hold before it would be liquid: steam its saturation pressure, the others the density of their liquid, e.g. about 860 atm of hydrogen) |
 | `B` | Toggle circle / square brush |
+| `-` / `=` | Gas and Air brushes: paint at half / twice the pressure (1 atm to start, shown in the panel), up to what the gas can hold before it would turn liquid: steam its saturation pressure, the others the density of their liquid (about 860 atm of hydrogen) |
 | Middle mouse drag, arrows | Pan the view (stops following the player) |
 | `F` | Follow the player again |
 | `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×; starts at 2×) |

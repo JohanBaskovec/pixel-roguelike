@@ -203,6 +203,17 @@ static int64_t apply_segment(World *w, const Edit *e, int ax, int ay, int bx, in
             ElementId el = e->element;
             // Air: every cell the same mixture (gas_mix_air), so painted air is settled at once.
             world_set_cell(w, x, y, el == EDIT_AIR ? ELEM_GAS : el, bits);
+            if (e->pressure > 0.0f && e->pressure != 1.0f && (el == EDIT_AIR || elem_species(el) >= 0)) {
+                // Gas at the pressure asked for, up to what it can hold before it would be liquid.
+                float t = w->temp[i];
+                ElementId ref = el == EDIT_AIR ? ELEM_NITROGEN : el;
+                float p = PR_MIN(e->pressure * P_ATM, gas_max_pressure(ref, t));
+                if (el == EDIT_AIR) {
+                    w->gas[i] = gas_mix_air(p, t);
+                } else {
+                    w->gas[i] = gas_mix_pure(elem_species(el), gas_mass_at(el, p, t));
+                }
+            }
             written++;
         }
     }

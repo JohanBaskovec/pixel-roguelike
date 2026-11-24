@@ -124,6 +124,7 @@ void test_edit_single_pixel(void);
 void test_edit_circle_area(void);
 void test_edit_stroke_has_no_gaps(void);
 void test_edit_only_void(void);
+void test_gas_painted_at_pressure_up_to_liquid(void);
 void test_edit_erase(void);
 
 // Only tests whose name contains this (the first argument), or all; with --exact, only the test
@@ -267,6 +268,7 @@ int main(int argc, char **argv) {
     RUN(test_edit_circle_area);
     RUN(test_edit_stroke_has_no_gaps);
     RUN(test_edit_only_void);
+    RUN(test_gas_painted_at_pressure_up_to_liquid);
     RUN(test_edit_erase);
     if (s_exact && s_ran == 0) {
         printf("No test named %s\n", s_filter);

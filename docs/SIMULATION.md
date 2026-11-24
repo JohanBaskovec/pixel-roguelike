@@ -268,6 +268,15 @@ problem altogether, and is also cheaper (no gradient traces).
 
 ### Gases (M4; mixtures since M6a, D-035)
 
+**Painting gas at a pressure.** The Gas and Air brushes replace a cell with gas at `Edit.pressure`
+atmospheres (1 by default; `-` and `=` halve and double it in the game). The simulation itself has
+no cap on how much gas a cell holds: a sealed cell keeps any pressure (tested at 100 atm). The brush
+limits what it paints to `gas_max_pressure()`: the density of the gas's liquid (hydrogen 70.8 kg/m³,
+nitrogen 808, oxygen 1141, carbon dioxide 1178: about 860 atm of hydrogen at 20 °C), and for steam its
+saturation pressure at its temperature, above which it would condense. (Hydrogen, nitrogen and
+oxygen cannot really be liquefied by pressure at room temperature; there is no liquid of them in
+the game, so this is the densest a gas can be.)
+
 Code: `update_gas()` and the functions before it in `src/sim/sim.c`; `GasMix` and its helpers in
 `src/sim/world.h`.
 

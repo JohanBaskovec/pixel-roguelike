@@ -74,6 +74,26 @@ uint8_t g_gas_slot[256];
 float g_min_ignite_k = 1e30f;
 const ElementId g_species_elem[GAS_SPECIES] = {ELEM_OXYGEN, ELEM_CO2, ELEM_HYDROGEN, ELEM_STEAM,
                                                ELEM_NITROGEN};
+// Densities of the liquid gases, kg/m^3 (at their boiling points; carbon dioxide's at its triple
+// point).
+static float liquid_density(ElementId e) {
+    switch (e) {
+        case ELEM_HYDROGEN: return 70.8f;
+        case ELEM_NITROGEN: return 808.0f;
+        case ELEM_OXYGEN: return 1141.0f;
+        case ELEM_CO2: return 1178.0f;
+        default: return 1000.0f;
+    }
+}
+
+float gas_max_pressure(ElementId e, float t) {
+    if (e == ELEM_STEAM) {
+        return water_saturation_pressure(t);
+    }
+    // p = rho R T / M for the liquid's density.
+    return liquid_density(e) * GAS_R * t / g_elem_molar_mass[e];
+}
+
 float g_species_molar[GAS_SPECIES];
 float g_species_inv_molar[GAS_SPECIES];
 float g_species_cp[GAS_SPECIES];

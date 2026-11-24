@@ -242,6 +242,13 @@ static inline float gas_mass_at(ElementId e, float p, float t) {
     return p * CELL_VOLUME_M3 * g_elem_molar_mass[e] / (GAS_R * t);
 }
 
+// The highest pressure (Pa) a cell of gas species element e (or ELEM_STEAM...) can be given at
+// temperature t (K) before it would become a liquid: steam, at its saturation pressure (above it,
+// it condenses: sim.c); the others, at the density of their liquid (no gas can be denser than its
+// liquid; hydrogen, nitrogen and oxygen cannot be liquefied by pressure at room temperature, so
+// this is a limit of the painting tool, not of the simulation, which has no cap).
+float gas_max_pressure(ElementId e, float t);
+
 // Saturation pressure of water vapour (Pa) at temperature t (K): Antoine's equation, two ranges
 // (1-100 degC, 99-374 degC); at or below 0 degC it is extrapolated (over ice it would be a little
 // lower).

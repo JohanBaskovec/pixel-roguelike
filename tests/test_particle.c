@@ -44,17 +44,17 @@ void test_particle_flies_ballistic(void) {
 // *reach the farthest column the water got to.
 static int64_t drain(int depth, int ticks, int *reach) {
     World *w = test_world_box(512, 256, 62);
-    Edit shelf = {1, 171, 60, 254, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+    Edit shelf = {1, 171, 60, 254, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
     for (int y = 171; y <= 254; y++) {
         shelf.y0 = shelf.y1 = y;
         sim_apply_edit(w, &shelf);
     }
-    Edit wall = {60, 1, 60, 170, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+    Edit wall = {60, 1, 60, 170, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
     sim_apply_edit(w, &wall);
-    Edit hole = {60, 170, 60, 170, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_PAINT};
+    Edit hole = {60, 170, 60, 170, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_PAINT, 0.0f};
     sim_apply_edit(w, &hole);
     for (int y = 171 - depth; y <= 170; y++) {
-        Edit row = {1, y, 59, y, 0, EDIT_SQUARE, ELEM_WATER, 0, EDIT_PAINT};
+        Edit row = {1, y, 59, y, 0, EDIT_SQUARE, ELEM_WATER, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &row);
     }
     *reach = 0;
@@ -97,7 +97,7 @@ void test_fast_landing_splashes(void) {
     // A blob dropped from high up hits the floor fast: some of it splashes off as particles.
     // Nothing is lost, and everything lands again.
     World *w = test_world_box(256, 256, 63);
-    Edit e = {128, 30, 128, 30, 6, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
+    Edit e = {128, 30, 128, 30, 6, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT, 0.0f};
     int64_t n = sim_apply_edit(w, &e);
     uint32_t launched = 0;
     for (int t = 0; t < 1200; t++) {
@@ -114,12 +114,12 @@ void test_fast_landing_splashes(void) {
 static World *jet_world(JobPool *pool) {
     World *w = test_world_box(256, 192, 64);
     world_set_job_pool(w, pool);
-    Edit wall = {60, 1, 60, 190, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+    Edit wall = {60, 1, 60, 190, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
     sim_apply_edit(w, &wall);
-    Edit hole = {60, 150, 60, 152, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_PAINT};
+    Edit hole = {60, 150, 60, 152, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_PAINT, 0.0f};
     sim_apply_edit(w, &hole);
     for (int y = 40; y <= 190; y++) {
-        Edit row = {1, y, 59, y, 0, EDIT_SQUARE, ELEM_WATER, 0, EDIT_PAINT};
+        Edit row = {1, y, 59, y, 0, EDIT_SQUARE, ELEM_WATER, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &row);
     }
     sim_run_ticks(w, 300);

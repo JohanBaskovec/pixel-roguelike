@@ -31,6 +31,7 @@ typedef struct App {
     int tool; // index into the toolbar
     int brush_radius;
     bool brush_square;
+    float gas_atm; // pressure the gas and air brushes paint at, atm (- and =)
     bool paused;
     bool step_once;
     bool running;

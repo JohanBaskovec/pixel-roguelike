@@ -28,7 +28,7 @@ void test_flyer_finds_the_gap(void);
 static World *room(uint64_t seed, int width) {
     World *w = test_world_box(width, 128, seed);
     for (int y = 1; y <= 126; y++) {
-        Edit air = {1, y, width - 2, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+        Edit air = {1, y, width - 2, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &air);
     }
     return w;
@@ -216,7 +216,7 @@ void test_monsters_chase_until_off_screen(void) {
     EXPECT(pl >= 0 && wi >= 0 && si >= 0);
     Creature *seer = &w->creatures[wi], *blind = &w->creatures[si];
     for (int y = 1; y <= 126; y++) { // a wall of rock at x = 250
-        Edit rock = {250, y, 252, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+        Edit rock = {250, y, 252, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &rock);
     }
     sim_run_ticks(w, 10);
@@ -226,7 +226,7 @@ void test_monsters_chase_until_off_screen(void) {
     EXPECT(seer->alert);
     // Then a wall between: it goes on chasing, pressing toward the player.
     for (int y = 1; y <= 126; y++) {
-        Edit rock = {120, y, 122, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+        Edit rock = {120, y, 122, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &rock);
     }
     sim_run_ticks(w, 100);
@@ -241,7 +241,7 @@ void test_monsters_chase_until_off_screen(void) {
 
 static void rock(World *w, int x0, int y0, int x1, int y1) {
     for (int y = y0; y <= y1; y++) {
-        Edit e = {x0, y, x1, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT};
+        Edit e = {x0, y, x1, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &e);
     }
 }
@@ -253,7 +253,7 @@ void test_walker_finds_the_hole_down(void) {
     World *w = room(136, 512);
     rock(w, 1, 60, 510, 66);
     for (int y = 60; y <= 66; y++) { // the hole
-        Edit hole = {150, y, 200, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+        Edit hole = {150, y, 200, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &hole);
     }
     int pl = scene_spawn_player_from(w, 40, 80);

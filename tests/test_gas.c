@@ -27,7 +27,7 @@ void test_trapped_air_is_compressed(void);
 
 static void paint(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }
@@ -113,7 +113,7 @@ void test_boiling_keeps_mass(void) {
     // boiled cell becomes water vapour with the water's mass (at very high pressure), which
     // pushes the air aside and expands. The vapour's mass equals the mass of water lost.
     World *w = test_world_box(128, 128, 44);
-    Edit air = {1, 1, 126, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+    Edit air = {1, 1, 126, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
     for (int y = 1; y <= 126; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);
@@ -199,7 +199,7 @@ void test_air_stays_mixed(void) {
     // Painted air is the same mixture in every cell (20.95% oxygen, 0.04% CO2, the rest
     // nitrogen): it does not unmix, and a room of still air goes to sleep at once.
     World *w = test_world_box(64, 128, 46);
-    Edit air = {1, 1, 62, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+    Edit air = {1, 1, 62, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
     for (int y = 1; y <= 126; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);

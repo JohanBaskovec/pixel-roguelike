@@ -156,6 +156,7 @@ bool app_init(App *app, const AppConfig *cfg) {
     app->cfg = *cfg;
     app->player = -1;
     app->brush_radius = 8;
+    app->gas_atm = 1.0f;
     app->running = true;
 
     if (!SDL_CreateWindowAndRenderer("pixel-roguelike", WINDOW_W, WINDOW_H, SDL_WINDOW_RESIZABLE,
@@ -227,6 +228,7 @@ static void queue_segment(App *app, int wx, int wy) {
     e.element = app->paint_button == SDL_BUTTON_RIGHT ? ELEM_VOID : k_tools[app->tool].element;
     e.mode = app->paint_button == SDL_BUTTON_RIGHT ? EDIT_PAINT : k_tools[app->tool].mode;
     e.only_void = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0 && e.element != ELEM_VOID;
+    e.pressure = app->gas_atm;
     if (!edit_queue_push(&app->edits, &e)) {
         sim_apply_edits(app->world, &app->edits);
         edit_queue_push(&app->edits, &e);
@@ -301,6 +303,10 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 int wx, wy;
                 screen_to_world(app, app->mouse_x, app->mouse_y, &wx, &wy);
                 rigid_spawn_box(app->world, (float)wx + 0.5f, (float)wy + 0.5f, 40, 5, 0.0f);
+            } else if (k == SDLK_MINUS) {
+                app->gas_atm = PR_MAX(app->gas_atm * 0.5f, 1.0f / 16.0f); // gas brush: less dense
+            } else if (k == SDLK_EQUALS || k == SDLK_PLUS) {
+                app->gas_atm = PR_MIN(app->gas_atm * 2.0f, 4096.0f); // denser (up to the liquid's)
             } else if (k == SDLK_ESCAPE) {
                 app->running = false;
             }
@@ -470,6 +476,15 @@ static void draw_panel(App *app) {
     y += 14.0f;
     ui_text(ui, x, y, 0xE8E8E8, "%s, radius %d", app->brush_square ? "Square" : "Circle",
             app->brush_radius);
+    ElementId te = k_tools[app->tool].element;
+    if (k_tools[app->tool].mode == EDIT_PAINT && (te == EDIT_AIR || elem_species(te) >= 0)) {
+        y += 12.0f;
+        float limit = gas_max_pressure(te == EDIT_AIR ? ELEM_NITROGEN : te,
+                                       g_elem_defs[te == EDIT_AIR ? ELEM_GAS : te].spawn_temp) /
+                      P_ATM;
+        ui_text(ui, x, y, 0xE8E8E8, "Gas %.3g atm (max %.3g)", (double)PR_MIN(app->gas_atm, limit),
+                (double)limit);
+    }
     y += 22.0f;
 
     ui_text(ui, x, y, 0x9AA0AA, "STATS");
@@ -586,7 +601,7 @@ static void draw_panel(App *app) {
         "RMB  erase",
         "Shift  only into void",
         "Wheel [ ]  brush size",
-        "B  square/circle",
+        "B square/circle  - = gas atm",
         "MMB drag, arrows  pan",
         "F  follow player",
         "Ctrl+wheel  zoom",
