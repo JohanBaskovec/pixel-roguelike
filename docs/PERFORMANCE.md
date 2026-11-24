@@ -284,6 +284,32 @@ difference).
   67 ns per cell per tick at 4 substeps, over the cells it has to compute. Found on the way: a
   per-face limit of 0.2 let a cell lose 80% of its gas in a substep and a checkerboard locked in;
   velocities must be held within what a face can carry (a gap chokes), or gas piles up.
+- **Integrated in the game, then reverted (2026-11-24).** The prototype's scheme as an air pass
+  (`src/sim/air.c`, run after the heat pass, before the movement pass): face velocities in
+  `World`, computed on the tiles where the air moved or the pressure was uneven, plus the awake
+  tiles and heat-active chunks, and a ring of one tile; the four flux classes in place (no buffer);
+  `gas_equalize()` removed from the gas rule. It worked as physics: 89 of 90 tests passed
+  unchanged, thin walls stayed airtight, the overpressure over the lava pools fell from 135 to
+  106–114 kPa. Two findings:
+  - A suddenly heated bubble (36% above the room's pressure) rang across its edge, and every
+    swing moved hot gas into cold cells and back: it smeared out and stopped rising. Damping
+    strong enough to stop that also turns large-scale waves back into diffusion. Artificial
+    viscosity (each face velocity relaxing toward its neighbours, in two checkerboard passes)
+    damped the ringing and left the bubble rising as before.
+  - **Cost.** The lava scene at 30 s: 31 ms per tick without the air pass, 64–144 ms with it on
+    4 threads, depending on the thresholds. Steady heating drives a weak outflow over a wide area,
+    and with the damping a settling scheme needs, pressure still spreads diffusively at large scale
+    (about 100 cells² per tick), so a wide region keeps moving: 2 000–7 000 tiles (0.5–1.8 million
+    cells) computed per tick, at about 290 ns per cell per tick of single-thread work (four
+    substeps of eight passes, and a full mixture-and-heat move for every face carrying even a
+    ten-thousandth of a cell). Raising the sleep velocity cut the tiles but not enough; skipping
+    slow faces left 0.1% differences unresolved and those tiles never slept. With damping, a
+    pressure difference Δ between neighbours drives a steady flow of about 100 Δ cells per tick,
+    so the sleep velocity, the skipped flow and the pressure tolerance must agree, and no setting
+    found was both cheap and accurate.
+  What it would take: far fewer cells carrying velocity (blocks, which brings back the thin-wall
+  connectivity problem), or a pressure solve that settles in one step over a region instead of
+  waves (a multigrid relaxation per connected gas region), or simulating only near the player.
 
 ### 4. Simulate less
 
@@ -363,9 +389,9 @@ threads.
    - **Buoyancy** (D-039) made warm air rise as a body, but over the pools it still rises as
      columns topped by single warm cells, which cool within ticks (gas conduction is sped up
      ten times) before they get far: a plume does not reach the ceiling in 2 minutes.
-   The fix this points to is step 3 (a velocity with a set speed of sound: pressure evens out in
-   a fraction of a second instead of spreading), which this case now argues for more strongly
-   than the firing cases did.
+   The fix this pointed to was step 3 (a velocity with a set speed of sound). Prototyped, then
+   integrated and reverted the same day: it reduced the overpressure but made this scene 2–4×
+   slower (step 3 above). Still open.
 4. Gas at 30 Hz by tile parity (step 4): half the tiles' gas cells each tick, rates doubled.
    Estimate: about 1.3× for the whole tick (gas rules are about 55% of it), at some cost in
    fidelity (buoyant rise and currents at most one cell per update).

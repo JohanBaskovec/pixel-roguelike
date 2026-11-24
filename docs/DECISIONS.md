@@ -520,8 +520,9 @@ to watch).
 
 ## D-036 — Gas computed as a field, with tile activity and (later) an air velocity
 
-- **Status:** Proposed (2026-11-23); part (1) implemented 2026-11-24 for the movement and gas
-  density passes, with a smaller gain than estimated (about 5%, see PERFORMANCE → Benchmark log).
+- **Status:** Proposed (2026-11-23); part (3) prototyped per cell face and integrated, then
+  reverted on 2026-11-24 (too slow under steady heating; PERFORMANCE → step 3). Part (1)
+  implemented 2026-11-24 for the movement and gas density passes, with a smaller gain than estimated (about 5%, see PERFORMANCE → Benchmark log).
   Part (2) on hold (2026-11-24): measured in the game, one field step over the awake tiles of the
   busy cases costs about as much as today's gas and heat rules together on today's data layout
   (55 ns per cell, 204 000 cells when firing), before buoyancy and long-range pressure; and

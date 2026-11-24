@@ -329,6 +329,8 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
         204 000 cells when firing), before buoyancy and long-range pressure; only with one array
         per species and together with a velocity (next item)
   - [ ] Air velocity per small block: wind, plumes, a rush of air when a sealed room opens,
+        (per-cell faces prototyped, `bench/proto_air_velocity.c`; integrated and reverted: too slow
+        in the lava case, see PERFORMANCE → step 3)
         pressure evening out in under a second (sound slowed to 10–20 m/s). Thin walls must stay
         airtight: prototype that first
   - [ ] Gas at 30 Hz; smaller gas storage (about 12 bytes per cell), if measurements ask for them
