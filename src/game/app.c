@@ -768,16 +768,20 @@ static void draw_actors(App *app) {
     }
     for (int i = 0; i < w->creature_count; i++) {
         const Creature *c = &w->creatures[i];
-        if (c->kind != KIND_WALKER && c->kind != KIND_FLYER) {
-            continue;
+        if ((c->kind != KIND_WALKER && c->kind != KIND_FLYER) || c->corpse) {
+            continue; // (a corpse is a rigid body, drawn as its cells)
         }
         uint32_t rgb = c->kind == KIND_WALKER ? 0x4FA04A : 0x9A4AB0;
-        if (c->state == CREATURE_DEAD) {
-            rgb = c->kind == KIND_WALKER ? 0x2C4A2A : 0x4A2C55;
-        } else if (c->hit_flash > 0) {
+        if (c->hit_flash > 0) {
             rgb = 0xFFFFFF;
         }
-        fill_world_rect(app, (float)c->x, (float)c->y, (float)c->w, (float)c->h, rgb);
+        for (int r = 0; r < c->h; r++) { // the pixels it still has
+            for (int k = 0; k < c->w; k++) {
+                if (world_elem(w, c->x + k, c->y + r) == ELEM_BODY) {
+                    fill_world_rect(app, (float)(c->x + k), (float)(c->y + r), 1.0f, 1.0f, rgb);
+                }
+            }
+        }
         if (c->state != CREATURE_DEAD) { // an eye, on the side it faces
             float ex = c->facing > 0 ? (float)(c->x + c->w) - 2.5f : (float)c->x + 1.0f;
             fill_world_rect(app, ex, (float)c->y + (float)c->h * 0.25f, 1.5f, 1.5f, 0xFF3030);

@@ -301,6 +301,9 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [x] Rigid objects (D-045): logs and boxes made of many pixels, with physics (gravity, tipping,
       rolling, friction, sleeping) that are cut into pieces by bullets, the eraser or fire, each
       piece going on with its own velocity; scattered over the maze; `I` puts a log at the cursor
+- [x] Monsters lose pixels as they lose hp (as many as their width, in proportion), die at 0 hp,
+      over half gone or cut in two, and become rigid corpses that bleed and can be blown apart;
+      monster hp x4 (D-046)
 - [ ] Rigid objects of other materials (ice, rock), pushed by creatures, floating in liquid,
       with splinters from cuts
 - [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour), at the

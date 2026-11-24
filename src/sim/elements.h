@@ -38,6 +38,8 @@ enum {
     ELEM_WOOD = 26,         // wood (M6b, D-044): solid, burns
     ELEM_BURNING_WOOD = 27, // wood on fire: burns while oxygen reaches it; `aux` is how much is gone
     ELEM_SAWDUST = 28,      // wood crumbs (D-045): a powder, what slivers cut from a log become
+    ELEM_WALKER_CORPSE = 29, // flesh of a dead walker (D-046): static, part of a rigid body
+    ELEM_FLYER_CORPSE = 30,  // flesh of a dead flyer
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.

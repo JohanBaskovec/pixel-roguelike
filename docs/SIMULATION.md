@@ -481,7 +481,14 @@ creatures see ordinary wood cells.
   whose pixels can be drawn (it is all inside something solid) is lost. A bullet through wood loses 30 cells/tick of
   speed a cell (about 60 cm of pine), erases a kerf three cells wide across its path, and kicks
   the body with its momentum (3.6 kg m/s) at the hit.
-- **Limits.** Bodies are made of wood only, up to 64 × 64 pixels and 1024 pixels; liquid is a
+- **Materials.** Wood, and the flesh of dead monsters (`rigid_material()`); `rigid_spawn_from_cells()`
+  makes a body from cells already in the grid (a corpse). A corpse carries `bleed`, shared out among
+  its pieces by pixels. Blood is free space to a body (droplets trade places like gas; a bleeding
+  corpse must not be held up by its own drops), but holds a sleeping body up.
+- **Resting.** A body overlapping the terrain too deeply to take another step, which can happen
+  after a soft touch, is eased out along the contact normal a quarter cell at a time; it sleeps
+  when it moves under 0.07 cells/tick (its fastest pixel) for 30 ticks.
+- **Limits.** Bodies are made of wood and flesh only, up to 64 × 64 pixels and 1024 pixels; liquid is a
   solid to them (a log lies on a pool instead of floating); creatures cannot push them; frozen
   outside the simulated area (D-040). Bodies' own air currents and splinters are not modelled
   (only slivers become sawdust).
@@ -666,16 +673,31 @@ Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flig
 
 ### Monsters, damage, blood and crates (M6b; D-042)
 
-*Hit points.* A creature has `hp` of `hp_max` (100 for the player, `WALKER_HP` 40, `FLYER_HP` 30);
-`creature_hit()` takes some, flashes the body, throws blood, and kills at 0 (state dead, `bleed`
-set to 1.5 droplets per body cell). It is separate from `health`, the oxygen state (breathing).
+*Hit points.* A creature has `hp` of `hp_max` (100 for the player, `WALKER_HP` 160, `FLYER_HP` 120:
+four times what they were at first); `creature_hit()` takes some, flashes the body, throws blood,
+and kills at 0. It is separate from `health`, the oxygen state (breathing).
 A bullet that reaches a body cell (particle.c) takes `RIFLE_DAMAGE` (12 hp) from that creature
 and stops; the player is not hurt by its own bullets.
 
 *Blood.* A hit throws 5 + hp/3 droplets from the cell in front of the body, back along the
 bullet's path with a spread: free particles of `ELEM_BLOOD` (a liquid), which land as pixels and
-pool. A dead body stays where it fell (it keeps falling and resting like any body) and, every 5
-ticks, lets a droplet leave from a side cell until its blood is gone (36 cells: 54 droplets).
+pool. A dead monster's blood (1.5 droplets a pixel left) leaves its corpse (see below) from cells
+of its surface, one droplet every 5 ticks.
+
+*Pixels lost, death and corpses (D-046).* A monster loses pixels as it loses hit points: as many
+as it is wide in all (a walker 6, a flyer 11), in proportion to the hit points lost: `px_debt`
+grows by `hp lost × width / hp_max`, and each whole pixel owed is taken off (`monster_lose_pixel`):
+the cell that was hit first, then those nearest to it. A 6-wide monster of 6 hp loses a pixel an
+hp, one of 12 hp a pixel every 2 hp; a walker of 160 hp one every 26.7 hp (about every two
+bullets). The pixels are cells, so the holes are real: bullets pass them, the body is drawn pixel
+by pixel, and a moving monster carries its holes along (the creature moves each run of body cells
+in a row or column as one, `move()` in creature.c). A monster dies when its hp run out, when it has
+lost over half its pixels, or when what is left is not in one piece (cut in two); then its
+remaining cells become a **rigid body** (rigid.h; elements `ELEM_WALKER_CORPSE`,
+`ELEM_FLYER_CORPSE`, the colours the box used to be), in as many pieces as there are, moving
+at the monster's velocity. The creature entry stays, inert (`corpse`), so indices do not shift. A
+bullet through a corpse (12 cells/tick lost a cell, a kerf three cells wide) cuts it into pieces,
+spills blood and kicks it, like wood; slivers of a pixel become a drop of blood.
 
 *Monsters (enemy.c).* A walker (6 × 6 cells) and a flyer (11 × 11) are creatures that do not
 breathe. A monster notices the live player when it sees it (a straight line through void, gas,

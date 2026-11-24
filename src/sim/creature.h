@@ -72,6 +72,9 @@ typedef struct Creature {
     uint8_t attack_cd;      // monsters: ticks until the next bite
     float hp, hp_max;       // hit points (damage from bullets and bites; 0 is dead)
     float bleed;            // droplets of blood a dead body still has to bleed
+    float px_debt;          // monsters: pixels owed for the hit points lost (enemy.c)
+    uint8_t px_lost;        // monsters: pixels lost so far
+    uint8_t corpse;         // a dead monster, now a rigid body (rigid.h): this entry is inert
     uint8_t aimed;          // `facing` is set from outside (the player aims), not from `walk`
     uint8_t holding;        // holds a breath in (it could not breathe out: the mouth is in liquid)
     float speed;            // walking speed, cells per tick

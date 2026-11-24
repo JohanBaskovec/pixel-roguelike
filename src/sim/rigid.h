@@ -27,6 +27,12 @@
 
 // What each pixel holds: a wood cell (ELEM_WOOD or ELEM_BURNING_WOOD) and its temperature.
 // cell.element == ELEM_VOID: no pixel.
+// What a body can be made of: wood (burning or not) and the flesh of dead monsters.
+static inline bool rigid_material(ElementId e) {
+    return e == ELEM_WOOD || e == ELEM_BURNING_WOOD || e == ELEM_WALKER_CORPSE ||
+           e == ELEM_FLYER_CORPSE;
+}
+
 typedef struct RigidPixel {
     Cell cell;
     float temp;
@@ -44,6 +50,7 @@ typedef struct Rigid {
     float omega;        // radians per tick
     float inertia;      // about the centre of mass, in pixel masses x cells^2
     float radius;       // farthest a pixel reaches from the centre of mass
+    float bleed;        // droplets of blood a corpse still has to bleed
     int32_t rest_ticks; // ticks it has hardly moved
     int32_t ncells;     // world cells it fills now
     int32_t cell_idx[RIGID_MAX_CELLS];  // their grid indices
@@ -54,6 +61,13 @@ typedef struct Rigid {
 // A rectangle of wood (bw x bh pixels: a log when it is long and thin), its centre at (cx, cy),
 // turned by `angle`. Needs void or gas under it. Returns its index, or -1.
 int rigid_spawn_box(World *w, float cx, float cy, int bw, int bh, float angle);
+
+// A body from existing grid cells (the n cells of `cells`, grid indices, which hold the matter
+// of a dead monster): their pixels become `material` (a corpse element), moving at (vx, vy), with
+// `bleed` droplets of blood to lose. It is split at once if the cells are not in one piece.
+// Returns the index of the biggest piece, or -1.
+int rigid_spawn_from_cells(World *w, const int32_t *cells, int n, ElementId material, float vx,
+                           float vy, float bleed);
 
 // Moves every awake body one tick and splits those that lost pixels. sim_tick calls it first.
 void rigids_update(World *w);

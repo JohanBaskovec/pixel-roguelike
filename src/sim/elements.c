@@ -33,6 +33,8 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_WOOD]     = {"Wood",           BEHAVIOR_STATIC, 600.0f,   1700.0f,  0.15f,   293.15f, 0x9A6A3A, 255, 16,  0},
     [ELEM_BURNING_WOOD] = {"Burning wood", BEHAVIOR_STATIC, 600.0f, 1700.0f,  0.15f,   900.0f,  0x4A2A14, 255, 22,  0},
     [ELEM_SAWDUST]  = {"Sawdust",        BEHAVIOR_POWDER, 250.0f,   1700.0f,  0.06f,   293.15f, 0xC4A06A, 255, 22,  0},
+    [ELEM_WALKER_CORPSE] = {"Walker corpse", BEHAVIOR_STATIC, 985.0f, 3500.0f, 0.5f,  293.15f, 0x2C4A2A, 255, 12,  0},
+    [ELEM_FLYER_CORPSE]  = {"Flyer corpse",  BEHAVIOR_STATIC, 985.0f, 3500.0f, 0.5f,  293.15f, 0x4A2C55, 255, 12,  0},
     [ELEM_BLOOD]    = {"Blood",          BEHAVIOR_LIQUID, 1060.0f,  3600.0f,  0.5f,    293.15f, 0x8A0F14, 235, 12,  3},
     // A gas cell: its properties come from its mixture; these (air's) stand for any gas in the
     // tables (buoyancy against liquids, conduction tables).

@@ -14,12 +14,12 @@
 
 #define WALKER_W      6
 #define WALKER_H      6
-#define WALKER_HP     40.0f
+#define WALKER_HP     160.0f
 #define WALKER_SPEED  (2.5f / CELL_SIZE_M * TICK_SECONDS) // cells per tick
 #define WALKER_BITE   10.0f
 #define FLYER_W       11
 #define FLYER_H       11
-#define FLYER_HP      30.0f
+#define FLYER_HP      120.0f
 #define FLYER_SPEED   (3.0f / CELL_SIZE_M * TICK_SECONDS)
 #define FLYER_BITE    6.0f
 #define BITE_TICKS    40 // between bites
@@ -35,8 +35,26 @@ void enemy_think(World *w, Creature *c);
 int creature_at(const World *w, int x, int y);
 
 // `c` takes `hp` hit points (it dies at 0) and blood flies from cell (x, y) (a free cell next to
-// where it was hit) along (ux, uy), a unit vector. Dead bodies take no damage but still bleed.
-void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float uy);
+// where it was hit) along (ux, uy), a unit vector. (bx, by) is the cell of its body that was hit,
+// or (-1, -1).
+//
+// A monster loses pixels as it loses hit points: as many as it is wide in all, in proportion (a
+// 6-wide monster of 6 hp loses a pixel an hp, one of 12 hp a pixel every 2 hp), the pixel that was
+// hit first, then those nearest to it. It dies when its hit points run out, when it has lost half
+// its pixels, or when it is cut in two. A dead monster becomes a rigid body (rigid.h) of what is
+// left of it, in as many pieces, which bleeds on and can be blown apart.
+void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float uy, int bx,
+                  int by);
+
+// Takes the pixel of monster `c` nearest to cell (x, y) off it (it leaves a hole). False if it has
+// no pixel left. Does not kill it: creature_hit does.
+bool monster_lose_pixel(World *w, Creature *c, int x, int y);
+
+// How many body cells monster `c` still has.
+int monster_pixels(const World *w, const Creature *c);
+
+// Kills monster `c` now: what is left of its body becomes a rigid body.
+void monster_die(World *w, Creature *c);
 
 // Throws `n` droplets of blood from cell (x, y), mostly along (ux, uy). Nothing if the cell is not
 // free.

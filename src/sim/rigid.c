@@ -13,13 +13,13 @@
 #define SPIN_DAMPING     0.98f // per tick while touching something
 #define MAX_SPEED        12.0f // cells per tick
 #define MAX_SUBSTEPS     12
-#define SLEEP_SPEED      0.03f // cells per tick, for the fastest pixel
+#define SLEEP_SPEED      0.07f // cells per tick, for the fastest pixel
 #define SLEEP_TICKS      30
 #define SOFT_CELLS       2     // cells a body may overlap, plus a 32nd of its pixels
 #define WAKE_CHECK_TICKS 8     // a sleeping body checks its support this often
 
 static inline bool is_wood(ElementId e) {
-    return e == ELEM_WOOD || e == ELEM_BURNING_WOOD;
+    return rigid_material(e);
 }
 
 // ---- Small set of grid indices (scratch, serial use) ----
@@ -126,9 +126,16 @@ static int raster(const World *w, const Rigid *r, float x, float y, float ang, R
     return n;
 }
 
+// May the body be where cell idx is? Void and gas (which it displaces), blood (a droplet, which
+// trades places like gas: a bleeding corpse must not be held up by its own drops), and its own
+// cells. Anything else is solid to it.
+static bool g_support_check; // checking whether a sleeping body is held up: blood holds it up
+
 static inline bool free_for(const World *w, int32_t idx) {
-    uint8_t b = g_elem_behavior[w->cells[idx].element];
-    return (b == BEHAVIOR_NONE || b == BEHAVIOR_GAS) || set_get(&g_own, idx) >= 0;
+    ElementId e = w->cells[idx].element;
+    uint8_t b = g_elem_behavior[e];
+    return (b == BEHAVIOR_NONE || b == BEHAVIOR_GAS) || (e == ELEM_BLOOD && !g_support_check) ||
+           set_get(&g_own, idx) >= 0;
 }
 
 static void own_build(const Rigid *r) {
@@ -161,11 +168,13 @@ static void clear_cell(World *w, int32_t idx) {
     gas_mix_clear(&w->gas[idx]);
 }
 
-// A wood cell that belongs to no body any more (a sliver cut off, too small to be one) crumbles:
-// it becomes sawdust, a powder, which falls and piles up like sand.
+// A cell that belongs to no body any more (a sliver cut off, too small to be one) crumbles: wood
+// becomes sawdust, a powder, which falls and piles up like sand; flesh becomes a drop of blood.
 static void crumble(World *w, int32_t idx) {
     Cell c = w->cells[idx];
-    w->cells[idx] = (Cell){ELEM_SAWDUST, (uint8_t)(w->tick - 1), c.shade, 0};
+    ElementId to = c.element == ELEM_WALKER_CORPSE || c.element == ELEM_FLYER_CORPSE ? ELEM_BLOOD
+                                                                                      : ELEM_SAWDUST;
+    w->cells[idx] = (Cell){to, (uint8_t)(w->tick - 1), c.shade, 0};
 }
 
 static void note(World *w, int32_t idx) {
@@ -425,6 +434,11 @@ static void restructure(World *w, int ri) {
     memcpy(old_pix, r->cell_pix, sizeof(uint16_t) * (size_t)old_n);
     float px = r->x, py = r->y, pang = r->angle, pvx = r->vx, pvy = r->vy, pom = r->omega;
     float pcx = r->cx, pcy = r->cy;
+    float bleed_total = r->bleed;
+    int total_px = 0;
+    for (int k = 1; k <= comps; k++) {
+        total_px += size[k];
+    }
     int pw = r->w, ph = r->h;
     float c = cosf(pang), s = sinf(pang);
     // Biggest piece.
@@ -497,6 +511,7 @@ static void restructure(World *w, int ri) {
         nr->vx = pvx - pom * wy; // the velocity of that point of the old body
         nr->vy = pvy + pom * wx;
         nr->omega = pom;
+        nr->bleed = bleed_total * (float)size[k] / (float)PR_MAX(total_px, 1); // its share
         pieces[np++] = (Piece){k, x0, y0, nr->w, nr->h, slot, 0.0f, 0.0f};
         // Its cells.
         for (int q = 0; q < old_n; q++) {
@@ -525,6 +540,7 @@ static void restructure(World *w, int ri) {
         r->y = py + wy;
         r->vx = pvx - pom * wy;
         r->vy = pvy + pom * wx;
+        r->bleed = bleed_total * (float)size[keep] / (float)PR_MAX(total_px, 1);
         int n = 0;
         for (int q = 0; q < old_n; q++) {
             if (label[old_pix[q]] == keep) {
@@ -700,6 +716,7 @@ static bool dynamics(World *w, Rigid *r) {
             r->angle = a;
         }
         // Go as far toward the blocked pose as it can without overlapping (halving the step).
+        bool advanced = soft;
         for (float f = 0.5f; f > 0.07f && !soft; f *= 0.5f) {
             float fx = r->x + r->vx * dt * f, fy = r->y + r->vy * dt * f,
                   fa = r->angle + r->omega * dt * f, ox, oy, ocx, ocy;
@@ -707,6 +724,7 @@ static bool dynamics(World *w, Rigid *r) {
                 r->x = fx;
                 r->y = fy;
                 r->angle = fa;
+                advanced = true;
                 break;
             }
         }
@@ -720,6 +738,20 @@ static bool dynamics(World *w, Rigid *r) {
             contact_normal(w, r, x, y, a, &nx, &ny);
         }
         collision_impulse(r, cx, cy, nx, ny);
+        if (!advanced && hits > 0) {
+            // Stuck in an overlap too deep to take another step (no pose along the way is free):
+            // ease it out along the contact normal, a quarter cell at a time.
+            float ox, oy, ocx, ocy;
+            int now = collide(w, r, r->x, r->y, r->angle, &ox, &oy, &ocx, &ocy);
+            if (now != 0) {
+                float px = r->x + nx * 0.25f, py = r->y + ny * 0.25f;
+                int after = collide(w, r, px, py, r->angle, &ox, &oy, &ocx, &ocy);
+                if (after >= 0 && after <= now) {
+                    r->x = px;
+                    r->y = py;
+                }
+            }
+        }
     }
     if (touched) {
         r->omega *= SPIN_DAMPING;
@@ -752,7 +784,10 @@ static void update_one(World *w, int ri) {
         own_build(r);
         // Still held up? (Something one cell lower than the body is free: it would fall.)
         float nx, ny, cx, cy;
-        if (collide(w, r, r->x, r->y + 1.0f, r->angle, &nx, &ny, &cx, &cy) != 0) {
+        g_support_check = true;
+        int held = collide(w, r, r->x, r->y + 1.0f, r->angle, &nx, &ny, &cx, &cy);
+        g_support_check = false;
+        if (held != 0) {
             return;
         }
         r->asleep = 0;
@@ -807,12 +842,95 @@ static void update_one(World *w, int ri) {
     }
 }
 
-void rigids_update(World *w) {
-    for (int i = 0; i < w->rigid_count; i++) {
-        if (w->rigids[i].active && in_active_area(w, &w->rigids[i])) {
-            update_one(w, i);
+// A corpse that is still bleeding loses a droplet now and then, from a cell of its surface.
+#define RIGID_BLEED_TICKS 5
+
+static void bleed_one(World *w, Rigid *r, int ri) {
+    uint64_t h = pr_splitmix64(w->seed ^ (w->tick * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)ri << 24));
+    static const int8_t d4[4][2] = {{0, -1}, {-1, 0}, {1, 0}, {0, 1}};
+    for (int attempt = 0; attempt < 12; attempt++) { // a cell of the surface: one with air beside it
+        h = pr_splitmix64(h);
+        int k = (int)((h >> 16) % (uint64_t)r->ncells);
+        int x = (int)(r->cell_idx[k] % w->width), y = (int)(r->cell_idx[k] / w->width);
+        int first = (int)(h >> 40) & 3;
+        for (int q = 0; q < 4; q++) {
+            int d = (first + q) & 3, nx = x + d4[d][0], ny = y + d4[d][1];
+            if (!particle_passes(w, nx, ny)) {
+                continue;
+            }
+            float jitter = (float)((h >> (8 + 4 * q)) & 15) / 15.0f;
+            Cell cell = {ELEM_BLOOD, 0, (uint8_t)(h >> 8), 0};
+            Particle p = {(float)nx + 0.5f, (float)ny + 0.5f,
+                          (float)d4[d][0] * (0.15f + 0.35f * jitter),
+                          (float)d4[d][1] * 0.2f - 0.1f * jitter, cell, T_ROOM};
+            if (particle_add(w, &p)) {
+                r->bleed -= 1.0f;
+            }
+            return;
         }
     }
+}
+
+void rigids_update(World *w) {
+    for (int i = 0; i < w->rigid_count; i++) {
+        Rigid *r = &w->rigids[i];
+        if (!r->active || !in_active_area(w, r)) {
+            continue;
+        }
+        update_one(w, i);
+        r = &w->rigids[i];
+        if (r->active && r->bleed > 0.0f && r->ncells > 0 &&
+            (w->tick + (uint64_t)i) % RIGID_BLEED_TICKS == 0) {
+            bleed_one(w, r, i);
+        }
+    }
+}
+
+int rigid_spawn_from_cells(World *w, const int32_t *cells, int n, ElementId material, float vx,
+                           float vy, float bleed) {
+    if (n <= 0 || n > RIGID_MAX_CELLS) {
+        return -1;
+    }
+    int x0 = w->width, y0 = w->height, x1 = -1, y1 = -1;
+    for (int k = 0; k < n; k++) {
+        int x = (int)(cells[k] % w->width), y = (int)(cells[k] / w->width);
+        x0 = PR_MIN(x0, x);
+        x1 = PR_MAX(x1, x);
+        y0 = PR_MIN(y0, y);
+        y1 = PR_MAX(y1, y);
+    }
+    int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    if (bw > RIGID_MAX_DIM || bh > RIGID_MAX_DIM) {
+        return -1;
+    }
+    int slot = new_slot(w);
+    if (slot < 0) {
+        return -1;
+    }
+    Rigid *r = &w->rigids[slot];
+    memset(r, 0, sizeof(*r));
+    r->w = (int16_t)bw;
+    r->h = (int16_t)bh;
+    static RasterCell rc[RIGID_MAX_CELLS];
+    for (int k = 0; k < n; k++) {
+        int x = (int)(cells[k] % w->width), y = (int)(cells[k] / w->width);
+        int pi = (y - y0) * bw + (x - x0);
+        r->pix[pi].cell = (Cell){material, 0, w->cells[cells[k]].shade, 0};
+        r->pix[pi].temp = w->temp[cells[k]];
+        rc[k].idx = cells[k];
+        rc[k].pix = (uint16_t)pi;
+    }
+    props(r);
+    r->x = (float)x0 + r->cx; // unturned, the bitmap's cells are the grid's
+    r->y = (float)y0 + r->cy;
+    r->vx = vx;
+    r->vy = vy;
+    r->bleed = bleed;
+    r->active = 1;
+    r->ncells = 0;
+    commit(w, r, rc, n);
+    restructure(w, slot); // in several pieces? (a monster cut in half)
+    return w->rigids[slot].active ? slot : -1;
 }
 
 void rigids_free(World *w) {

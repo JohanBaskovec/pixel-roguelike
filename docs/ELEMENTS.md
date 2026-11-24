@@ -36,6 +36,8 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 23 | Molten brass | LIQUID | 7600 (approx.) | 470 (approx.) | 70 (approx.) | freezes 1208 K → brass; painted at 1300 K | `#D8A848`, glows | 6a |
 | 24 | Gas (a mixture of species 6–10) | GAS | its mixture's (air: 1.2922) | its mixture's (air: 1005) | its mixture's (air: 0.026) | its water vapour condenses | mixed from its species | 6a |
 | 25 | Blood | LIQUID | 1060 | 3600 | 0.5 | none (no freezing or boiling yet); starts at 293.15 K | `#8A0F14` α 0.92 | 6b |
+| 29 | Walker corpse | STATIC | 985 | 3500 | 0.5 | none; part of a rigid body | `#2C4A2A` | 6b |
+| 30 | Flyer corpse | STATIC | 985 | 3500 | 0.5 | none; part of a rigid body | `#4A2C55` | 6b |
 | 28 | Sawdust | POWDER | 250 (bulk) | 1700 | 0.06 | none (does not burn yet) | `#C4A06A` | 6b |
 | 26 | Wood | STATIC | 600 | 1700 | 0.15 | catches fire at 523 K (250 °C) → burning wood | `#9A6A3A` | 6b |
 | 27 | Burning wood | STATIC | 600 | 1700 | 0.15 | goes out below 480 K → wood; burns while oxygen reaches it; painted at 900 K (not in the toolbar) | `#4A2A14`, glows | 6b |
@@ -253,7 +255,8 @@ Keep this list complete.
     of rise (`JETPACK_ACCEL`, `JETPACK_MAX_RISE`). It exerts no force on the air yet.
 18. Monsters (M6b, D-042): they do not breathe and give off no body heat, and their bodies start
     at room temperature (a 310 K body in 293 K air keeps its chunks in the heat pass for minutes:
-    50 monsters cost 12 ms a tick). Their size (6 × 6 and 11 × 11 cells), speed, hit points and
+    50 monsters cost 12 ms a tick). Their size (6 × 6 and 11 × 11 cells), speed, hit points (160 and 120)
+    and
     bite are game values (`WALKER_*`, `FLYER_*`, `RIFLE_DAMAGE` 12 hp, `BITE_TICKS`). Blood's
     droplets start at room temperature too, like bullets (the heat they carry is negligible).
 19. Burning wood (M6b, D-044): the chemistry is real (cellulose C₆H₁₀O₅ + 6 O₂ → 6 CO₂ + 5 H₂O,

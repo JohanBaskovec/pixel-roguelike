@@ -363,21 +363,62 @@ static bool move(World *w, Creature *c, int dx, int dy) {
     if (dx != 0) {
         int lx = dx > 0 ? c->x + c->w : c->x - 1;
         int tx = dx > 0 ? c->x : c->x + c->w - 1;
+        (void)lx;
+        (void)tx;
         for (int r = 0; r < c->h; r++) {
-            swap_world_cells(w, lx, c->y + r, tx, c->y + r);
-            push_wind(w, tx, c->y + r, dir, BODY_WAKE_WIND);      // behind, now
-            push_wind(w, lx + dx, c->y + r, dir, BODY_PUSH_WIND); // in front
+            // The row's runs of body cells (a monster that has lost pixels has holes): each run
+            // trades its trailing end with the cell beyond its leading end.
+            int y = c->y + r;
+            for (int k = 0; k < c->w;) {
+                if (world_elem(w, c->x + k, y) != ELEM_BODY) {
+                    k++;
+                    continue;
+                }
+                int a = k;
+                while (k < c->w && world_elem(w, c->x + k, y) == ELEM_BODY) {
+                    k++;
+                }
+                int b = k - 1; // the run is a..b
+                int lead = dx > 0 ? c->x + b + 1 : c->x + a - 1, trail = dx > 0 ? c->x + a : c->x + b;
+                swap_world_cells(w, lead, y, trail, y);
+                push_wind(w, trail, y, dir, BODY_WAKE_WIND);
+                push_wind(w, lead + dx, y, dir, BODY_PUSH_WIND);
+            }
         }
         c->x += dx;
     } else {
         int ly = dy > 0 ? c->y + c->h : c->y - 1;
         int ty = dy > 0 ? c->y : c->y + c->h - 1;
         for (int k = 0; k < c->w; k++) {
-            if (!flow_around(w, c, c->x + k, ly, ty, dy)) {
-                swap_world_cells(w, c->x + k, ly, c->x + k, ty);
+            int x = c->x + k;
+            // The column's runs of body cells: as above. A whole column may flow around the body.
+            bool whole = true;
+            for (int r = 0; r < c->h && whole; r++) {
+                whole = world_elem(w, x, c->y + r) == ELEM_BODY;
             }
-            push_wind(w, c->x + k, ty, dir, BODY_WAKE_WIND);
-            push_wind(w, c->x + k, ly + dy, dir, BODY_PUSH_WIND);
+            if (whole) {
+                if (!flow_around(w, c, x, ly, ty, dy)) {
+                    swap_world_cells(w, x, ly, x, ty);
+                }
+                push_wind(w, x, ty, dir, BODY_WAKE_WIND);
+                push_wind(w, x, ly + dy, dir, BODY_PUSH_WIND);
+                continue;
+            }
+            for (int r = 0; r < c->h;) {
+                if (world_elem(w, x, c->y + r) != ELEM_BODY) {
+                    r++;
+                    continue;
+                }
+                int a = r;
+                while (r < c->h && world_elem(w, x, c->y + r) == ELEM_BODY) {
+                    r++;
+                }
+                int b = r - 1;
+                int lead = dy > 0 ? c->y + b + 1 : c->y + a - 1, trail = dy > 0 ? c->y + a : c->y + b;
+                swap_world_cells(w, x, lead, x, trail);
+                push_wind(w, x, trail, dir, BODY_WAKE_WIND);
+                push_wind(w, x, lead + dy, dir, BODY_PUSH_WIND);
+            }
         }
         c->y += dy;
     }
@@ -762,6 +803,9 @@ static void update_one(World *w, Creature *c) {
 void creatures_update(World *w) {
     for (int i = 0; i < w->creature_count; i++) {
         Creature *c = &w->creatures[i];
+        if (c->corpse) {
+            continue; // now a rigid body
+        }
         int cx = PR_CLAMP(c->x + c->w / 2, 0, w->width - 1) >> CHUNK_SHIFT;
         int cy = PR_CLAMP(c->y + c->h / 2, 0, w->height - 1) >> CHUNK_SHIFT;
         if (world_chunk(w, cx, cy)->active) { // outside the simulated area: frozen

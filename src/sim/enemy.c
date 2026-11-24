@@ -3,6 +3,7 @@
 #include "core/rng.h"
 #include "sim/particle.h"
 #include "sim/path.h"
+#include "sim/rigid.h"
 
 #include <math.h>
 
@@ -66,14 +67,136 @@ void blood_splash(World *w, int x, int y, float ux, float uy, int n, uint64_t se
     }
 }
 
-void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float uy) {
+static bool is_monster(const Creature *c) {
+    return c->kind == KIND_WALKER || c->kind == KIND_FLYER;
+}
+
+int monster_pixels(const World *w, const Creature *c) {
+    int n = 0;
+    for (int r = 0; r < c->h; r++) {
+        for (int k = 0; k < c->w; k++) {
+            n += world_elem(w, c->x + k, c->y + r) == ELEM_BODY;
+        }
+    }
+    return n;
+}
+
+bool monster_lose_pixel(World *w, Creature *c, int x, int y) {
+    int best_x = 0, best_y = 0, best_d = 1 << 30;
+    for (int r = 0; r < c->h; r++) {
+        for (int k = 0; k < c->w; k++) {
+            int px = c->x + k, py = c->y + r;
+            if (world_elem(w, px, py) != ELEM_BODY) {
+                continue;
+            }
+            int d = (px - x) * (px - x) + (py - y) * (py - y);
+            if (d < best_d) {
+                best_d = d;
+                best_x = px;
+                best_y = py;
+            }
+        }
+    }
+    if (best_d == 1 << 30) {
+        return false;
+    }
+    size_t i = world_index(w, best_x, best_y);
+    w->cells[i] = (Cell){ELEM_VOID, (uint8_t)(w->tick - 1), w->cells[i].shade, 0};
+    w->temp[i] = 0.0f;
+    gas_mix_clear(&w->gas[i]);
+    world_note_moved(w, best_x, best_y);
+    world_wake_rect(w, best_x - 2, best_y - 2, best_x + 2, best_y + 2);
+    world_wake_heat(w, best_x - 1, best_y - 1, best_x + 1, best_y + 1);
+    c->px_lost++;
+    return true;
+}
+
+// Is what is left of the monster's body in one piece (4-neighbour)?
+static bool body_in_one_piece(const World *w, const Creature *c) {
+    uint8_t seen[CREATURE_MAX_W * CREATURE_MAX_H] = {0};
+    int stack[CREATURE_MAX_W * CREATURE_MAX_H], top = 0, total = 0, reached = 0;
+    for (int r = 0; r < c->h; r++) {
+        for (int k = 0; k < c->w; k++) {
+            if (world_elem(w, c->x + k, c->y + r) == ELEM_BODY) {
+                total++;
+                if (top == 0 && reached == 0) {
+                    stack[top++] = r * c->w + k;
+                    seen[r * c->w + k] = 1;
+                }
+            }
+        }
+    }
+    while (top > 0) {
+        int p = stack[--top], k = p % c->w, r = p / c->w;
+        reached++;
+        static const int8_t d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int q = 0; q < 4; q++) {
+            int nk = k + d4[q][0], nr = r + d4[q][1];
+            if (nk < 0 || nr < 0 || nk >= c->w || nr >= c->h || seen[nr * c->w + nk] ||
+                world_elem(w, c->x + nk, c->y + nr) != ELEM_BODY) {
+                continue;
+            }
+            seen[nr * c->w + nk] = 1;
+            stack[top++] = nr * c->w + nk;
+        }
+    }
+    return reached == total;
+}
+
+void monster_die(World *w, Creature *c) {
+    if (c->corpse) {
+        return;
+    }
+    int32_t cells[CREATURE_MAX_W * CREATURE_MAX_H];
+    int n = 0;
+    for (int r = 0; r < c->h; r++) {
+        for (int k = 0; k < c->w; k++) {
+            if (world_elem(w, c->x + k, c->y + r) == ELEM_BODY) {
+                cells[n++] = (int32_t)world_index(w, c->x + k, c->y + r);
+            }
+        }
+    }
+    ElementId material = c->kind == KIND_WALKER ? ELEM_WALKER_CORPSE : ELEM_FLYER_CORPSE;
+    c->hp = 0.0f;
+    c->state = CREATURE_DEAD;
+    c->walk = 0;
+    c->jump = 0;
+    if (n > 0 && rigid_spawn_from_cells(w, cells, n, material, c->vx, c->vy,
+                                        BLEED_PER_CELL * (float)n) < 0) {
+        // No room for a body: the cells are left as flesh that does not move.
+        for (int k = 0; k < n; k++) {
+            w->cells[cells[k]].element = material;
+        }
+    }
+    c->corpse = 1; // this entry is inert from now on: the body is the rigid body's
+    c->w = c->h = 0;
+}
+
+void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float uy, int bx,
+                  int by) {
     if (c->state == CREATURE_DEAD) {
         blood_splash(w, x, y, ux, uy, 3, c->id * 7919u + (uint64_t)w->tick);
         return;
     }
+    float lost = PR_MIN(hp, c->hp); // hit points actually lost (the last blow is not all of it)
     c->hp -= hp;
     c->hit_flash = 6;
     blood_splash(w, x, y, ux, uy, 5 + (int)(hp / 3.0f), c->id * 31u + (uint64_t)w->tick);
+    if (is_monster(c)) {
+        int total = c->w * c->h;
+        if (bx >= 0) {
+            // Pixels owed: the monster's width over its hit points, for each hit point lost.
+            c->px_debt += lost * (float)c->w / c->hp_max;
+            while (c->px_debt >= 1.0f && c->px_lost < c->w) {
+                monster_lose_pixel(w, c, bx, by);
+                c->px_debt -= 1.0f;
+            }
+        }
+        if (c->hp <= 0.0f || 2 * monster_pixels(w, c) < total || !body_in_one_piece(w, c)) {
+            monster_die(w, c);
+        }
+        return;
+    }
     if (c->hp <= 0.0f) {
         c->hp = 0.0f;
         c->state = CREATURE_DEAD;
@@ -208,7 +331,7 @@ void enemy_think(World *w, Creature *c) {
         // Blood leaves the player's body on the monster's side, at the bite's height.
         int bx = dx > 0.0f ? p->x - 1 : p->x + p->w;
         int by = PR_CLAMP((int)cy, p->y, p->y + p->h - 1);
-        creature_hit(w, p, walker ? WALKER_BITE : FLYER_BITE, bx, by, ux, uy);
+        creature_hit(w, p, walker ? WALKER_BITE : FLYER_BITE, bx, by, ux, uy, -1, -1);
         c->attack_cd = BITE_TICKS;
     }
 }

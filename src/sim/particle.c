@@ -155,7 +155,8 @@ bool particle_step(World *w, Particle *p, float fraction) {
 // A bullet through wood loses this much speed a cell, and cuts a kerf (the cell and the one on
 // either side across its path) out of it; the blow, BULLET_MOMENTUM (a 4 g bullet at 900 m/s,
 // kg m/s), kicks the rigid body it hits.
-#define BULLET_WOOD_RESISTANCE 30.0f
+#define BULLET_WOOD_RESISTANCE  30.0f
+#define BULLET_FLESH_RESISTANCE 12.0f
 #define BULLET_MOMENTUM        3.6f
 
 // Speed a bullet loses passing through one cell of `e` (cells per tick; it flies at 300).
@@ -169,6 +170,9 @@ static float bullet_resistance(ElementId e) {
         case ELEM_WOOD:
         case ELEM_BURNING_WOOD:
             return BULLET_WOOD_RESISTANCE; // pine: a bullet goes through about 60 cm
+        case ELEM_WALKER_CORPSE:
+        case ELEM_FLYER_CORPSE:
+            return BULLET_FLESH_RESISTANCE; // flesh: through a metre and a half
         default:
             break;
     }
@@ -212,14 +216,13 @@ static void bullet_eject(World *w, int x, int y, float ux, float uy, uint64_t *h
     world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
 }
 
-// Erases the wood cell at (x, y) and the wood cells beside it across the bullet's path (the kerf):
+// Erases the wood (or flesh) cell at (x, y) and the cells of it beside it across the bullet's path (the kerf):
 // they become void, which the gas flows into. A rigid body that held them is cut.
 static void bullet_cut_wood(World *w, int x, int y, float ux, float uy) {
     bool vertical = fabsf(uy) > fabsf(ux); // the kerf is across the path
     for (int k = -1; k <= 1; k++) {
         int cx = vertical ? x + k : x, cy = vertical ? y : y + k;
-        ElementId e = world_elem(w, cx, cy);
-        if (e != ELEM_WOOD && e != ELEM_BURNING_WOOD) {
+        if (!rigid_material(world_elem(w, cx, cy))) {
             continue;
         }
         size_t i = world_index(w, cx, cy);
@@ -266,7 +269,7 @@ static void bullet_step(World *w, Particle *p) {
                     // bullets), and it stops.
                     int ci = creature_at(w, tx, ty);
                     if (ci >= 0 && w->creatures[ci].kind != KIND_PLAYER) {
-                        creature_hit(w, &w->creatures[ci], RIFLE_DAMAGE, cx, cy, ux, uy);
+                        creature_hit(w, &w->creatures[ci], RIFLE_DAMAGE, cx, cy, ux, uy, tx, ty);
                     }
                     speed = 0.0f;
                     break;
@@ -282,7 +285,12 @@ static void bullet_step(World *w, Particle *p) {
                         bullet_eject(w, tx, ty, ux, uy, &h); // the splash where it goes in
                     }
                     in_liquid = true;
-                } else if (e == ELEM_WOOD || e == ELEM_BURNING_WOOD) {
+                } else if (rigid_material(e)) {
+                    // Wood or the flesh of a corpse (a rigid body): it is cut, and kicked; flesh
+                    // bleeds where it is hit.
+                    if (e == ELEM_WALKER_CORPSE || e == ELEM_FLYER_CORPSE) {
+                        blood_splash(w, cx, cy, ux, uy, 5, h);
+                    }
                     rigid_hit(w, tx, ty, ux, uy, BULLET_MOMENTUM);
                     bullet_cut_wood(w, tx, ty, ux, uy);
                     in_liquid = false;

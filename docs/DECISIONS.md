@@ -732,3 +732,17 @@ to watch).
   percent while its pixels are exact. A body overlapping the terrain by a few cells draws fewer
   pixels while it does. At most 128 bodies; the level has about 55 (all asleep, checked every 8
   ticks).
+
+## D-046 — Monsters lose pixels; corpses are rigid bodies
+
+- **Status:** Accepted (2026-11-24), asked for by the user.
+- **Decision:** A monster loses pixels as it loses hit points (as many in all as it is wide, in
+  proportion), the shot pixel first; at 0 hp, over half its pixels gone, or cut in two, it dies and
+  what is left becomes a rigid body (D-045) of corpse flesh, which bleeds and can be shot apart.
+  Monster hit points are four times what they were (160 and 120). Holes in a living monster stay
+  where they are as it moves: the creature moves each run of body cells as a unit, not the whole
+  rectangle, so the grid, not a mask, says which pixels it has.
+- **Consequences:** The corpse entry in `World.creatures` stays, inert (`corpse`). A bullet stops
+  in a living monster (it does not shoot through), but goes through a corpse. Rigid bodies got two
+  fixes with this: a body stuck in a deep overlap is eased out along the contact normal, and a
+  body counts as at rest below 0.07 cells/tick. No gibs apart from blood, and corpses do not burn.
