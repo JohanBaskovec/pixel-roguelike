@@ -314,8 +314,10 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
         air, not thin trails (PERFORMANCE → Benchmark log)
   - [x] Measure on the player's machine (Ryzen 7 4700U: firing at the sky for 10 s, Sim 50 ms).
         Cause: debris falling through clear air stirred and heated it; fixed (about 8 ms here)
+  - [x] Thread scaling: costliest chunk jobs first, workers spinning briefly between batches
+        (15–20% on 4 threads)
   - [ ] Gas at 30 Hz by tile parity (estimate about 1.3×); fewer wakes after an exchange
-        (estimate about 10%); thread scaling for 8+ cores
+        (estimate about 10%)
   - [ ] *On hold:* gas as a field: every gas cell exchanges gas and heat with its four
         neighbours each tick, from the previous tick's values. Measured in the game: one such step
         over the awake tiles costs about as much as today's gas and heat rules (55 ns per cell,

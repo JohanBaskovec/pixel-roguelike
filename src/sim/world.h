@@ -56,7 +56,8 @@ typedef struct Chunk {
     uint8_t heat_active;      // compute heat conduction this tick
     uint8_t heat_active_next; // ... next tick
     uint8_t heat_check;       // cells arrived: check next tick whether temperatures differ
-    uint8_t pad[6]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
+    uint16_t cost;  // cells the movement pass visited here the last time it ran (job order)
+    uint8_t pad[4]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
 } Chunk;
 
 _Static_assert(sizeof(Chunk) == 32, "Chunk must stay 32 bytes");

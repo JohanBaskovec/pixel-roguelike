@@ -205,7 +205,11 @@ free particles (end of the tick), which is how a bullet crosses 300 cells in a t
 **How a phase runs** (`sim_tick` in `src/sim/sim.c`):
 1. List the phase's chunks with a non-empty dirty rect. Give each a `TickCtx`: its chunk, its RNG,
    its stats, and wake buffers for the 3×3 chunks around it.
-2. `jobs_run()` updates them in parallel, one job per chunk. A job works on a copy of its
+2. `jobs_run()` updates them in parallel, one job per chunk, **costliest first**: each chunk keeps
+   how many cells it visited the last time it ran (`Chunk.cost`), and the jobs are ordered by it
+   (`order_jobs`, a counting sort). A phase lasts at least as long as its costliest job, so that
+   job must not start last. The order changes only which thread runs what: jobs of one phase never
+   touch the same cells, and results are merged in grid order. A job works on a copy of its
    `TickCtx` on its own stack, because updating the contexts in place, side by side in one array,
    made threads fight over shared cache lines (it cost half the speed-up).
 3. After the barrier, the main thread merges every job's wake buffers into the chunks' `next`
@@ -218,7 +222,12 @@ in the hot path.
 **Thread pool** (`src/core/jobs.c`): a fork-join pool on SDL threads. `jobs_run(pool, count, fn,
 user)` runs `fn(user, i)` for every `i`, with workers claiming indices from an atomic counter. The
 calling thread works too, and the call returns when all jobs are done. With a NULL pool, or a
-single thread, jobs run in order on the caller. The world uses the pool set with
+single thread, jobs run in order on the caller. A tick runs about 8 batches (heat, labelling,
+densities, four phases) microseconds apart, and waking a thread sleeping on a condition variable
+costs tens of microseconds (55 per batch on the 4-core VM). So after a batch, workers spin for up
+to `SPIN_SECONDS` (0.2 ms) watching an atomic copy of the batch counter before they sleep, and the
+caller spins while waiting for the last jobs (12 µs per batch). Every decision is still taken
+under the mutex; between ticks the workers sleep. The world uses the pool set with
 `world_set_job_pool()`; the game creates one thread per logical core (`--threads N` to change).
 
 ### Determinism

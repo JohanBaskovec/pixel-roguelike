@@ -1363,29 +1363,58 @@ static void update_chunk(TickCtx *c) {
 typedef struct PhaseScratch {
     int *chunk_list; // the awake chunks (gas_rho_update)
     TickCtx *ctx;
+    int *order; // the phase's jobs, costliest first
     int capacity;
 } PhaseScratch;
+
+// A phase's jobs, run in `order`. The order only changes which thread runs what, and when: jobs
+// of one phase never touch the same cells, and their results are merged in `ctx` order.
+typedef struct PhaseRun {
+    TickCtx *ctx;
+    const int *order;
+} PhaseRun;
 
 static void phase_job(void *user, int index) {
     // Work on a copy on this thread's stack: jobs' contexts sit side by side in one array, and
     // updating them in place (every move touches the stats and wakes) made threads fight over
     // shared cache lines.
-    TickCtx *slot = &((TickCtx *)user)[index];
+    const PhaseRun *run = user;
+    TickCtx *slot = &run->ctx[run->order[index]];
     TickCtx c = *slot;
     update_chunk(&c);
     *slot = c;
+}
+
+// Orders a phase's jobs costliest first: a counting sort on the chunks' `cost` (at most 4096, one
+// visit per cell) in buckets of 32 cells. Stable, so ties keep the grid order.
+#define COST_BUCKETS ((CHUNK_SIZE * CHUNK_SIZE >> 5) + 1)
+static void order_jobs(const World *w, const TickCtx *ctx, int jobs, int *order) {
+    int start[COST_BUCKETS + 1] = {0};
+    for (int j = 0; j < jobs; j++) {
+        int b = PR_MIN(w->chunks[ctx[j].cy * w->chunks_x + ctx[j].cx].cost >> 5, COST_BUCKETS - 1);
+        start[COST_BUCKETS - 1 - b + 1]++; // bucket 0 holds the costliest
+    }
+    for (int b = 0; b < COST_BUCKETS; b++) {
+        start[b + 1] += start[b];
+    }
+    for (int j = 0; j < jobs; j++) {
+        int b = PR_MIN(w->chunks[ctx[j].cy * w->chunks_x + ctx[j].cx].cost >> 5, COST_BUCKETS - 1);
+        order[start[COST_BUCKETS - 1 - b]++] = j;
+    }
 }
 
 static PhaseScratch *get_scratch(World *w) {
     int capacity = ((w->chunks_x + 1) / 2) * ((w->chunks_y + 1) / 2);
     if (!w->sim_scratch) {
         size_t bytes = sizeof(PhaseScratch) + (size_t)capacity * sizeof(TickCtx) +
+                       (size_t)capacity * sizeof(int) +
                        (size_t)w->chunks_x * (size_t)w->chunks_y * sizeof(int);
         PhaseScratch *s = pr_aligned_alloc_zero(64, bytes + 64);
         PR_ASSERT_ALWAYS(s != NULL);
         s->capacity = capacity;
         s->ctx = (TickCtx *)(((uintptr_t)(s + 1) + 63) & ~(uintptr_t)63);
-        s->chunk_list = (int *)(s->ctx + capacity);
+        s->order = (int *)(s->ctx + capacity);
+        s->chunk_list = s->order + capacity;
         w->sim_scratch = s;
     }
     return w->sim_scratch;
@@ -1522,7 +1551,12 @@ void sim_tick(World *w, SimStats *stats) {
         }
         PR_ASSERT(jobs <= scratch->capacity);
 
-        jobs_run(w->jobs, jobs, phase_job, scratch->ctx);
+        // Costliest chunks first (by what they visited last time), so that a heavy chunk does not
+        // start last and leave the other threads idle while it finishes. A phase lasts at least
+        // as long as its costliest job.
+        order_jobs(w, scratch->ctx, jobs, scratch->order);
+        PhaseRun run = {scratch->ctx, scratch->order};
+        jobs_run(w->jobs, jobs, phase_job, &run);
 
         // Merge each job's wakes into the chunks. Min/max and OR are order-independent, so the
         // result does not depend on which thread ran which job.
@@ -1535,6 +1569,9 @@ void sim_tick(World *w, SimStats *stats) {
                 }
                 Chunk *chunk = world_chunk(w, ccx, ccy);
                 dirty_rect_merge(&chunk->next, &c->wake[k]);
+                if (k == 4) {
+                    chunk->cost = (uint16_t)PR_MIN(c->stats.cells_visited, 65535u);
+                }
                 chunk->render_dirty |= c->render[k];
                 chunk->head_dirty_next |= c->liquid[k];
                 if (c->arr_lo[k] <= c->arr_hi[k]) { // cells moved in, with their temperatures
