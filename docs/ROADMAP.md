@@ -298,6 +298,11 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [x] Wood that burns (D-044): ignites at 250 °C, needs at least 16% oxygen, burns taking O₂ and
       giving CO₂ and water vapour (stoichiometric), spreads through wood, burns away; wooden
       stacks and shelves in the maze; the wood brush (`V`)
+- [x] Rigid objects (D-045): logs and boxes made of many pixels, with physics (gravity, tipping,
+      rolling, friction, sleeping) that are cut into pieces by bullets, the eraser or fire, each
+      piece going on with its own velocity; scattered over the maze; `I` puts a log at the cursor
+- [ ] Rigid objects of other materials (ice, rock), pushed by creatures, floating in liquid,
+      with splinters from cuts
 - [ ] Enemies that shoot at the player (creatures with a weapon and some behaviour), at the
       same half size
 - [ ] Smoke grenades (smoke as one more gas species, or as fine particles carried by the air)

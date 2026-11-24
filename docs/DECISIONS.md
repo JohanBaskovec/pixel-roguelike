@@ -705,3 +705,27 @@ to watch).
   (D-027). Wood is a solid to bullets (they stop). Burning wood cells keep their chunk in the
   heat pass until they are out. No ash or charcoal, no flames drawn apart from the glow of hot
   cells, and wood does not fall when what holds it burns away (it is static).
+
+## D-045 — Rigid objects: pixel bodies projected into the grid
+
+- **Status:** Accepted (2026-11-24), asked for by the user (a simple log first).
+- **Context:** Solids in the grid never move; a log that falls, tips and can be cut in two (as ice
+  in Noita) needs bodies. The non-negotiable "every pixel is a cell" rules out bodies that live
+  beside the grid (they would be invisible to heat, gas, fire and creatures).
+- **Decision:** A body owns its pixels (a wood cell and its temperature) in a bitmap, with a pose
+  and a velocity (`rigid.c`). Each tick the grid shows it: the world cells whose centres fall on
+  its pixels, the pose sampled backwards, hold wood cells; a cell it enters trades places with one
+  it leaves, so gas is conserved. Physics is a small impulse solver: sub-steps of a cell, no
+  overlap with anything solid, an impulse at the contact point (restitution, friction) whose
+  normal is the smallest shift that frees the body. Cutting is by *absence*: a pixel whose cell is
+  no longer wood is removed and the connected pieces become bodies, so bullets, the eraser and
+  fire need no special code beyond removing cells (a bullet erases a three-cell kerf and kicks
+  the body). Bodies are updated serially at the start of the tick, so results do not depend on
+  the number of threads (tested).
+- **Alternatives:** Box2D-style bodies outside the grid (a new dependency, and invisible to the
+  simulation); stamping bodies with no pixel state (heat and fire could not travel with them).
+- **Consequences:** Only wood bodies so far, liquid is a solid to them, and creatures cannot
+  push them. Rotation resamples the bitmap, so the cell count of a turning body varies by a few
+  percent while its pixels are exact. A body overlapping the terrain by a few cells draws fewer
+  pixels while it does. At most 128 bodies; the level has about 55 (all asleep, checked every 8
+  ticks).

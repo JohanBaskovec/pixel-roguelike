@@ -447,6 +447,39 @@ Deviations (a cell holds 2% of a cube's fuel, heat 10× too high for it) are ELE
 19. Tested: a lit log burns on and the changes of O₂, CO₂ and H₂O have the stoichiometric ratios;
 in pure nitrogen it does not burn; in 21% oxygen it burns and in 14% it does not.
 
+### Rigid objects (M6b; D-045)
+
+Code: `src/sim/rigid.c` (`Rigid`, `rigids_update()`, `rigid_spawn_box()`, `rigid_hit()`), called
+at the start of every tick after the creatures. A body is a bitmap of pixels (each a wood cell
+with its temperature and burn state) with a pose: the centre of mass, an angle, a velocity and a
+spin. *Every pixel is still a cell*: each tick the grid shows the body, and heat, gas, fire and
+creatures see ordinary wood cells.
+- **Showing it.** The world cells whose centres fall on a pixel of the rotated bitmap (the pose
+  sampled backwards, so no holes appear) hold its pixels. Cells it enters trade places with cells
+  it leaves (what was in them, gas, goes there); gas that has no gap to go to is spread over the
+  gas next to the body. Nothing is lost (tested: the gas of a room before and after a log falls).
+  Before moving, the body reads its pixels back from its cells (so it carries its heat and
+  burning with it).
+- **Motion.** Gravity, then sub-steps of at most about a cell. A candidate pose that would overlap
+  anything solid (terrain, creatures, other bodies, liquid) is not taken: the body goes as far as
+  it can, and an impulse at the contact point answers: the normal is the direction of the smallest
+  shift that frees it (a flat log on a corner gets the surface's normal, not the corner's),
+  restitution 0.25 for impacts over 0.3 cells/tick, friction 0.6, so a log tips off a ledge, leans
+  on a wall, and rolls. A touch of a few cells (2 plus a 32nd of its pixels) is let through, and
+  those pixels are not drawn while they overlap (a body resting on the knife-edge of a cell would
+  never advance otherwise). Nearly still and touching, it is slowed by friction, then sleeps
+  after 30 ticks; a sleeping body checks every 8 ticks that it is still held up and whole.
+- **Cutting.** A pixel whose cell is no longer wood (a bullet, the eraser, fire burning it away)
+  is removed. The rest is split into connected pieces (4-neighbour); the biggest keeps the slot,
+  the others become bodies of their own with the velocity of their own part (`v + ω × r`), so a
+  cut half swings down around its pillar. Pieces under 2 pixels, or that cannot be drawn,
+  vanish; with all 128 slots used, pieces are lost. A bullet through wood loses 30 cells/tick of
+  speed a cell (about 60 cm of pine), erases a kerf three cells wide across its path, and kicks
+  the body with its momentum (3.6 kg m/s) at the hit.
+- **Limits.** Bodies are made of wood only, up to 64 × 64 pixels and 1024 pixels; liquid is a
+  solid to them (a log lies on a pool instead of floating); creatures cannot push them; frozen
+  outside the simulated area (D-040). Bodies' own air currents and splinters are not modelled.
+
 ### Free particles (M4b; D-026)
 
 Code: `src/sim/particle.c`. Fast-moving matter leaves the grid while it flies, as in Noita, and

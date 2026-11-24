@@ -5,6 +5,7 @@
 #include "sim/enemy.h"
 #include "sim/particle.h"
 #include "sim/pickup.h"
+#include "sim/rigid.h"
 #include "sim/scene.h"
 
 #include <SDL3/SDL.h>
@@ -295,6 +296,11 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 if (id >= 0) {
                     app->world->creatures[id].wander = 1;
                 }
+            } else if (k == SDLK_I && mouse_over_world(app)) {
+                // A log (a rigid body, 2 m by 25 cm) centred on the cursor (D-045).
+                int wx, wy;
+                screen_to_world(app, app->mouse_x, app->mouse_y, &wx, &wy);
+                rigid_spawn_box(app->world, (float)wx + 0.5f, (float)wy + 0.5f, 40, 5, 0.0f);
             } else if (k == SDLK_ESCAPE) {
                 app->running = false;
             }
@@ -586,7 +592,7 @@ static void draw_panel(App *app) {
         "Ctrl+wheel  zoom",
         "Home  whole world",
         "P  pressure  T  temperature",
-        "K  creature at the cursor",
+        "K creature  I log at cursor",
         "Space  pause  . step",
         "R reload  F5 new  Esc quit",
     };

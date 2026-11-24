@@ -18,6 +18,7 @@
 #include "sim/particle.h"
 #include "sim/pickup.h"
 #include "sim/pressure.h"
+#include "sim/rigid.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -1661,6 +1662,7 @@ void sim_tick(World *w, SimStats *stats) {
     // Creatures first (serial, in list order); what they move is woken for this tick.
     creatures_update(w);
     pickups_update(w);
+    rigids_update(w);
 
     int n = w->chunks_x * w->chunks_y;
     for (int i = 0; i < n; i++) {

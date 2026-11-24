@@ -140,6 +140,11 @@ any cell's element indexes them without a bounds check. Unknown IDs, and the pse
 carries and its stored temperature (24 bytes; 3 MB). A flying particle is not on the grid: the
 cell it left is empty. See `SIMULATION.md` → Free particles.
 
+**Rigid objects (M6b).** `World.rigids` holds up to `RIGID_MAX` (128) `Rigid` bodies (`rigid.h`):
+a bitmap of pixels, a pose and a velocity. `rigids_update()` runs serially at the start of the
+tick (after creatures) and writes each body into the grid as wood cells; see `SIMULATION.md` →
+Rigid objects.
+
 **Creatures (M4c).** `World.creatures` holds up to `CREATURE_MAX` (128) `Creature`s: position,
 velocity, walking and breathing state, health, hit points and kind (person, player, walker,
 flyer). Their bodies are `ELEM_BODY` cells on the grid. `enemy.c` holds the monsters' behaviour,

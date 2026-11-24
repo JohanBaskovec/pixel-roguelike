@@ -6,6 +6,7 @@
 #include "sim/enemy.h"
 #include "sim/particle.h"
 #include "sim/pickup.h"
+#include "sim/rigid.h"
 
 #include <math.h>
 
@@ -230,30 +231,28 @@ void scene_level(World *w) {
             }
         }
     }
-    // Wood to burn, where nothing else is: stacks of planks on the floor, and shelves in the air.
+    // Wood to burn and to cut, where nothing else is: logs and boxes (rigid bodies) lying on the
+    // floors.
     for (int cy = 0; cy < m.rows; cy++) {
         for (int cx = 0; cx < m.cols; cx++) {
             int x0 = m.x0 + cx * m.px, y0 = m.y0 + cy * m.py, floor_y = y0 + MAZE_ROOM_H - 1;
             uint32_t r = rng_range(&rng, 100);
-            bool planks = r < 25, shelf = !planks && r < 40;
-            if (!planks && !shelf) {
+            bool log_ = r < 15, box = !log_ && r < 25;
+            if (!log_ && !box) {
                 continue;
             }
-            int ww = planks ? 10 : 70, wh = planks ? 8 : 3;
-            int x = x0 + 8 + (int)rng_range(&rng, (uint32_t)(MAZE_ROOM_W - 16 - ww));
-            int y = planks ? floor_y - wh + 1 : floor_y - 24;
+            int len = log_ ? 24 + (int)rng_range(&rng, 25) : 10;
+            int thick = log_ ? 4 + (int)rng_range(&rng, 3) : 10;
+            int x = x0 + 8 + (int)rng_range(&rng, (uint32_t)(MAZE_ROOM_W - 16 - len));
             bool free_ = true;
-            for (int yy = y; yy < y + wh && free_; yy++) {
-                for (int xx = x; xx < x + ww && free_; xx++) {
-                    free_ = g_elem_behavior[world_elem(w, xx, yy)] == BEHAVIOR_GAS;
-                }
-            }
             for (int k = 0; k < w->pickup_count && free_; k++) {
                 const Pickup *p = &w->pickups[k];
-                free_ = x + ww <= p->x || x >= p->x + p->w || y + wh <= p->y || y >= p->y + p->h;
+                free_ = x + len <= p->x || x >= p->x + p->w || floor_y + 1 - thick >= p->y + p->h ||
+                        floor_y + 1 <= p->y;
             }
             if (free_) {
-                fill_rect(w, x, y, x + ww - 1, y + wh - 1, ELEM_WOOD, &rng);
+                rigid_spawn_box(w, (float)x + (float)len * 0.5f,
+                                (float)(floor_y + 1) - (float)thick * 0.5f, len, thick, 0.0f);
             }
         }
     }

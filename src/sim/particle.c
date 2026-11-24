@@ -3,6 +3,7 @@
 #include "core/rng.h"
 #include "sim/edit.h"
 #include "sim/enemy.h"
+#include "sim/rigid.h"
 #include "sim/weapon.h"
 
 #include <math.h>
@@ -151,6 +152,12 @@ bool particle_step(World *w, Particle *p, float fraction) {
 // Current a bullet leaves in the gas it passes through (a speed, as in GAS_WIND_MAX units).
 #define BULLET_WIND 8
 
+// A bullet through wood loses this much speed a cell, and cuts a kerf (the cell and the one on
+// either side across its path) out of it; the blow, BULLET_MOMENTUM (a 4 g bullet at 900 m/s,
+// kg m/s), kicks the rigid body it hits.
+#define BULLET_WOOD_RESISTANCE 30.0f
+#define BULLET_MOMENTUM        3.6f
+
 // Speed a bullet loses passing through one cell of `e` (cells per tick; it flies at 300).
 // Negative: it cannot get through (it stops in front of it). Rock: it chips the cell and stops.
 static float bullet_resistance(ElementId e) {
@@ -159,6 +166,9 @@ static float bullet_resistance(ElementId e) {
             return 50.0f; // about 30 cm of packed earth stops it
         case ELEM_ROCK:
             return 1e9f;
+        case ELEM_WOOD:
+        case ELEM_BURNING_WOOD:
+            return BULLET_WOOD_RESISTANCE; // pine: a bullet goes through about 60 cm
         default:
             break;
     }
@@ -200,6 +210,26 @@ static void bullet_eject(World *w, int x, int y, float ux, float uy, uint64_t *h
     w->temp[i] = 0.0f;
     gas_mix_clear(&w->gas[i]);
     world_wake_heat(w, x - 1, y - 1, x + 1, y + 1);
+}
+
+// Erases the wood cell at (x, y) and the wood cells beside it across the bullet's path (the kerf):
+// they become void, which the gas flows into. A rigid body that held them is cut.
+static void bullet_cut_wood(World *w, int x, int y, float ux, float uy) {
+    bool vertical = fabsf(uy) > fabsf(ux); // the kerf is across the path
+    for (int k = -1; k <= 1; k++) {
+        int cx = vertical ? x + k : x, cy = vertical ? y : y + k;
+        ElementId e = world_elem(w, cx, cy);
+        if (e != ELEM_WOOD && e != ELEM_BURNING_WOOD) {
+            continue;
+        }
+        size_t i = world_index(w, cx, cy);
+        w->cells[i] = (Cell){ELEM_VOID, (uint8_t)(w->tick - 1), w->cells[i].shade, 0};
+        w->temp[i] = 0.0f;
+        gas_mix_clear(&w->gas[i]);
+        world_note_moved(w, cx, cy);
+    }
+    world_wake_rect(w, x - 2, y - 2, x + 2, y + 2);
+    world_wake_heat(w, x - 2, y - 2, x + 2, y + 2);
 }
 
 // One tick of a fast bullet: it flies along its velocity (half-cell sub-steps), through void,
@@ -252,6 +282,10 @@ static void bullet_step(World *w, Particle *p) {
                         bullet_eject(w, tx, ty, ux, uy, &h); // the splash where it goes in
                     }
                     in_liquid = true;
+                } else if (e == ELEM_WOOD || e == ELEM_BURNING_WOOD) {
+                    rigid_hit(w, tx, ty, ux, uy, BULLET_MOMENTUM);
+                    bullet_cut_wood(w, tx, ty, ux, uy);
+                    in_liquid = false;
                 } else {
                     bullet_eject(w, tx, ty, ux, uy, &h);
                     sim_loosen_small_clumps(w, tx - 1, ty - 1, tx + 1, ty + 1);
