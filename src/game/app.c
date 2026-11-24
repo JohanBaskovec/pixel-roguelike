@@ -734,8 +734,8 @@ static void draw_rifle_and_tracers(App *app) {
     }
 }
 
-// Boxes for what has no sprite yet: monsters (over their body cells), crates, and the HP and
-// ammunition of the player.
+// Crates, the sprites of the player and the monsters (over their body cells), and below the HP
+// and ammunition of the player.
 static void fill_world_rect(App *app, float x, float y, float w, float h, uint32_t rgb) {
     float x0, y0, x1, y1;
     world_to_screen(app, x, y, &x0, &y0);
@@ -744,6 +744,110 @@ static void fill_world_rect(App *app, float x, float y, float w, float h, uint32
                            255);
     SDL_FRect r = {x0, y0, PR_MAX(x1 - x0, 1.0f), PR_MAX(y1 - y0, 1.0f)};
     SDL_RenderFillRect(app->renderer, &r);
+}
+
+// ---- Sprites (very simple, animated; drawn over the body cells: a colour for each cell) ----
+//
+// A sprite is a few rows of characters, one per cell of the body, facing right (mirrored when
+// it faces left); each character is a colour of sprite_color(). They are only drawing: what the
+// simulation sees is the body's cells. A monster is drawn only where it still has a pixel.
+
+static uint32_t sprite_color(char ch) {
+    switch (ch) {
+        case 'h': return 0x4A3320; // hair
+        case 's': return 0xE0AC80; // skin
+        case 'e': return 0xFFFFFF; // eye
+        case 'p': return 0xD02020; // pupil
+        case 'j': return 0x3C6EA8; // jacket
+        case 'J': return 0x2C527E;
+        case 'b': return 0x6A5A32; // belt
+        case 't': return 0x555B6A; // trousers
+        case 'k': return 0x26262C; // boots
+        case 'g': return 0x4FA04A; // walker
+        case 'G': return 0x2F6B2C;
+        case 'v': return 0x9A4AB0; // flyer
+        case 'V': return 0x6A2A80;
+        case 'w': return 0xD9B0E8; // wing
+        default: return 0x1E2433;  // 'd' and '.': shadow, nothing there (like the air behind)
+    }
+}
+
+// The player, 5 x 17 (head and torso, then four poses of the legs).
+static const char *const k_player_top[11] = {
+    "hhhhh", "hhsss", "hsses", "hssss", "jsssj", "jjjjj",
+    "JjjjJ", "JjjjJ", "JjjjJ", "bbbbb", "ttttt",
+};
+static const char *const k_player_legs[4][6] = {
+    {"ttdtt", "ttdtt", "ttdtt", "ttdtt", "ttdtt", "kkdkk"}, // standing, apart
+    {"ttdtt", "ttdtt", "ttdtt", "kkdtt", "dddtt", "dddkk"}, // left leg lifted
+    {"ttdtt", "ttdtt", "ttdtt", "ttdkk", "ttddd", "kkddd"}, // right leg lifted
+    {"ttdtt", "ttdtt", "kkdkk", "ddddd", "ddddd", "ddddd"}, // in the air, knees up
+};
+
+// The walker, 6 x 6: two poses of the legs.
+static const char *const k_walker[2][6] = {
+    {"gggggg", "gggepg", "gggggg", "GGGGGG", "ggddgg", "ggddgg"},
+    {"gggggg", "gggepg", "gggggg", "GGGGGG", "dggggd", "dggggd"},
+};
+
+// The flyer, 11 x 11: its wings up, level and down.
+static const char *const k_flyer[3][11] = {
+    {"w.........w", "ww.......ww", "www.VVV.www", ".wwvvvvvww.", "..wvvvvvw..", "...vvvepv..",
+     "...vvvvv...", "...VvvvV...", "....VvV....", ".....V.....", "..........."},
+    {"....VVV....", "...vvvvv...", "...vvvvv...", "...vvvvv...", "wwwvvvvvwww", "wwwvvvepvww",
+     ".wwvvvvvww.", "...VvvvV...", "....VvV....", ".....V.....", "..........."},
+    {"....VVV....", "...vvvvv...", "...vvvvv...", "...vvvvv...", "...vvvvv...", "...vvvepv..",
+     "..wvvvvvw..", ".wwVvvvVww.", "ww..VvV..ww", "w....V....w", "w.........w"},
+};
+
+// Draws a sprite over the w x h cells with top-left cell (x0, y0): mirrored if `mirror`, in white
+// where `flash`, dimmed if `dead`; only on cells that hold a body cell if `only_body`.
+static void draw_sprite(App *app, const char *const *rows, int w, int h, int x0, int y0,
+                        bool mirror, bool flash, bool dead, bool only_body) {
+    for (int r = 0; r < h; r++) {
+        for (int k = 0; k < w; k++) {
+            if (only_body && world_elem(app->world, x0 + k, y0 + r) != ELEM_BODY) {
+                continue;
+            }
+            char ch = rows[r][mirror ? w - 1 - k : k];
+            uint32_t rgb = sprite_color(ch);
+            if (flash && ch != '.' && ch != 'd') {
+                rgb = 0xFFFFFF;
+            }
+            if (dead) {
+                rgb = (rgb >> 1) & 0x7F7F7F;
+            }
+            fill_world_rect(app, (float)(x0 + k), (float)(y0 + r), 1.0f, 1.0f, rgb);
+        }
+    }
+}
+
+// The player: head, torso and legs (walking by the distance run, so the feet do not slide), and
+// the jetpack's flame under the feet.
+static void draw_player_sprite(App *app) {
+    const Creature *c = player(app);
+    if (!c) {
+        return;
+    }
+    const char *rows[17];
+    bool moving = c->walk != 0 && c->grounded;
+    static const int8_t k_cycle[4] = {0, 1, 0, 2};
+    int legs = !c->grounded ? 3 : (moving ? k_cycle[(c->x / 4) & 3] : 0);
+    for (int r = 0; r < 11; r++) {
+        rows[r] = k_player_top[r];
+    }
+    for (int r = 0; r < 6; r++) {
+        rows[11 + r] = k_player_legs[legs][r];
+    }
+    draw_sprite(app, rows, c->w, c->h, c->x, c->y, c->facing < 0, c->hit_flash > 0,
+                c->state == CREATURE_DEAD, false);
+    if (c->state != CREATURE_DEAD && !c->grounded && c->jet_hold >= JETPACK_DELAY) {
+        // Flame: a cell wide at the middle of the feet, two to four cells long, flickering.
+        int len = 2 + (int)((app->world->tick >> 1) & 1u) + (int)((app->world->tick >> 2) & 1u);
+        float cx = (float)c->x + (float)c->w * 0.5f - 1.0f, top = (float)(c->y + c->h);
+        fill_world_rect(app, cx, top, 2.0f, 1.0f, 0xFFE070);
+        fill_world_rect(app, cx, top + 1.0f, 2.0f, (float)(len - 1), 0xFF8030);
+    }
 }
 
 static void draw_actors(App *app) {
@@ -771,22 +875,20 @@ static void draw_actors(App *app) {
         if ((c->kind != KIND_WALKER && c->kind != KIND_FLYER) || c->corpse) {
             continue; // (a corpse is a rigid body, drawn as its cells)
         }
-        uint32_t rgb = c->kind == KIND_WALKER ? 0x4FA04A : 0x9A4AB0;
-        if (c->hit_flash > 0) {
-            rgb = 0xFFFFFF;
-        }
-        for (int r = 0; r < c->h; r++) { // the pixels it still has
-            for (int k = 0; k < c->w; k++) {
-                if (world_elem(w, c->x + k, c->y + r) == ELEM_BODY) {
-                    fill_world_rect(app, (float)(c->x + k), (float)(c->y + r), 1.0f, 1.0f, rgb);
-                }
-            }
-        }
-        if (c->state != CREATURE_DEAD) { // an eye, on the side it faces
-            float ex = c->facing > 0 ? (float)(c->x + c->w) - 2.5f : (float)c->x + 1.0f;
-            fill_world_rect(app, ex, (float)c->y + (float)c->h * 0.25f, 1.5f, 1.5f, 0xFF3030);
+        bool moving = c->walk != 0 && c->grounded;
+        bool flash = c->hit_flash > 0;
+        if (c->kind == KIND_WALKER) {
+            int pose = moving ? (c->x / 3) & 1 : 0;
+            draw_sprite(app, k_walker[pose], c->w, c->h, c->x, c->y, c->facing < 0, flash, false,
+                        true);
+        } else {
+            static const int8_t k_flap[4] = {0, 1, 2, 1};
+            int wing = k_flap[(app->world->tick / 6) & 3];
+            draw_sprite(app, k_flyer[wing], c->w, c->h, c->x, c->y, c->facing < 0, flash, false,
+                        true);
         }
     }
+    draw_player_sprite(app);
 }
 
 static void draw_hud(App *app) {

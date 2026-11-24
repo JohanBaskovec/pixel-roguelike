@@ -298,6 +298,9 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [x] Wood that burns (D-044): ignites at 250 °C, needs at least 16% oxygen, burns taking O₂ and
       giving CO₂ and water vapour (stoichiometric), spreads through wood, burns away; wooden
       stacks and shelves in the maze; the wood brush (`V`)
+- [x] Very simple animated sprites: the player (walking by distance run, in the air, a jetpack
+      flame), the walker (legs) and the flyer (wings), over their body cells (monsters only where
+      they still have pixels)
 - [x] Rigid objects (D-045): logs and boxes made of many pixels, with physics (gravity, tipping,
       rolling, friction, sleeping) that are cut into pieces by bullets, the eraser or fire, each
       piece going on with its own velocity; scattered over the maze; `I` puts a log at the cursor

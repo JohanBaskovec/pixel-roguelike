@@ -149,7 +149,8 @@ Rigid objects.
 velocity, walking and breathing state, health, hit points and kind (person, player, walker,
 flyer). Their bodies are `ELEM_BODY` cells on the grid. `enemy.c` holds the monsters' behaviour,
 damage and blood; `pickup.c` the crates (`World.pickups`: boxes, not cells). `game/app.c` draws
-monsters and crates as boxes over the world, and the HP bar and ammunition counts. See
+crates as boxes and the player and the monsters as small animated sprites over the world (a
+colour for each cell of their bodies; rendering only), and the HP bar and ammunition counts. See
 `SIMULATION.md` → Creatures and → Monsters, damage, blood and crates.
 
 ## Simulation tick
