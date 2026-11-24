@@ -89,6 +89,13 @@ Planned experiments, decided by data only:
   sanitizer build compiles at `-O1`, and tests use the smallest world and fewest ticks that show
   their behaviour. Release: 75 s → 12 s; ASan + UBSan: about 14 min → 1 min (4 cores, M6a).
   With 86 tests (after gas mixtures): about 20 s and 2 min.
+- **Noise.** On this VM, wall-clock times of the same build vary by about ±10% from run to run,
+  and the play-test scenes are chaotic: the same build with another world seed varies by up to 15%
+  (firing in the room, callgrind: 40.9 / 47.3 / 41.8 / 41.3 G instructions for seeds 5 to 8). For
+  a change worth less than that, compare instruction counts under callgrind over 4 seeds, paired
+  by seed, then confirm with single-thread wall-clock runs, old and new alternately (3 each). Both
+  are needed: an equalisation change cut instructions by 11–15% on every seed and gained no time
+  (Tried and dropped).
 - **External profilers:** `perf` / Hotspot (Linux), Instruments (macOS), and Superluminal or VS
   Profiler (Windows). Use a `RelWithDebInfo` build. Tracy may be added later; it needs a
   `DECISIONS.md` entry because it is a dependency.
@@ -140,7 +147,26 @@ Two cases in a 1024 × 1024 room of air, averaged over 10 s (600 ticks):
 - A cell within tolerance of its neighbours costs about 40 ns per visit; an active one 100 ns and
   more. A lean falling-sand rule costs 5–10 ns.
 
-### 1. Compute gas as a field (largest gain)
+### 1. Compute gas as a field (on hold after measuring it in the game, 2026-11-24)
+
+**Measured in the game.** One step of the exchange below (pressure flow, diffusion and
+conduction between neighbours, scale 1 only), timed over the cells it would have to compute: the
+awake tiles and a ring of one tile around them (the cells beyond the ring count as walls, as in
+the heat pass), on the game's data (one 20-byte mixture per cell), one thread, not applied:
+
+| | Cells per tick | Shadow field step | Whole tick today |
+|---|---|---|---|
+| Firing into the air, 10 s | 204 000 | 11.2 ms (55 ns per cell) | 16.9 ms, of which gas and heat about 12.7 |
+| CO2 ball, 10 s | 172 000 | 9.7 ms (56 ns per cell) | about 17 ms |
+
+So, on today's data layout, the neighbour exchange alone costs about as much as everything gas
+and heat do today, before buoyancy, currents, condensation, long-range pressure and the sleep
+bookkeeping are added. One array per species and vectorised loops (the prototype's 28 ns per cell)
+would halve it, but that changes every user of the gas data. The estimate from all this: between
+1.4× faster and somewhat slower than today for the busy cases, for a rewrite of the gas rules and
+tests and 20 more bytes per cell for double buffering. On hold. The prototype's numbers below
+compared a fully active room with today's sparse one, which made the field pass look like the
+largest gain; the table above is the like-for-like comparison.
 
 **Today** the storage is a field (each gas cell holds a mass of each species and a temperature),
 but most movement is not: buoyancy, currents and spreading trade whole cells' contents
@@ -190,9 +216,12 @@ per tick: a 2:1 pressure step across a 6 m room would take minutes to even out (
   the cells of a block, as a multigrid solver does; or
 - step 3, a velocity field, which carries pressure at a chosen speed of sound.
 
-Likewise buoyancy as an exchange across horizontal faces makes heavy gas sink while smearing,
-about as today; gas that moves as a body (plumes, a sinking blob that keeps its shape) needs
-step 3.
+Buoyancy is the other gap. As an exchange across horizontal faces (a fraction of each cell moving
+up, the same of the other moving down) it is a diffusion where the stack is unstable: a heavy
+front advances as the square root of time, and a CO2 ball 300 cells above the floor would take
+minutes to land. Today's rules move whole cells (swaps, `gas_lift`), which is advection: a cell
+sinks at a speed. A field model needs a velocity (step 3) for buoyancy to move gas as a body, or
+keeps today's swaps for it.
 
 ### 2. Track activity per tile, not per chunk rectangle (done, 2026-11-24)
 
@@ -244,8 +273,9 @@ difference).
 ### 4. Simulate less
 
 - **Gas at 30 Hz** (every other tick, with a doubled time step, alternating tiles), while liquids,
-  powders, particles and creatures stay at 60 Hz. Gas is slow and smooth; the field pass stays
-  stable with coefficients set for the longer step.
+  powders, particles and creatures stay at 60 Hz. Gas is slow and smooth. With today's rules: the
+  rates per update doubled (diffusion, buoyant and current moves); a cell still moves at most one
+  cell per update, so the fastest rise and currents halve (1.5 m/s).
 - **Only near the player** (ROADMAP M6b): the visible part of the level plus a margin, so world
   size stops mattering.
 
@@ -266,16 +296,41 @@ blast), which adds credibility rather than speed.
 
 ### Tried and dropped
 
+- **Equalising pressure toward the difference instead of in a random direction** (2026-11-24).
+  When a cell's pressure differs only from the cell 16 away (a gentle gradient, a third of the
+  flagged cells when firing), equalise with that cell rather than at a random direction and
+  reach, which misses it most of the time and leaves the cell awake for nothing. Callgrind, 4
+  seeds: 11% fewer instructions firing, 15% fewer for the CO2 ball, on every seed; wall clock, 1
+  thread, 3 runs each, alternately: 17.7 against 17.2 ms (no gain; the partner 16 rows away is
+  probably a cache miss). Aiming at the most different neighbour as well cost 5% more
+  instructions. Also tried: a finer far tolerance (0.17%) to keep the two-room residual within
+  its test (aiming alone left 3.7% against 3.0%). Dropped: no time gained.
+- **Not waking whole chunks for convection** from the heat pass (an experiment, to see whether
+  those wakes made the awake region broad): no change in cells visited. They are not the cause.
 - Letting cells that hold water vapour take the "exactly like its neighbours" exit too: no change
   in the firing case (28.4 / 29.0 ms against 30.1 / 28.8 ms at 10 s, 1 thread).
 
 ### Order
 
+Revised 2026-11-24, after step 2 and the in-game measurement of step 1. What is known: a busy
+scene keeps 120 000–200 000 gas cells awake, and today's rules cost about 100–140 ns per visited
+cell on this VM (whole tick, one thread); the cases measured here run at 6–11 ms per tick on 4
+threads. What is not known: the same on a desktop, which this VM's notes put at 2–3× faster.
+
 1. Step 2 (tiles): done, about 5% (above).
-2. Step 1 (field pass) with coarse pressure relaxation, behind the existing tests, measured on
-   the firing and CO2 cases against today's numbers before `update_gas()` is removed.
-3. Step 3 (velocity), after a stand-alone prototype of thin walls.
-4. Steps 4 and 5 as measurements ask for them.
+2. Measure on the player's machine (the HUD's Sim time while firing for 10 s, and the CPU), to
+   know how much is missing.
+3. Gas at 30 Hz by tile parity (step 4): half the tiles' gas cells each tick, rates doubled.
+   Estimate: about 1.3× for the whole tick (gas rules are about 55% of it), at some cost in
+   fidelity (buoyant rise and currents at most one cell per update).
+4. Fewer wakes: a cell that exchanges gas wakes the 3 × 3 cells around both ends, and 60 000
+   visits per tick when firing end within tolerance. Waking only the neighbours that now differ
+   from the changed cell. Estimate: about 10%.
+5. Thread scaling for desktops with 8 or more cores (4 threads give 2.6×): finer jobs, the serial
+   parts in parallel (step 6).
+6. Steps 1 and 3 (field pass and velocity) only together, only with one array per species, and
+   only if the above is not enough: they are a rewrite of the gas model for a gain measured above
+   at between 1.4× and none.
 
 ## Benchmark log
 

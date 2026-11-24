@@ -307,12 +307,14 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
         passes (heat stays per chunk). Measured: 8–18% fewer cells visited, about 5% faster
         firing in a room, no change elsewhere; the awake region while firing is broad stirred
         air, not thin trails (PERFORMANCE → Benchmark log)
-  - [ ] Gas as a field: every gas cell exchanges gas and heat with its four neighbours each tick,
-        from the previous tick's values, with no randomness and no checkerboard; one array per
-        species; pressure also relaxed between coarse blocks. Measured in a prototype
-        (`bench/proto_gas_field.c`): a fully active 1024 × 1024 room in 8.5 ms on 4 threads.
-        To be measured in the game on the firing and CO2 cases before the old rules go, and on
-        gas expanding into a big vacuum (2.5× slower since D-035)
+  - [ ] Measure on the player's machine (HUD Sim time while firing for 10 s, and the CPU)
+  - [ ] Gas at 30 Hz by tile parity (estimate about 1.3×); fewer wakes after an exchange
+        (estimate about 10%); thread scaling for 8+ cores
+  - [ ] *On hold:* gas as a field: every gas cell exchanges gas and heat with its four
+        neighbours each tick, from the previous tick's values. Measured in the game: one such step
+        over the awake tiles costs about as much as today's gas and heat rules (55 ns per cell,
+        204 000 cells when firing), before buoyancy and long-range pressure; only with one array
+        per species and together with a velocity (next item)
   - [ ] Air velocity per small block: wind, plumes, a rush of air when a sealed room opens,
         pressure evening out in under a second (sound slowed to 10–20 m/s). Thin walls must stay
         airtight: prototype that first

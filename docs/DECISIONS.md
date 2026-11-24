@@ -522,8 +522,11 @@ to watch).
 
 - **Status:** Proposed (2026-11-23); part (1) implemented 2026-11-24 for the movement and gas
   density passes, with a smaller gain than estimated (about 5%, see PERFORMANCE → Benchmark log).
-  The rest is not implemented; the plan and its measurements are in `docs/PERFORMANCE.md` →
-  Proposed next steps.
+  Part (2) on hold (2026-11-24): measured in the game, one field step over the awake tiles of the
+  busy cases costs about as much as today's gas and heat rules together on today's data layout
+  (55 ns per cell, 204 000 cells when firing), before buoyancy and long-range pressure; and
+  exchange-based buoyancy is diffusive, so it needs part (3). The revised order is in
+  `docs/PERFORMANCE.md` → Proposed next steps → Order.
 - **Context:** After D-035 a gas cell stores a mixture, but gas still moves mostly as cells trading
   places at random, one direction per tick: 40 ns per visit for a cell that has nothing to do,
   100 ns and more for an active one, and three visits in four find nothing to do when firing (a
