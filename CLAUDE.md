@@ -153,8 +153,9 @@ src/game/     app: input, player control, toolbar, brush strokes, camera, HUD, f
               frame
 src/main.c    argument parsing, SDL init, main loop
 tests/        behaviour tests (CTest) on tiny worlds; test_util.c builds worlds from ASCII
-bench/        pr-bench, headless benchmark; proto_gas_field.c, a stand-alone prototype (not built
-              by CMake) behind the numbers of the proposed gas field pass
+bench/        pr-bench, headless benchmark; proto_gas_field.c and proto_air_velocity.c, stand-alone
+              prototypes (not built by CMake) behind the numbers of the proposed gas field pass and
+              air velocity
 docs/         design and engineering docs
 ```
 

@@ -270,6 +270,20 @@ difference).
   need connectivity per tile (the pieces of open cells in a tile, as water pressure already keeps
   per chunk in `pressure.c`), recomputed only where solids change. This is the hardest part and
   should be prototyped alone first.
+- **Prototyped (2026-11-24, `bench/proto_air_velocity.c`), per cell rather than per block:** a
+  velocity on every face between two cells (8 bytes per cell), held at 0 next to walls, which
+  makes thin walls airtight by construction (no connectivity needed). Each substep, pressure
+  differences accelerate the face velocities (sound slowed to `SOUND` cells per tick, lightly
+  damped), then gas crosses every face from its upwind cell with its mixture and heat, at most
+  `FLOW_MAX` (0.1) of a cell per face. Measured, one thread, the game's 20-byte mixture per cell:
+  stable for sound / substeps ≤ 0.5; sealed one-cell walls, straight or diagonal, let nothing
+  through in 2000 ticks; a floor patch held at 1000 K for 20 s leaves the room's pressure even
+  (1.0025 atm over the heat and far away: the lava case's 135 kPa against 101 does not happen);
+  two rooms at 2 and 1 atm through a 12-cell gap even out to 1% in 8.4 s at sound 2 cells per
+  tick with 4 substeps (today: still 3% apart after 50 s); 16–17 ns per cell per substep, so
+  67 ns per cell per tick at 4 substeps, over the cells it has to compute. Found on the way: a
+  per-face limit of 0.2 let a cell lose 80% of its gas in a substep and a checkerboard locked in;
+  velocities must be held within what a face can carry (a gap chokes), or gas piles up.
 
 ### 4. Simulate less
 
