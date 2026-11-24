@@ -30,8 +30,8 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 **M1 – Sandbox box**, **M2 – Performance foundation**, **M2b – Water pressure**, **M3 –
 Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4c – Creatures** and
 **M5 – Matter variety and reactions** and **M6a – Action roguelike: the player and the rifle** are
-implemented. The game is an action roguelike: a level of dirt and rock under air in a 4096 × 2048
-world, a player (drawn at half size: 85 cm, D-038) who runs, jumps and fires an automatic rifle whose bullets are real
+implemented. The game is an action roguelike: a maze of air-filled rooms carved in dirt in a 4096 × 2048
+world, a player (drawn at half size: 85 cm, D-038) who runs, jumps, flies with an infinite jetpack (hold the jump key) and fires an automatic rifle whose bullets are real
 pixels (they fly, dig, stir the air and pile up with their casings, and melt; each shot blows
 hot muzzle gas), a toolbar to paint water,
 steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,

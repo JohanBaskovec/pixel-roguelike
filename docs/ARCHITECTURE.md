@@ -265,7 +265,7 @@ whatever the thread count. This requires:
 ## Player control (M6a)
 
 `game/app.c` drives the player creature between ticks, on the main thread, before each
-`sim_tick`: the walking direction and jump from the keyboard (scancodes, so the physical keys
+`sim_tick`: the walking direction, jump and jetpack (the same `W` key) from the keyboard (scancodes, so the physical keys
 are the same on any layout), the facing from the mouse, and `rifle_update()` with the trigger.
 Shots add particles; their flight runs in the tick's serial particle step. The camera follows the
 player at zoom ×2 unless the user pans. The rifle and bullet streaks are drawn over the world

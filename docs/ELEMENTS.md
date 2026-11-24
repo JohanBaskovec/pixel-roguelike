@@ -244,6 +244,9 @@ Keep this list complete.
     creature stands still, until the player comes back. Heat does not cross into the frozen part,
     and gas and liquids stop at its edge as at a wall that moves with the player; free particles
     (bullets, debris, splashes) keep flying and land there.
+17. Jetpack (M6b, D-041): the player has an infinite jetpack, a game invention. Held for 12 ticks
+    (0.2 s) in the air, `W` adds 2.2 g of upward acceleration (1.2 g net of gravity) up to 5 m/s
+    of rise (`JETPACK_ACCEL`, `JETPACK_MAX_RISE`). It exerts no force on the air yet.
 
 ## Adding an element (checklist)
 

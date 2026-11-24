@@ -7,6 +7,7 @@
 // depend on the number of threads. Their body cells are solid to every rule of the grid
 // (BEHAVIOR_STATIC): only the creature moves them.
 
+#include "sim/particle.h"
 #include "sim/world.h"
 
 #define CREATURE_MAX   64
@@ -29,6 +30,13 @@
 // A jump takes off at 3.1 m/s: about 50 cm high (v^2 / 2g), cells per tick.
 #define CREATURE_JUMP_SPEED (3.13f / CELL_SIZE_M * TICK_SECONDS)
 
+// The jetpack (M6b; infinite fuel for now): while the jump key stays held for JETPACK_DELAY ticks
+// (a tap is still a plain jump) and the body is in the air, it pushes up with JETPACK_ACCEL, a game
+// invention, until it rises at JETPACK_MAX_RISE. Net of gravity it lifts at 1.2 g.
+#define JETPACK_DELAY    12
+#define JETPACK_ACCEL    (2.2f * PARTICLE_GRAVITY)
+#define JETPACK_MAX_RISE (5.0f / CELL_SIZE_M * TICK_SECONDS)
+
 typedef enum CreatureState {
     CREATURE_OK = 0,
     CREATURE_IMPAIRED = 1, // little oxygen: slower
@@ -47,6 +55,8 @@ typedef struct Creature {
     uint8_t grounded;       // standing on something solid
     uint8_t state;          // CreatureState
     uint8_t jump;           // wants to jump (done when it stands on something; then cleared)
+    uint8_t thrust;         // the jump key is held (the jetpack fires after JETPACK_DELAY ticks)
+    uint8_t jet_hold;       // ticks `thrust` has been held without a break (saturates)
     uint8_t aimed;          // `facing` is set from outside (the player aims), not from `walk`
     uint8_t holding;        // holds a breath in (it could not breathe out: the mouth is in liquid)
     float speed;            // walking speed, cells per tick

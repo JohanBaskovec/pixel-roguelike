@@ -440,6 +440,11 @@ static void physics(World *w, Creature *c) {
         c->grounded = 0;
     }
     c->jump = 0;
+    c->jet_hold = alive && c->thrust ? (uint8_t)PR_MIN(c->jet_hold + 1, 255) : 0;
+    c->thrust = 0;
+    if (alive && c->jet_hold >= JETPACK_DELAY && !c->grounded && c->vy > -JETPACK_MAX_RISE) {
+        c->vy = PR_MAX(c->vy - JETPACK_ACCEL, -JETPACK_MAX_RISE);
+    }
     c->vy = PR_CLAMP(c->vy, -FALL_MAX, FALL_MAX);
     float speed = c->speed * (c->state == CREATURE_IMPAIRED ? 0.5f : 1.0f);
     if (alive && (c->grounded || f > 0.0f)) {

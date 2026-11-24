@@ -249,8 +249,10 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
 - [x] No pixel is destroyed: dug cells become loose soil or rubble (debris), and stay in the world
 - [x] Small clumps (20 cells or less, held by nothing) left by digging or shooting break loose
       and fall, so the player never gets stuck on a few floating pixels
-- [x] A default level: hilly dirt with rock strata and boulders, air above; the Air brush paints
-      evenly mixed air that is settled at once
+- [x] A default level (a maze since M6b, D-041; before: hilly dirt with rock strata and boulders,
+      air above); the Air brush paints evenly mixed air that is settled at once
+- [x] M6b: the level is a maze of rooms 488 wide (about a screen at zoom ×2) and 51 tall (3 player
+      heights), joined by doorways and shafts; an infinite jetpack (hold `W`, D-041)
 - [x] The element tools stay, beside the rifle
 - [x] Casings never block the player (after play-testing): bullets start at the muzzle, powders in
       flight pass through bodies, and walkers kick piles up to 40 cm high out of the way (20 cm for

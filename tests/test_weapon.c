@@ -20,6 +20,8 @@ void test_shooting_same_for_any_thread_count(void);
 void test_small_clumps_fall(void);
 void test_player_runs_and_jumps(void);
 void test_air_brush_spreads_oxygen(void);
+void test_jetpack_flies_while_held(void);
+void test_level_is_a_maze(void);
 void test_walk_forward_while_shooting(void);
 void test_walking_kicks_small_piles(void);
 void test_walker_crosses_heaps(void);
@@ -491,5 +493,86 @@ void test_bullets_and_casings_melt(void) {
     sim_run_ticks(w, 10);
     EXPECT_EQ(test_count(w, ELEM_LEAD), nb);
     EXPECT_EQ(test_count(w, ELEM_BRASS), nc);
+    world_destroy(w);
+}
+
+void test_jetpack_flies_while_held(void) {
+    World *w = test_world_box(256, 256, 120);
+    fill(w, 1, 1, 254, 254, EDIT_AIR);
+    int pl = scene_spawn_player(w, 40);
+    Creature *c = &w->creatures[pl];
+    sim_run_ticks(w, 30);
+    EXPECT(c->grounded);
+    int floor_y = c->y;
+    // A tap (shorter than JETPACK_DELAY) is a plain jump: about 10 cells.
+    int top = c->y;
+    for (int t = 0; t < 60; t++) {
+        c->jump = c->thrust = t < 5;
+        sim_tick(w, NULL);
+        top = PR_MIN(top, c->y);
+    }
+    EXPECT(abs((floor_y - top) - 10) <= 2);
+    sim_run_ticks(w, 30);
+    EXPECT_EQ(c->y, floor_y);
+    // Held, it flies: far higher than a jump, at no more than JETPACK_MAX_RISE.
+    float fastest = 0.0f;
+    for (int t = 0; t < 90; t++) {
+        c->jump = c->thrust = 1;
+        sim_tick(w, NULL);
+        fastest = PR_MAX(fastest, -c->vy);
+    }
+    EXPECT(floor_y - c->y > 60);
+    EXPECT(fastest <= JETPACK_MAX_RISE + 1e-4f);
+    EXPECT(fastest >= 0.9f * JETPACK_MAX_RISE);
+    // Released, it falls back to the floor.
+    sim_run_ticks(w, 150);
+    EXPECT(c->grounded);
+    EXPECT_EQ(c->y, floor_y);
+    world_destroy(w);
+}
+
+void test_level_is_a_maze(void) {
+    // Rooms MAZE_ROOM_W x MAZE_ROOM_H joined by openings of MAZE_WALL x MAZE_ROOM_H cells, as a
+    // perfect maze: every room is reachable, and the open space is exactly the rooms plus one
+    // opening per link (rooms - 1 of them).
+    World *w = world_create(2048, 512, 121);
+    scene_level(w);
+    int W = w->width, H = w->height;
+    int cols = (W - 2 * SCENE_WALL_THICKNESS + MAZE_WALL) / (MAZE_ROOM_W + MAZE_WALL);
+    int rows = (H - 2 * SCENE_WALL_THICKNESS + MAZE_WALL) / (MAZE_ROOM_H + MAZE_WALL);
+    int rooms = cols * rows;
+    int64_t open = 0;
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            open += g_elem_behavior[world_elem(w, x, y)] == BEHAVIOR_GAS;
+        }
+    }
+    EXPECT_EQ(open, (int64_t)rooms * MAZE_ROOM_W * MAZE_ROOM_H +
+                        (int64_t)(rooms - 1) * MAZE_WALL * MAZE_ROOM_H);
+    int sx, sy;
+    scene_level_start(w, &sx, &sy);
+    int *queue = malloc(sizeof(int) * (size_t)W * (size_t)H);
+    uint8_t *mark = calloc((size_t)W * (size_t)H, 1);
+    int head = 0, tail = 0;
+    queue[tail++] = sy * W + sx;
+    mark[sy * W + sx] = 1;
+    while (head < tail) {
+        int p = queue[head++], x = p % W, y = p / W;
+        const int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+        for (int k = 0; k < 4; k++) {
+            int nx = x + dx[k], ny = y + dy[k];
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H || mark[ny * W + nx] ||
+                g_elem_behavior[world_elem(w, nx, ny)] != BEHAVIOR_GAS) {
+                continue;
+            }
+            mark[ny * W + nx] = 1;
+            queue[tail++] = ny * W + nx;
+        }
+    }
+    EXPECT_EQ((int64_t)tail, open); // one connected space
+    // The player fits at the start.
+    EXPECT(scene_spawn_player_from(w, sx, sy) >= 0);
+    free(queue);
+    free(mark);
     world_destroy(w);
 }

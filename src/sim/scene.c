@@ -78,30 +78,41 @@ void scene_demo(World *w) {
     blob(w, W / 8, H / 6, 30, ELEM_ICE);
 }
 
+typedef struct Maze {
+    int cols, rows; // rooms
+    int px, py;     // pitch of a room: its size plus a wall
+    int x0, y0;     // top-left of room (0, 0)
+} Maze;
+
+static Maze maze_layout(const World *w) {
+    int t = SCENE_WALL_THICKNESS;
+    Maze m;
+    m.px = MAZE_ROOM_W + MAZE_WALL;
+    m.py = MAZE_ROOM_H + MAZE_WALL;
+    m.cols = PR_MAX((w->width - 2 * t + MAZE_WALL) / m.px, 1);
+    m.rows = PR_MAX((w->height - 2 * t + MAZE_WALL) / m.py, 1);
+    m.x0 = t;
+    m.y0 = t;
+    return m;
+}
+
+void scene_level_start(const World *w, int *x, int *y) {
+    Maze m = maze_layout(w);
+    *x = m.x0 + (m.cols / 2) * m.px + MAZE_ROOM_W / 2;
+    *y = m.y0 + (m.rows / 2) * m.py + MAZE_ROOM_H / 2;
+}
+
+enum { LINK_RIGHT = 1, LINK_DOWN = 2 };
+
 void scene_level(World *w) {
     scene_empty_box(w, SCENE_WALL_THICKNESS);
     Rng rng = rng_from_seed(w->seed ^ 0x1E7E1ull);
     int t = SCENE_WALL_THICKNESS, W = w->width, H = w->height;
-    float ph1 = (float)rng_range(&rng, 1000) * 0.01f, ph2 = (float)rng_range(&rng, 1000) * 0.01f;
-    for (int x = t; x < W - t; x++) {
-        float fx = (float)x;
-        int ground = (int)((float)H * 0.55f + 40.0f * sinf(fx / 160.0f + ph1) +
-                           14.0f * sinf(fx / 41.0f + ph2));
-        int rock_top = ground + 140 + (int)(30.0f * sinf(fx / 97.0f + ph2));
-        int rock_bottom = rock_top + 40 + (int)(15.0f * sinf(fx / 53.0f + ph1));
-        for (int y = t; y < H - t; y++) {
-            ElementId e = y < ground                           ? ELEM_VOID
-                          : (y >= rock_top && y < rock_bottom) ? ELEM_ROCK
-                                                               : ELEM_DIRT;
-            if (e != ELEM_VOID) {
-                world_set_cell(w, x, y, e, rng_next(&rng));
-            }
-        }
-    }
-    // Boulders in the dirt.
+    // Dirt everywhere, with boulders of rock in it.
+    fill_rect(w, t, t, W - t - 1, H - t - 1, ELEM_DIRT, &rng);
     for (int k = 0; k < W / 64; k++) {
         int bx = t + (int)rng_range(&rng, (uint32_t)(W - 2 * t));
-        int by = (int)((float)H * 0.62f) + (int)rng_range(&rng, (uint32_t)(H * 3 / 10));
+        int by = t + (int)rng_range(&rng, (uint32_t)(H - 2 * t));
         int r = 6 + (int)rng_range(&rng, 22);
         for (int y = by - r; y <= by + r; y++) {
             for (int x = bx - r; x <= bx + r; x++) {
@@ -112,7 +123,63 @@ void scene_level(World *w) {
             }
         }
     }
-    // Air above the ground.
+    // A perfect maze over the rooms (depth-first from room (0, 0)): links[] says which neighbours
+    // each room opens to (to the right, and downwards).
+    Maze m = maze_layout(w);
+    int n = m.cols * m.rows;
+    uint8_t links[4096] = {0};
+    uint8_t seen[4096] = {0};
+    int stack[4096], top = 0;
+    PR_ASSERT(n <= 4096);
+    (void)n;
+    stack[top++] = 0;
+    seen[0] = 1;
+    while (top > 0) {
+        int cur = stack[top - 1], cx = cur % m.cols, cy = cur / m.cols;
+        int nb[4], dir[4], cnt = 0; // dir: 0 right, 1 down, 2 left, 3 up
+        if (cx + 1 < m.cols && !seen[cur + 1]) {
+            nb[cnt] = cur + 1, dir[cnt++] = 0;
+        }
+        if (cy + 1 < m.rows && !seen[cur + m.cols]) {
+            nb[cnt] = cur + m.cols, dir[cnt++] = 1;
+        }
+        if (cx > 0 && !seen[cur - 1]) {
+            nb[cnt] = cur - 1, dir[cnt++] = 2;
+        }
+        if (cy > 0 && !seen[cur - m.cols]) {
+            nb[cnt] = cur - m.cols, dir[cnt++] = 3;
+        }
+        if (cnt == 0) {
+            top--;
+            continue;
+        }
+        int k = (int)rng_range(&rng, (uint32_t)cnt);
+        switch (dir[k]) {
+        case 0: links[cur] |= LINK_RIGHT; break;
+        case 1: links[cur] |= LINK_DOWN; break;
+        case 2: links[nb[k]] |= LINK_RIGHT; break;
+        default: links[nb[k]] |= LINK_DOWN; break;
+        }
+        seen[nb[k]] = 1;
+        stack[top++] = nb[k];
+    }
+    // Carve the rooms and the openings.
+    for (int cy = 0; cy < m.rows; cy++) {
+        for (int cx = 0; cx < m.cols; cx++) {
+            int x0 = m.x0 + cx * m.px, y0 = m.y0 + cy * m.py;
+            fill_rect(w, x0, y0, x0 + MAZE_ROOM_W - 1, y0 + MAZE_ROOM_H - 1, ELEM_VOID, &rng);
+            if (links[cy * m.cols + cx] & LINK_RIGHT) { // a doorway as tall as the room
+                fill_rect(w, x0 + MAZE_ROOM_W, y0, x0 + m.px - 1, y0 + MAZE_ROOM_H - 1, ELEM_VOID,
+                          &rng);
+            }
+            if (links[cy * m.cols + cx] & LINK_DOWN) { // a shaft as wide as the room is tall
+                int sx = x0 + (int)rng_range(&rng, (uint32_t)(MAZE_ROOM_W - MAZE_ROOM_H + 1));
+                fill_rect(w, sx, y0 + MAZE_ROOM_H, sx + MAZE_ROOM_H - 1, y0 + m.py - 1, ELEM_VOID,
+                          &rng);
+            }
+        }
+    }
+    // Air in every open cell.
     for (int y = t; y < H - t; y++) {
         Edit air = {t, y, W - t - 1, y, 0, EDIT_SQUARE, EDIT_AIR, 1, EDIT_PAINT};
         sim_apply_edit(w, &air);
@@ -122,7 +189,10 @@ void scene_level(World *w) {
 }
 
 int scene_spawn_player(World *w, int x) {
-    int y = SCENE_WALL_THICKNESS;
+    return scene_spawn_player_from(w, x, SCENE_WALL_THICKNESS);
+}
+
+int scene_spawn_player_from(World *w, int x, int y) {
     for (ElementId e = world_elem(w, x, y);
          y < w->height && (e == ELEM_VOID || g_elem_behavior[e] == BEHAVIOR_GAS);
          e = world_elem(w, x, ++y)) {

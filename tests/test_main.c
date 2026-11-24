@@ -79,6 +79,8 @@ void test_falling_debris_leaves_clear_air_still(void);
 void test_shooting_same_for_any_thread_count(void);
 void test_small_clumps_fall(void);
 void test_player_runs_and_jumps(void);
+void test_jetpack_flies_while_held(void);
+void test_level_is_a_maze(void);
 void test_air_brush_spreads_oxygen(void);
 void test_walk_forward_while_shooting(void);
 void test_walking_kicks_small_piles(void);
@@ -197,6 +199,8 @@ int main(int argc, char **argv) {
     RUN(test_shooting_same_for_any_thread_count);
     RUN(test_small_clumps_fall);
     RUN(test_player_runs_and_jumps);
+    RUN(test_jetpack_flies_while_held);
+    RUN(test_level_is_a_maze);
     RUN(test_air_brush_spreads_oxygen);
     RUN(test_walk_forward_while_shooting);
     RUN(test_walking_kicks_small_piles);

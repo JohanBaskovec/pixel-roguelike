@@ -630,3 +630,16 @@ to watch).
   Things left behind do not evolve while away (a fire does not burn out, water does not drain).
   Saving and loading regions (world streaming) is later work (M6).
 
+## D-041 — The level is a maze; the player has a jetpack
+
+- **Status:** Accepted (2026-11-24), asked for by the user.
+- **Decision:** `scene_level()` builds a perfect maze (depth-first) over a grid of rooms of
+  `MAZE_ROOM_W` × `MAZE_ROOM_H` = 488 × 51 cells (about a screen wide at zoom ×2; three player
+  heights tall) separated by `MAZE_WALL` = 20 cells of dirt (boulders of rock inside it). A link is
+  a doorway through a side wall (as tall as the room) or a shaft through a floor (as wide as the
+  room is tall), so both openings are 20 × 51 cells. 8 × 28 rooms in the 4096 × 2048 world; the
+  player starts in a room near the middle. The jetpack (infinite, no fuel yet) fires while the jump
+  key stays held for 12 ticks, so a tap is still a jump (ELEMENTS → Deviations 17).
+- **Consequences:** The level is all air, so the player digs and shoots through walls to shortcut
+  the maze. Rooms are narrower than the simulated area (D-040), which holds about 9 rooms.
+  Jetpack exhaust pushing on the air, fuel and heat are later work.

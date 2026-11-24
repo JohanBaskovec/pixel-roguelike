@@ -137,7 +137,11 @@ static void reset_world(App *app) {
     } else {
         scene_level(app->world);
     }
-    app->player = scene_spawn_player(app->world, app->world->width / 2);
+    int sx = app->world->width / 2, sy = SCENE_WALL_THICKNESS;
+    if (!app->cfg.demo) {
+        scene_level_start(app->world, &sx, &sy);
+    }
+    app->player = scene_spawn_player_from(app->world, sx, sy);
     app->rifle = (Rifle){0};
     app->trigger = false;
     app->follow = true;
@@ -566,7 +570,7 @@ static void draw_panel(App *app) {
     }
 
     const char *help[] = {
-        "A D  run  W  jump (Q D Z)",
+        "A D  run  W  jump, hold: jetpack",
         "LMB  shoot (Rifle) / paint",
         "RMB  erase",
         "Shift  only into void",
@@ -611,7 +615,7 @@ static void mouse_world(const App *app, float *x, float *y) {
     *y = app->cam_y + (app->mouse_y - app->view.y) / zoom(app);
 }
 
-// Player input for one tick (between ticks, on the main thread): run with A/D and jump with W
+// Player input for one tick (between ticks, on the main thread): run with A/D, jump with W (hold it for the jetpack)
 // (physical keys: Q/D/Z on AZERTY), face the mouse, and fire the rifle while the trigger is held.
 static void control_player(App *app) {
     Creature *c = player(app);
@@ -621,6 +625,7 @@ static void control_player(App *app) {
     const bool *keys = SDL_GetKeyboardState(NULL);
     c->walk = (int8_t)((int)keys[SDL_SCANCODE_D] - (int)keys[SDL_SCANCODE_A]);
     c->jump = keys[SDL_SCANCODE_W];
+    c->thrust = keys[SDL_SCANCODE_W]; // held: the jetpack
     float ax, ay, sx, sy;
     mouse_world(app, &ax, &ay);
     rifle_shoulder(c, &sx, &sy);

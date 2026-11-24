@@ -60,7 +60,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 
 | Input | Action |
 |---|---|
-| `A` / `D`, `W` | Run left / right, jump (the physical keys: `Q` / `D`, `Z` on AZERTY) |
+| `A` / `D`, `W` | Run left / right, jump; hold `W` to fly with the jetpack (the physical keys: `Q` / `D`, `Z` on AZERTY) |
 | Left mouse | Rifle tool (`E`, the default): fire, aimed at the cursor (hold for automatic fire). Other tools: paint the selected element (hold still to keep pouring) |
 | Right mouse | Erase (paint void), including the box walls |
 | Shift + left mouse | Paint only into empty (void) cells |
@@ -89,8 +89,8 @@ were updated, water moved by pressure, gas pressure equalisations, free particle
 melting/boiling progress), (for water) depth and absolute pressure (gas on the surface plus
 depth), (for gas) pressure and mass under the cursor, plus the partial pressure of each gas in a
 15 × 15 window around it. Below, the player's state, health and shots, and the first creatures
-with their health and the O₂ and CO₂ around their heads. The game starts in a level of hilly dirt
-with rock strata and boulders under air, with the player standing in the middle. The demo scene
+with their health and the O₂ and CO₂ around their heads. The game starts in a maze
+carved in dirt with boulders, with the player standing in a room near the middle. The demo scene
 (`--demo`) has a tall tank with a hole near its foot, which jets, and a room of air with a
 wandering creature (and the player).
 
