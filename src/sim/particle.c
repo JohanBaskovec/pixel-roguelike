@@ -2,6 +2,7 @@
 
 #include "core/rng.h"
 #include "sim/edit.h"
+#include "sim/bullet.h"
 #include "sim/enemy.h"
 #include "sim/rigid.h"
 #include "sim/weapon.h"
@@ -252,6 +253,7 @@ static void bullet_step(World *w, Particle *p) {
     bool in_liquid = g_elem_behavior[world_elem(w, cx, cy)] == BEHAVIOR_LIQUID;
     int n = (int)ceilf(speed * 2.0f);
     float x0 = p->x, y0 = p->y;
+    float damage = RIFLE_DAMAGE; // what it does to a creature (a drawn bullet: its solid pixels)
     for (int s = 1; s <= n && speed > BULLET_FAST; s++) {
         float nx = x0 + p->vx * (float)s / (float)n, ny = y0 + p->vy * (float)s / (float)n;
         int tx = (int)floorf(nx), ty = (int)floorf(ny);
@@ -263,13 +265,28 @@ static void bullet_step(World *w, Particle *p) {
                     world_wake_rect(w, tx, ty, tx, ty);
                 }
                 in_liquid = false;
+                if (p->cell.aux != 0) {
+                    payload_trail(w, p->cell.aux, tx, ty); // a drawn bullet's gradual release
+                }
             } else {
+                if (p->cell.aux != 0) {
+                    // A drawn bullet hits something for the first time: it releases what is
+                    // left. With no solid pixel, it is gone; else it goes on as a bullet.
+                    int id = p->cell.aux;
+                    p->cell.aux = 0;
+                    damage = payload_damage(w, id);
+                    if (!payload_impact(w, id, cx, cy, tx, ty, ux, uy)) {
+                        p->cell.element = ELEM_VOID;
+                        speed = 0.0f;
+                        break;
+                    }
+                }
                 if (e == ELEM_BODY) {
                     // It hits a creature: damage and blood (the player is not hurt by its own
                     // bullets), and it stops.
                     int ci = creature_at(w, tx, ty);
                     if (ci >= 0 && w->creatures[ci].kind != KIND_PLAYER) {
-                        creature_hit(w, &w->creatures[ci], RIFLE_DAMAGE, cx, cy, ux, uy, tx, ty);
+                        creature_hit(w, &w->creatures[ci], damage, cx, cy, ux, uy, tx, ty);
                     }
                     speed = 0.0f;
                     break;
@@ -328,6 +345,10 @@ void particles_update(World *w) {
         if (p->cell.element == ELEM_BULLET && fabsf(p->vx) + fabsf(p->vy) > BULLET_FAST) {
             p->vy += PARTICLE_GRAVITY;
             bullet_step(w, p);
+            if (p->cell.element == ELEM_VOID) { // a bullet with nothing solid, spent: gone
+                w->particles[i] = w->particles[--w->particle_count];
+                continue;
+            }
             i++;
             continue;
         }

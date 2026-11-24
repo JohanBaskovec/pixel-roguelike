@@ -101,6 +101,7 @@ add_library(pr_sim STATIC
   src/sim/enemy.c
   src/sim/path.c
   src/sim/rigid.c
+  src/sim/bullet.c
   src/sim/pickup.c
   src/sim/edit.c
   src/sim/scene.c
@@ -124,6 +125,7 @@ endif()
 add_executable(pixel-roguelike
   src/main.c
   src/game/app.c
+  src/game/gunmenu.c
   src/render/render.c
   src/ui/ui.c
 )
@@ -147,6 +149,7 @@ if(PR_BUILD_TESTS)
     tests/test_weapon.c
     tests/test_combat.c
     tests/test_wood.c
+    tests/test_bullet.c
     tests/test_rigid.c
     tests/test_powder.c
     tests/test_reaction.c

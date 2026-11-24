@@ -289,8 +289,11 @@ Asked for by the user, not designed yet (each needs the gas rework of M6c to run
 scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [x] Bodies at half size (player 17 × 5 cells, 85 cm) and zoom ×2 by default, the world's scale
       unchanged (asked for after play-testing; D-038)
-- [x] HP bar (100 hp), limited ammunition (30-round magazine, pack of 90, `R` reloads), ammunition
-      and health crates (walk on them), two monsters that chase and bite the player (a 6 × 6
+- [x] Drawn bullets (D-047): a gun of 1 to 10 slots, each a bullet the player draws (solids,
+      liquids, gases with a density, heat), released on impact or gradually; Tab menu and a
+      Paint-like editor; the starting gun has 3 slots of an iron pixel (ammunition replaced by the
+      slots, ammunition crates gone)
+- [x] HP bar (100 hp), health crates (walk on them; ammunition once, D-042), two monsters that chase and bite the player (a 6 × 6
       walker and an 11 × 11 flyer), with hit points; bullets hurt them and scatter blood; dead
       bodies stay and bleed; all scattered over the maze (boxes, no sprites; D-042)
 - [x] Monster pathfinding over blocks of 6 cells around the player (flyers anywhere, walkers

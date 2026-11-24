@@ -32,7 +32,7 @@ void pickups_update(World *w) {
     }
 }
 
-int pickups_collect(World *w, int who, Rifle *rifle) {
+int pickups_collect(World *w, int who) {
     if (who < 0 || who >= w->creature_count) {
         return 0;
     }
@@ -47,17 +47,10 @@ int pickups_collect(World *w, int who, Rifle *rifle) {
             p->y + p->h <= c->y) {
             continue;
         }
-        if (p->kind == PICKUP_AMMO) {
-            if (!rifle->limited || rifle->reserve >= RIFLE_RESERVE_MAX) {
-                continue;
-            }
-            rifle->reserve = PR_MIN(rifle->reserve + PICKUP_AMMO_ROUNDS, RIFLE_RESERVE_MAX);
-        } else {
-            if (c->hp >= c->hp_max) {
-                continue;
-            }
-            c->hp = PR_MIN(c->hp + PICKUP_HEALTH_HP, c->hp_max);
+        if (c->hp >= c->hp_max) {
+            continue;
         }
+        c->hp = PR_MIN(c->hp + PICKUP_HEALTH_HP, c->hp_max);
         p->taken = 1;
         n++;
     }

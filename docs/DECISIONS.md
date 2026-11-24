@@ -746,3 +746,29 @@ to watch).
   in a living monster (it does not shoot through), but goes through a corpse. Rigid bodies got two
   fixes with this: a body stuck in a deep overlap is eased out along the contact normal, and a
   body counts as at rest below 0.07 cells/tick. No gibs apart from blood, and corpses do not burn.
+
+## D-047 — A gun of drawn bullets
+
+- **Status:** Accepted (2026-11-24), designed by the user.
+- **Decision:** The gun has 1 to 10 slots, each the design of a bullet drawn by the player:
+  connected pixels of solids, liquids, gases (with the pressure of their cell) and heat, each
+  liquid, gas or heat pixel released on impact or gradually (a percentage per cell flown). The gun
+  fires its slots in turn, `fire_interval` ticks apart, and reloads after the last for
+  `reload_ticks`. A bullet in flight stays the single fast particle of D-031, carrying a payload
+  (in the particle's `aux`, an index into `World.payloads`); the drawn pixels are not cells while
+  it flies (at 300 cells a tick a pixel-by-pixel body would be neither visible nor cheap): what
+  its pixels *do* is simulated, in the cells they release into. Solid pixels do the direct damage
+  and make it a bullet that digs; a bullet without any is gone after its impact. The Tab menu and
+  the Paint-like editor live in `game/gunmenu.c`; the game waits while one is open. The magazine,
+  the reserve and the ammunition crates of D-042 go (the slots are the magazine, and elements are
+  unlimited for now).
+- **Choices where the design left room:** what is left of a gradual release comes out at the
+  impact; a liquid pixel is one cell (gradual release makes it drop out at a random point of the
+  path); a heat pixel blends the temperature of the cells toward its own by the share released;
+  damage is 12 hp a solid pixel scaled by density against iron's (0.1 to 1.5); a gas pixel's
+  density is a pressure in kPa, up to the point where the gas would be liquid (D-046's gas limit
+  of the brush); a design is at most 8 × 8 pixels.
+- **Consequences:** The example bullet (hydrogen, oxygen, heat) is a working small bomb. There is
+  no cost to a bullet yet (the user will limit weapons with unlocks). A blast does not break walls
+  or hurt creatures beyond the heat and fire of its gas (the next step of the bomb idea). The
+  designs are not saved between runs.

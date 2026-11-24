@@ -78,7 +78,8 @@ void rifle_shoulder(const Creature *c, float *x, float *y) {
     *y = (float)c->y + (float)RIFLE_SHOULDER + 0.5f;
 }
 
-static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y) {
+static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y,
+                 const BulletDesign *design) {
     uint64_t h = pr_splitmix64(w->seed ^ 0x5407ull ^ ((uint64_t)c->id << 40) ^ r->shots);
     float sx, sy;
     rifle_shoulder(c, &sx, &sy);
@@ -109,6 +110,9 @@ static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y
         by = ny;
     }
     Cell bullet = {ELEM_BULLET, 0, (uint8_t)(h >> 8), 0};
+    if (design) {
+        bullet.aux = (uint8_t)payload_start(w, design); // what it carries (0: none free)
+    }
     Particle b = {bx, by, ux * RIFLE_BULLET_SPEED, uy * RIFLE_BULLET_SPEED, bullet, BULLET_TEMP_K};
     particle_add(w, &b);
     muzzle_gas(w, bx, by, ux, uy, h);
@@ -137,16 +141,22 @@ static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y
 
 void rifle_init(Rifle *r) {
     *r = (Rifle){0};
-    r->limited = 1;
-    r->mag = RIFLE_MAG;
-    r->reserve = RIFLE_RESERVE_START;
+    r->nslots = 3;
+    r->fire_interval = GUN_START_INTERVAL;
+    r->reload_ticks = GUN_START_RELOAD;
+    for (int i = 0; i < r->nslots; i++) {
+        bullet_design_iron(&r->slots[i]);
+    }
 }
 
 bool rifle_reload(Rifle *r) {
-    if (!r->limited || r->reload > 0 || r->mag >= RIFLE_MAG || r->reserve <= 0) {
+    if (r->nslots == 0 || r->reload > 0 || r->next_slot == 0) {
         return false;
     }
-    r->reload = RIFLE_RELOAD_TICKS;
+    r->reload = r->reload_ticks;
+    if (r->reload == 0) {
+        r->next_slot = 0;
+    }
     return true;
 }
 
@@ -154,19 +164,11 @@ bool rifle_update(World *w, Rifle *r, int shooter, float aim_x, float aim_y, boo
     if (r->cooldown > 0) {
         r->cooldown--;
     }
-    if (r->limited) {
-        if (r->reload > 0) {
-            if (--r->reload == 0) {
-                int take = PR_MIN(RIFLE_MAG - r->mag, r->reserve);
-                r->mag += take;
-                r->reserve -= take;
-            }
-            return false;
+    if (r->nslots > 0 && r->reload > 0) {
+        if (--r->reload == 0) {
+            r->next_slot = 0;
         }
-        if (trigger && r->mag == 0) {
-            rifle_reload(r); // pulling the trigger on an empty magazine reloads
-            return false;
-        }
+        return false;
     }
     if (!trigger || r->cooldown > 0 || shooter < 0 || shooter >= w->creature_count) {
         return false;
@@ -175,10 +177,19 @@ bool rifle_update(World *w, Rifle *r, int shooter, float aim_x, float aim_y, boo
     if (c->state == CREATURE_DEAD) {
         return false;
     }
-    fire(w, r, c, aim_x, aim_y);
-    if (r->limited) {
-        r->mag--;
+    if (r->nslots == 0) {
+        fire(w, r, c, aim_x, aim_y, NULL);
+        r->cooldown = RIFLE_INTERVAL;
+        return true;
     }
-    r->cooldown = RIFLE_INTERVAL;
+    const BulletDesign *d = &r->slots[r->next_slot];
+    fire(w, r, c, aim_x, aim_y, bullet_design_pixels(d) > 0 ? d : NULL);
+    r->cooldown = r->fire_interval;
+    if (++r->next_slot >= r->nslots) {
+        r->reload = r->reload_ticks; // all the slots are fired: reload
+        if (r->reload == 0) {
+            r->next_slot = 0;
+        }
+    }
     return true;
 }

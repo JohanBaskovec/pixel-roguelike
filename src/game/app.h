@@ -3,6 +3,7 @@
 #include "render/render.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
+#include "game/gunmenu.h"
 #include "sim/weapon.h"
 #include "ui/ui.h"
 
@@ -16,6 +17,8 @@ typedef struct AppConfig {
     const char *screenshot; // with frames: save the last frame as BMP here
     bool demo;              // start with the demo scene instead of the level
     int threads;            // simulation threads; 0 = one per logical core
+    int menu;               // 1: start with the gun menu open, 2: with the editor (screenshots)
+    bool example_bullet;    // slot 2 holds the example bullet: hydrogen, oxygen, heat (screenshots)
 } AppConfig;
 
 typedef struct App {
@@ -55,6 +58,7 @@ typedef struct App {
     int player;
     Rifle rifle;
     bool trigger; // left button held over the world with the rifle tool
+    GunMenu menu; // the gun menu (Tab) and the bullet editor
 
     // Timing and stats
     double accumulator;

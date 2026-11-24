@@ -628,6 +628,53 @@ list order, at the start of each tick (before heat and movement).
   stays within 2 cells of the floor, and every cell is still there; heaps of loose soil 1 and 2 m
   high are crossed both ways.
 
+### Guns and drawn bullets (M6b; D-047)
+
+*The gun* (`Rifle` in weapon.h) has 1 to 10 slots, each the design of a bullet. A shot fires the
+next slot; `fire_interval` ticks later the next; after the last the gun reloads for
+`reload_ticks` and starts again from the first. `R` reloads early (the unfired slots are skipped).
+Tab opens the gun menu (below). The starting gun: 3 slots of one pixel of iron, a 5-tick interval
+and a 60-tick reload. A zero `Rifle` (the tests') is the plain rifle of D-031: one plain bullet a
+shot, `RIFLE_INTERVAL`, no reloading. The ammunition and its crates of D-042 are gone. Elements
+are unlimited for now.
+
+*A design* (bullet.h) is a grid of up to 8 × 8 pixels, all touching each other (4-neighbour),
+each one of:
+- a **solid or powder**: shot as it is, it does direct damage on impact: 12 hp a pixel, scaled
+  by its density against iron's (between 0.1 and 1.5 times); a bullet with a solid pixel goes on
+  like the plain bullet (it digs, cuts wood, hits creatures, and leaves a pixel);
+- a **liquid** or **gas** (a gas has a density: the pressure of its cell in kPa, at most what the
+  gas holds before it is liquid, `gas_max_pressure`);
+- **heat**: a temperature.
+Each liquid, gas and heat pixel is released either *on impact* (all at once) or *gradually*: a
+percentage of it per cell the bullet flies (0.5 to 100%), along the path; what is left comes out at
+the impact. A gas pixel puts its share of the mass of one cell at that pressure into the cells it
+flies through; a liquid pixel is one cell, which drops out (whole) at a random point of the path
+(chance of the percentage per cell flown) or at the impact; a heat pixel moves the temperature of
+the cell it flies through, or (at the impact) of the 3 × 3 cells around the cell it hits, toward its
+own by the share released (so 100% sets them to it). A bullet with no solid pixel is gone after the
+impact; it hurts nobody by itself (its gas and heat may). It stops at the first thing it hits.
+
+*In flight* a bullet is the same fast particle as before (particle.c), carrying a payload
+(`Payload`, up to 255 at once, in the particle's `aux`): the design and the part of each pixel
+still to release. `payload_trail()` is called for each cell flown through, `payload_impact()` at the
+first thing it hits.
+
+*The example* (the user's): a pixel of hydrogen and one of oxygen, 300 kPa each, 1% per cell, and
+a heat pixel of 2000 °C on impact, fired at a wall 25 cells away: most of the gas is left for the
+impact, where the heat lights it: it burns into steam (tested).
+
+*The gun menu* (Tab; `gunmenu.c`): the game waits while it is open. The slots are cards that show
+the design zoomed (up to ×40) with what each pixel is in numbers (density in kPa or kg/m³,
+temperature, impact or gradual and the percentage), an Edit button, and the fire delay, reload and
+number of slots with + and −. The editor (a window like Paint, ×50) has every element that can be
+drawn labelled and grouped (solids, powders, liquids, gases), Temperature and an Eraser; gas
+density, the two exclusive release buttons (on impact, gradually), the percentage per pixel
+traveled and the temperature have + and − (Shift ×10, Ctrl ×100); each drawn pixel shows its number
+and its release mode. OK is refused until the pixels all touch each other; Cancel (or Esc) keeps
+the old design. (`--menu gun|editor` and `--example-bullet` open a menu at the start, with the
+example in slot 2, for screenshots.)
+
 ### Rifle and bullets (M6a; D-031)
 
 Code: `src/sim/weapon.c` (firing), `bullet_step()` in `src/sim/particle.c` (flight).
@@ -734,17 +781,14 @@ asks, so digging changes the routes. A walker cannot reach a player above it (no
 shaft), nor can anything reach one it has no route to: it then walks, or flies, straight at the
 player.
 
-*Ammunition and crates.* `Rifle` counts rounds (`rifle_init`; a zero `Rifle` has endless ones, for
-tests): a 30-round magazine and a pack of 90 (at most 240). `R`, or pulling the trigger on an
-empty magazine, reloads: `RIFLE_RELOAD_TICKS` (100) with no shots, then the magazine is filled
-from the pack. Crates (`Pickup`, pickup.c) are boxes of 9 × 7 cells, not cells: they fall a cell a
-tick while the cells under them are open, and the player picks one up by touching it. Ammunition
-gives 60 rounds (not if the pack is full), health 40 hp (not if unhurt); a crate that is not
-needed stays.
+*Crates.* Crates (`Pickup`, pickup.c) are boxes of 9 × 7 cells, not cells: they fall a cell a
+tick while the cells under them are open, and the player picks one up by touching it. Health
+gives 40 hp (not if unhurt); a crate that is not needed stays. (Ammunition crates went with the
+gun of bullet slots, D-047, which reloads by itself.)
 
-*The level.* `scene_level()` scatters, per room (not the start room, which only holds a crate
-of ammunition), a walker (10%), a flyer (8%), an ammunition crate (12%) or a health crate (8%);
-monsters and crates stand on solid floor, flyers float at a random height.
+*The level.* `scene_level()` scatters, per room (not the start room), a walker (10%), a flyer
+(8%) or a health crate (8%); monsters and crates stand on solid floor, flyers float at a random
+height.
 
 **Known limitations.** The body is a rectangle and does not bend, crouch or climb. It is a cell
 thick, like everything (the world is a 5 cm slice). Wading only slows it down. Falling does no

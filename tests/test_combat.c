@@ -1,5 +1,6 @@
 #include "test.h"
 
+#include "sim/bullet.h"
 #include "sim/creature.h"
 #include "sim/edit.h"
 #include "sim/enemy.h"
@@ -15,7 +16,7 @@
 
 void test_rifle_hurts_and_monsters_bleed(void);
 void test_monsters_chase_and_bite(void);
-void test_rifle_ammunition_and_reload(void);
+void test_gun_fires_its_slots_then_reloads(void);
 void test_crates_are_picked_up(void);
 void test_level_has_crates_and_monsters(void);
 void test_monsters_lose_pixels_with_hit_points(void);
@@ -99,47 +100,44 @@ void test_monsters_chase_and_bite(void) {
     world_destroy(w);
 }
 
-void test_rifle_ammunition_and_reload(void) {
+void test_gun_fires_its_slots_then_reloads(void) {
+    // The starting gun has three slots of one iron pixel each: it fires them one after the other,
+    // GUN_START_INTERVAL ticks apart, then reloads for GUN_START_RELOAD ticks, then starts again.
     World *w = room(132, 192);
     int pl = scene_spawn_player(w, 40);
     sim_run_ticks(w, 20);
     Rifle r;
     rifle_init(&r);
-    EXPECT_EQ(r.mag, RIFLE_MAG);
-    EXPECT_EQ(r.reserve, RIFLE_RESERVE_START);
-    EXPECT(!rifle_reload(&r)); // the magazine is full
+    EXPECT_EQ(r.nslots, 3);
+    EXPECT_EQ(bullet_design_pixels(&r.slots[0]), 1);
+    EXPECT(r.slots[2].px[0].element == ELEM_IRON);
+    EXPECT(!rifle_reload(&r)); // nothing fired: full
     float sx, sy;
     rifle_shoulder(&w->creatures[pl], &sx, &sy);
-    for (int t = 0; t < 400 && r.shots < RIFLE_MAG + 5; t++) {
-        rifle_update(w, &r, pl, sx + 100.0f, sy, true);
-        sim_tick(w, NULL);
-        if (r.shots == RIFLE_MAG && r.reload == 0 && r.mag == 0) {
-            break;
+    uint32_t shot_at[8] = {0};
+    int fired = 0;
+    for (uint32_t t = 0; t < 400 && fired < 8; t++) {
+        if (rifle_update(w, &r, pl, sx + 100.0f, sy, true)) {
+            shot_at[fired++] = t;
         }
-    }
-    EXPECT_EQ(r.shots, RIFLE_MAG);
-    EXPECT_EQ(r.mag, 0);
-    // The trigger on an empty magazine reloads; nothing fires meanwhile.
-    for (int t = 0; t < RIFLE_RELOAD_TICKS + 2; t++) {
-        rifle_update(w, &r, pl, sx + 100.0f, sy, t < 10);
         sim_tick(w, NULL);
     }
-    EXPECT_EQ(r.shots, RIFLE_MAG);
-    EXPECT_EQ(r.mag, RIFLE_MAG);
-    EXPECT_EQ(r.reserve, RIFLE_RESERVE_START - RIFLE_MAG);
-    // A partial magazine is topped up from the pack (R).
-    r.mag = 25;
+    EXPECT_EQ(fired, 8);
+    EXPECT_EQ(shot_at[1] - shot_at[0], GUN_START_INTERVAL);
+    EXPECT_EQ(shot_at[2] - shot_at[1], GUN_START_INTERVAL);
+    // After the third: the reload, then the fourth shot is the first slot again.
+    EXPECT_EQ(shot_at[3] - shot_at[2], GUN_START_RELOAD + 1);
+    EXPECT_EQ(shot_at[4] - shot_at[3], GUN_START_INTERVAL);
+    EXPECT_EQ(shot_at[6] - shot_at[5] > GUN_START_INTERVAL, 1); // another reload after the sixth
+    // R reloads early: the unfired slots are skipped.
+    rifle_init(&r);
+    r.next_slot = 1;
     EXPECT(rifle_reload(&r));
     EXPECT(!rifle_reload(&r)); // already reloading
-    for (int t = 0; t < RIFLE_RELOAD_TICKS; t++) {
+    for (int t = 0; t < GUN_START_RELOAD; t++) {
         rifle_update(w, &r, pl, sx + 100.0f, sy, false);
     }
-    EXPECT_EQ(r.mag, RIFLE_MAG);
-    EXPECT_EQ(r.reserve, RIFLE_RESERVE_START - RIFLE_MAG - 5);
-    // An empty pack: nothing to reload with.
-    r.mag = 3;
-    r.reserve = 0;
-    EXPECT(!rifle_reload(&r));
+    EXPECT_EQ(r.next_slot, 0);
     world_destroy(w);
 }
 
@@ -148,40 +146,30 @@ void test_crates_are_picked_up(void) {
     int pl = scene_spawn_player(w, 40);
     sim_run_ticks(w, 20);
     Creature *p = &w->creatures[pl];
-    Rifle r;
-    rifle_init(&r);
-    r.reserve = 10;
     int cx = p->x + p->w / 2;
     // A crate dropped from the air falls to the floor.
-    int a = pickup_add(w, PICKUP_AMMO, 120, 40);
+    int a = pickup_add(w, PICKUP_HEALTH, 120, 40);
     sim_run_ticks(w, 120);
     EXPECT_EQ(w->pickups[a].y + w->pickups[a].h - 1, 126);
-    EXPECT_EQ(pickups_collect(w, pl, &r), 0); // not touching it
-    // Standing on an ammunition crate takes it; not when the pack is full.
-    int b = pickup_add(w, PICKUP_AMMO, cx, 126);
-    EXPECT_EQ(pickups_collect(w, pl, &r), 1);
-    EXPECT(w->pickups[b].taken);
-    EXPECT_EQ(r.reserve, 10 + PICKUP_AMMO_ROUNDS);
-    r.reserve = RIFLE_RESERVE_MAX;
-    int c = pickup_add(w, PICKUP_AMMO, cx, 126);
-    EXPECT_EQ(pickups_collect(w, pl, &r), 0);
-    EXPECT(!w->pickups[c].taken);
+    p->hp = 50.0f;
+    EXPECT_EQ(pickups_collect(w, pl), 0); // not touching it
     // A health crate heals (up to the maximum), and stays if the player is not hurt.
     int d = pickup_add(w, PICKUP_HEALTH, cx, 126);
-    EXPECT_EQ(pickups_collect(w, pl, &r), 0);
+    p->hp = p->hp_max;
+    EXPECT_EQ(pickups_collect(w, pl), 0);
     p->hp = 50.0f;
-    EXPECT_EQ(pickups_collect(w, pl, &r), 1);
+    EXPECT_EQ(pickups_collect(w, pl), 1);
     EXPECT(w->pickups[d].taken);
     EXPECT(fabsf(p->hp - (50.0f + PICKUP_HEALTH_HP)) < 1e-3f);
     world_destroy(w);
 }
 
 void test_level_has_crates_and_monsters(void) {
-    int walkers[2], flyers[2], ammo[2], health[2];
+    int walkers[2], flyers[2], health[2];
     for (int run = 0; run < 2; run++) {
         World *w = world_create(2048, 512, 134);
         scene_level(w);
-        walkers[run] = flyers[run] = ammo[run] = health[run] = 0;
+        walkers[run] = flyers[run] = health[run] = 0;
         for (int i = 0; i < w->creature_count; i++) {
             const Creature *c = &w->creatures[i];
             walkers[run] += c->kind == KIND_WALKER;
@@ -190,7 +178,6 @@ void test_level_has_crates_and_monsters(void) {
         }
         for (int i = 0; i < w->pickup_count; i++) {
             const Pickup *p = &w->pickups[i];
-            ammo[run] += p->kind == PICKUP_AMMO;
             health[run] += p->kind == PICKUP_HEALTH;
             for (int k = 0; k < p->w; k++) { // in open space, on the ground
                 EXPECT(g_elem_behavior[world_elem(w, p->x + k, p->y)] == BEHAVIOR_GAS);
@@ -199,10 +186,9 @@ void test_level_has_crates_and_monsters(void) {
         }
         world_destroy(w);
     }
-    EXPECT(walkers[0] > 0 && flyers[0] > 0 && ammo[0] > 0 && health[0] > 0);
+    EXPECT(walkers[0] > 0 && flyers[0] > 0 && health[0] > 0);
     EXPECT_EQ(walkers[0], walkers[1]); // deterministic
     EXPECT_EQ(flyers[0], flyers[1]);
-    EXPECT_EQ(ammo[0], ammo[1]);
     EXPECT_EQ(health[0], health[1]);
 }
 

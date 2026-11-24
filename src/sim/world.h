@@ -65,8 +65,7 @@ _Static_assert(sizeof(Chunk) == 32, "Chunk must stay 32 bytes");
 
 // A crate lying on the ground (M6b): a box, not cells. Walking on it picks it up (pickup.h).
 typedef enum PickupKind {
-    PICKUP_AMMO = 0,
-    PICKUP_HEALTH = 1,
+    PICKUP_HEALTH = 0,
 } PickupKind;
 
 #define PICKUP_MAX 256
@@ -109,6 +108,7 @@ typedef struct World {
     // monster notices the player when it sees it on the screen and chases it until it is off it.
     int32_t view_w, view_h;
     struct PathField *paths; // owned; the monsters' routes toward the player (path.h)
+    struct Payload *payloads; // owned; what bullets in flight carry (bullet.h), ids 1..PAYLOAD_MAX
     struct Rigid *rigids;    // owned; rigid objects (rigid.h)
     int32_t rigid_count;     // slots in use (some may be inactive)
 } World;

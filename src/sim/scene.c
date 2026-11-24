@@ -188,8 +188,7 @@ void scene_level(World *w) {
         Edit air = {t, y, W - t - 1, y, 0, EDIT_SQUARE, EDIT_AIR, 1, EDIT_PAINT, 0.0f};
         sim_apply_edit(w, &air);
     }
-    // Crates and monsters scattered over the rooms (not the start room, which only gets a crate of
-    // ammunition near the player).
+    // Health crates and monsters scattered over the rooms (not the start room).
     int sx, sy;
     scene_level_start(w, &sx, &sy);
     for (int cy = 0; cy < m.rows; cy++) {
@@ -197,7 +196,6 @@ void scene_level(World *w) {
             int x0 = m.x0 + cx * m.px, y0 = m.y0 + cy * m.py, floor_y = y0 + MAZE_ROOM_H - 1;
             bool start = sx >= x0 && sx < x0 + MAZE_ROOM_W && sy >= y0 && sy < y0 + MAZE_ROOM_H;
             if (start) {
-                pickup_add(w, PICKUP_AMMO, sx + 60, floor_y);
                 continue;
             }
             uint32_t r = rng_range(&rng, 100);
@@ -223,8 +221,9 @@ void scene_level(World *w) {
                             break;
                         }
                     } else {
-                        pickup_add(w, kind == 2 ? PICKUP_AMMO : PICKUP_HEALTH, x + PICKUP_W / 2,
-                                   floor_y);
+                        if (kind == 3) { // (kind 2 was the ammunition crate: the gun reloads itself)
+                            pickup_add(w, PICKUP_HEALTH, x + PICKUP_W / 2, floor_y);
+                        }
                         break;
                     }
                 }

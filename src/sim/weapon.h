@@ -8,6 +8,7 @@
 // ground when they stop; casings and spent bullets pile up as pixels (particle.c). Called serially
 // between ticks, so results do not depend on the number of threads.
 
+#include "sim/bullet.h"
 #include "sim/creature.h"
 
 // Muzzle velocity: 900 m/s (an assault rifle), in cells per tick.
@@ -18,29 +19,34 @@
 #define RIFLE_LENGTH       9      // cells (45 cm, at the body's half size)
 #define RIFLE_PORT         4      // ejection port, cells along the rifle from the shoulder
 
-// Ammunition (M6b): a magazine of RIFLE_MAG rounds and a reserve; R reloads, which takes
-// RIFLE_RELOAD_TICKS. A zero Rifle has endless ammunition (the tests'); rifle_init() limits it.
-#define RIFLE_MAG          30
-#define RIFLE_RESERVE_START 90
-#define RIFLE_RESERVE_MAX  240
-#define RIFLE_RELOAD_TICKS 100 // 1.7 s
-// Hit points a bullet takes from a creature.
+// Hit points a plain bullet takes from a creature.
 #define RIFLE_DAMAGE 12.0f
+
+// The gun (M6b, D-047): 1 to GUN_SLOTS_MAX slots, each the design of a bullet (bullet.h). It
+// fires the slots one after the other, one shot each, FireInterval ticks apart; after the last
+// it reloads for ReloadTicks, then starts again from the first. A zero Rifle (the tests') is the
+// plain rifle: one plain bullet a shot, every RIFLE_INTERVAL ticks, no reloading.
+#define GUN_SLOTS_MAX 10
 
 typedef struct Rifle {
     int32_t cooldown; // ticks until it can fire again
     uint32_t shots;   // fired so far; seeds each shot's randomness
-    int32_t mag;      // rounds in the magazine (limited ammunition only)
-    int32_t reserve;  // rounds in the pack
-    int32_t reload;   // ticks of reloading left (0: not reloading)
-    uint8_t limited;  // rounds are counted
+    uint8_t nslots;   // 0: the plain rifle; else 1..GUN_SLOTS_MAX
+    int32_t fire_interval; // ticks between two shots (the slots)
+    int32_t reload_ticks;  // ticks to reload after the last slot
+    int32_t next_slot;     // the slot to fire next
+    int32_t reload;        // ticks of reloading left (0: not reloading)
+    BulletDesign slots[GUN_SLOTS_MAX];
 } Rifle;
 
-// A rifle with limited ammunition: a full magazine and RIFLE_RESERVE_START rounds in the pack.
+// The starting gun: 3 slots, each a single pixel of iron.
 void rifle_init(Rifle *r);
 
-// Starts reloading (the shot in progress is not lost). False if there is nothing to do: the
-// magazine is full, the pack empty, or it is already reloading.
+#define GUN_START_INTERVAL 5  // ticks
+#define GUN_START_RELOAD   60 // ticks
+
+// Reloads now, before the last slot has been fired (the unfired slots are not lost). False if
+// there is nothing to do: the gun is full, or reloading already.
 bool rifle_reload(Rifle *r);
 
 // Where the rifle's stock rests: the shooter's shoulder, in cells.

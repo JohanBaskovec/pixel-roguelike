@@ -31,7 +31,7 @@ still open (see `docs/VISION.md`). The **simulation engine** comes first.
 Temperature**, **M4 – Gas mass and pressure**, **M4b – Flowing water**, **M4c – Creatures** and
 **M5 – Matter variety and reactions** and **M6a – Action roguelike: the player and the rifle** are
 implemented. The game is an action roguelike: a maze of air-filled rooms carved in dirt in a 4096 × 2048
-world, a player (drawn at half size: 85 cm, D-038) who runs, jumps, flies with an infinite jetpack (hold the jump key), has 100 hp and limited ammunition (R reloads; crates to walk on), and fires an automatic rifle (wood burns: needs 16% oxygen, makes CO2 and water; logs are rigid bodies that fall, tip and are cut by bullets) whose bullets are real
+world, a player (drawn at half size: 85 cm, D-038) who runs, jumps, flies with an infinite jetpack (hold the jump key), has 100 hp (health crates to walk on), and fires a gun of 1 to 10 bullet slots that the player draws pixel by pixel in a Tab menu (solids, liquids, gases, heat; released on impact or gradually) (wood burns: needs 16% oxygen, makes CO2 and water; logs are rigid bodies that fall, tip and are cut by bullets) whose bullets are real
 pixels (they fly, dig, stir the air and pile up with their casings, and melt; each shot blows
 hot muzzle gas), a toolbar to paint water,
 steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,
@@ -147,13 +147,13 @@ src/sim/      elements (definition table + lookup tables), world (grid, chunks, 
               sim (movement rules, gas mass and pressure, convection, tick), pressure (water
               bodies, transfers, jets), heat (conduction, phase changes), particle (free
               particles, bullet flight), creature (bodies, breathing, the player's body), enemy
-              (monsters, damage, blood), pickup (crates), path (monster routes), rigid (rigid objects: logs), weapon (the rifle), edit (brush strokes, edit queue, small clumps), scene (box, level,
+              (monsters, damage, blood), pickup (crates), path (monster routes), rigid (rigid objects: logs), weapon (the gun), bullet (bullet designs and payloads), edit (brush strokes, edit queue, small clumps), scene (box, level,
               demo, bench).
               HEADLESS: no SDL video/render/events
 src/render/   world -> texture (colour LUT; visible dirty chunks, converted in parallel)
 src/ui/       immediate-mode widgets (button, panel, text)
 src/game/     app: input, player control, toolbar, brush strokes, camera, HUD, fixed-timestep
-              frame
+              frame; gunmenu (the Tab menu and the bullet editor)
 src/main.c    argument parsing, SDL init, main loop
 tests/        behaviour tests (CTest) on tiny worlds; test_util.c builds worlds from ASCII
 bench/        pr-bench, headless benchmark; proto_gas_field.c and proto_air_velocity.c, stand-alone

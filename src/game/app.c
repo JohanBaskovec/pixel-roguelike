@@ -157,6 +157,7 @@ bool app_init(App *app, const AppConfig *cfg) {
     app->player = -1;
     app->brush_radius = 8;
     app->gas_atm = 1.0f;
+    gunmenu_init(&app->menu);
     app->running = true;
 
     if (!SDL_CreateWindowAndRenderer("pixel-roguelike", WINDOW_W, WINDOW_H, SDL_WINDOW_RESIZABLE,
@@ -178,6 +179,20 @@ bool app_init(App *app, const AppConfig *cfg) {
     pr_log_info("World %dx%d, %d simulation threads", app->world->width, app->world->height,
                 jobs_thread_count(app->jobs));
     reset_world(app);
+    if (cfg->example_bullet) {
+        // The example: a pixel of hydrogen and one of oxygen at 300 kPa, released 1% per pixel
+        // traveled, and 2000 degC released on impact.
+        BulletDesign *d = &app->rifle.slots[1];
+        bullet_design_clear(d);
+        d->px[0] = (BulletPixel){BULLET_MATTER, ELEM_HYDROGEN, RELEASE_GRADUAL, 300.0f, 1.0f, 0.0f};
+        d->px[1] = (BulletPixel){BULLET_MATTER, ELEM_OXYGEN, RELEASE_GRADUAL, 300.0f, 1.0f, 0.0f};
+        d->px[2] = (BulletPixel){BULLET_HEAT, ELEM_VOID, RELEASE_IMPACT, 0.0f, 0.0f, 2273.15f};
+    }
+    if (cfg->menu != 0) {
+        app->menu.state = cfg->menu == 2 ? MENU_EDITOR : MENU_GUN;
+        app->menu.slot = 1;
+        app->menu.design = app->rifle.slots[1];
+    }
     if (!render_init(&app->wr, app->renderer, app->world)) {
         return false;
     }
@@ -247,6 +262,25 @@ static void stroke_to(App *app, float sx, float sy) {
 }
 
 void app_handle_event(App *app, const SDL_Event *ev) {
+    // The gun menu takes the keys and the mouse while it is open.
+    if (ev->type == SDL_EVENT_KEY_DOWN && gunmenu_key(&app->menu, ev->key.key)) {
+        app->trigger = false;
+        app->paint_button = 0;
+        return;
+    }
+    if (gunmenu_open(&app->menu)) {
+        if (ev->type == SDL_EVENT_MOUSE_MOTION) {
+            app->mouse_x = ev->motion.x;
+            app->mouse_y = ev->motion.y;
+        } else if (ev->type == SDL_EVENT_MOUSE_BUTTON_DOWN || ev->type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            app->mouse_x = ev->button.x;
+            app->mouse_y = ev->button.y;
+        } else if (ev->type == SDL_EVENT_QUIT) {
+            app->running = false;
+        }
+        gunmenu_mouse(&app->menu, ev);
+        return;
+    }
     switch (ev->type) {
         case SDL_EVENT_QUIT:
             app->running = false;
@@ -597,6 +631,7 @@ static void draw_panel(App *app) {
 
     const char *help[] = {
         "A D  run  W  jump, hold: jetpack",
+        "Tab  gun menu: design bullets",
         "LMB  shoot (Rifle) / paint",
         "RMB  erase",
         "Shift  only into void",
@@ -665,7 +700,7 @@ static void run_tick(App *app) {
     control_player(app);
     // Only the 3 x 3 regions around the player are simulated (D-040); without a player, all.
     const Creature *c = player(app);
-    pickups_collect(app->world, app->player, &app->rifle);
+    pickups_collect(app->world, app->player);
     app->world->view_w = (int)(app->view.w / zoom(app)); // what monsters can see (enemy.c)
     app->world->view_h = (int)(app->view.h / zoom(app));
     if (c) {
@@ -872,11 +907,7 @@ static void draw_actors(App *app) {
         if (p->taken) {
             continue;
         }
-        if (p->kind == PICKUP_AMMO) {
-            fill_world_rect(app, (float)p->x, (float)p->y, (float)p->w, (float)p->h, 0x3A4A22);
-            fill_world_rect(app, (float)p->x + 1, (float)p->y + 1, (float)p->w - 2,
-                            (float)p->h - 2, 0xC8B040);
-        } else {
+        {
             fill_world_rect(app, (float)p->x, (float)p->y, (float)p->w, (float)p->h, 0xF0F0F0);
             fill_world_rect(app, (float)p->x + 1, (float)p->y + 1, (float)p->w - 2,
                             (float)p->h - 2, 0xD02828);
@@ -927,10 +958,9 @@ static void draw_hud(App *app) {
     const Rifle *r = &app->rifle;
     if (r->reload > 0) {
         ui_text(&hud, x, y - 14, 0xFFC060, "RELOADING");
-    } else if (r->limited && r->mag == 0 && r->reserve == 0) {
-        ui_text(&hud, x, y - 14, 0xFF6040, "NO AMMO");
     }
-    ui_text(&hud, x + bw + 16, y + 3, 0xE8E8E8, "AMMO %d / %d", r->mag, r->reserve);
+    ui_text(&hud, x + bw + 16, y + 3, 0xE8E8E8, "SLOT %d / %d", PR_MIN(r->next_slot + 1, (int)r->nslots),
+            (int)r->nslots);
     if (c->state == CREATURE_DEAD) {
         ui_text(&hud, app->view.x + app->view.w * 0.5f - 80, app->view.y + app->view.h * 0.4f,
                 0xFF6040, "YOU DIED   F5 restarts");
@@ -969,11 +999,12 @@ bool app_frame(App *app, double frame_dt) {
     app->stroke_moved = false;
     sim_apply_edits(app->world, &app->edits); // between ticks, on the main thread
 
+    bool in_menu = gunmenu_open(&app->menu); // the game waits while a menu is open
     if (app->cfg.frames > 0) {
-        if (!app->paused) {
+        if (!app->paused && !in_menu) {
             run_tick(app); // deterministic: exactly one tick per frame
         }
-    } else if (app->paused) {
+    } else if (app->paused || in_menu) {
         app->accumulator = 0.0;
         if (app->step_once) {
             run_tick(app);
@@ -1014,6 +1045,12 @@ bool app_frame(App *app, double frame_dt) {
     draw_brush_outline(app);
     SDL_SetRenderClipRect(app->renderer, NULL);
     draw_panel(app);
+    if (gunmenu_open(&app->menu)) {
+        int ww = 0, wh = 0;
+        SDL_GetCurrentRenderOutputSize(app->renderer, &ww, &wh);
+        ui_begin(&app->ui, app->renderer, app->mouse_x, app->mouse_y, false);
+        gunmenu_draw(&app->menu, &app->ui, ww, wh, &app->rifle);
+    }
     app->ui_click = false;
     app->stat_work_s += pr_time_seconds() - work_t0;
 

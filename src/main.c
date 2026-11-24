@@ -9,7 +9,8 @@
 
 static void usage(void) {
     pr_log_info("Usage: pixel-roguelike [--width N] [--height N] [--seed N] [--demo]\n"
-                "                       [--threads N] [--frames N] [--screenshot file.bmp]");
+                "                       [--threads N] [--frames N] [--screenshot file.bmp]\n"
+                "                       [--menu gun|editor] [--example-bullet]");
 }
 
 int main(int argc, char *argv[]) {
@@ -32,6 +33,10 @@ int main(int argc, char *argv[]) {
             cfg.screenshot = argv[++i];
         } else if (strcmp(a, "--threads") == 0 && has_value) {
             cfg.threads = atoi(argv[++i]);
+        } else if (strcmp(a, "--menu") == 0 && has_value) {
+            cfg.menu = strcmp(argv[++i], "editor") == 0 ? 2 : 1;
+        } else if (strcmp(a, "--example-bullet") == 0) {
+            cfg.example_bullet = true;
         } else if (strcmp(a, "--demo") == 0) {
             cfg.demo = true;
         } else {

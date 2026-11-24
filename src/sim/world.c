@@ -6,6 +6,7 @@
 #include "sim/particle.h"
 #include "sim/path.h"
 #include "sim/pressure.h"
+#include "sim/bullet.h"
 #include "sim/rigid.h"
 
 #include <stdlib.h>
@@ -42,9 +43,10 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->creatures = pr_aligned_alloc_zero(64, CREATURE_MAX * sizeof(Creature));
     w->pickups = pr_aligned_alloc_zero(64, PICKUP_MAX * sizeof(Pickup));
     w->rigids = pr_aligned_alloc_zero(64, RIGID_MAX * sizeof(Rigid));
+    w->payloads = pr_aligned_alloc_zero(64, (PAYLOAD_MAX + 1) * sizeof(Payload));
     w->pressure = w->chunks ? pressure_create(w) : NULL;
     if (!w->cells || !w->temp || !w->temp_next || !w->gas || !w->rho || !w->particles ||
-        !w->creatures || !w->pickups || !w->rigids || !w->piece || !w->chunks || !w->pressure) {
+        !w->creatures || !w->pickups || !w->rigids || !w->payloads || !w->piece || !w->chunks || !w->pressure) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
         return NULL;
@@ -71,6 +73,7 @@ void world_destroy(World *w) {
     pr_aligned_free(w->pickups);
     path_free(w);
     rigids_free(w);
+    pr_aligned_free(w->payloads);
     pr_aligned_free(w->sim_scratch);
     free(w);
 }
@@ -88,6 +91,7 @@ void world_clear(World *w) {
     w->creature_count = 0;
     w->pickup_count = 0;
     w->rigid_count = 0;
+    payloads_reset(w);
     for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
         dirty_rect_clear(&w->chunks[i].cur);
         dirty_rect_clear(&w->chunks[i].next);
