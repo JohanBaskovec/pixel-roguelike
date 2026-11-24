@@ -6,9 +6,11 @@ How matter behaves. Code lives in `src/sim/`. Every rule here needs a behaviour 
 
 - **SI units internally.** Temperatures are in **Kelvin** (shown as °C in the UI), density in
   kg/m³, heat capacity in J/(kg·K), conductivity in W/(m·K).
-- **Physical cell size (working assumption): 1 px = 5 cm**, and each cell is treated as a cube
-  (`CELL_SIZE_M = 0.05`, volume 1.25 × 10⁻⁴ m³). A water cell therefore weighs 0.125 kg. This is an
-  open design question (see `VISION.md`) and lives in one constant.
+- **Physical cell size: 1 px = 5 cm today**, and each cell is treated as a cube
+  (`CELL_SIZE_M = 0.05`, volume 1.25 × 10⁻⁴ m³). A water cell therefore weighs 0.125 kg.
+  **It will become 10 cm** (decided, D-037; not implemented yet: ROADMAP M6c). Until then,
+  everything in this document describes 5 cm cells: every length in cells below halves, and
+  every mass or volume per cell is multiplied by 8.
 - **Gravity** is `g = 9.81 m/s²`. At 60 ticks/s and 5 cm/px that is ≈ 0.0545 px/tick².
 - **Time:** one tick = 1/60 s of game time for movement. Heat uses an explicit time-scale factor
   (see below).

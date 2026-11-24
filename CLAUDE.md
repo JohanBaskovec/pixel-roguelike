@@ -43,8 +43,9 @@ follow Torricelli, splashes), creatures that walk, swim,
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom 1), tests
 and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the player, HP, heat
-damage), **M6c – Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` →
-Proposed next steps, D-036) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
+damage), **M6c – Simulation, next** (first the switch from 5 cm to **10 cm cells**, decided in
+D-037 but not implemented: the code and docs still describe 5 cm; then faster gases: the plan is
+in `docs/PERFORMANCE.md` → Proposed next steps, D-036) and **M6 – World**. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
 ## Stack

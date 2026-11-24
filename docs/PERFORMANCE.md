@@ -96,6 +96,25 @@ gcc 13.3 `-O3`); everything else is an estimate, and two earlier estimates in th
 2–4× too optimistic, so each step should be prototyped and measured before the old code is
 removed. The proposed decision is D-036.
 
+### 0. 10 cm cells first (decided, D-037)
+
+Cells go from 5 cm to 10 cm before anything below is built (the work list is in ROADMAP M6c).
+The same scene in metres then holds 4× fewer cells, with no change to any rule:
+
+| | 5 cm (today) | 10 cm |
+|---|---|---|
+| Cells in view at the framing the user wants | 480 000 (zoom 1.5, not pixel-exact) | 120 000 (zoom 3) |
+| The test room below (51 × 51 m) | 1024 × 1024 cells | 512 × 512 cells |
+| Gas memory, 205 × 102 m world | 190 MB | 48 MB |
+
+**Estimates, not measurements:** about 4× less work per tick for the same scene, probably more
+for gas (pressure and mixing cross a room in half as many cells, so regions settle and sleep
+sooner), less for costs that do not depend on the cell count (creatures, per-chunk overheads).
+The field prototype's fully active screenful (8.5 ms at 5 cm on 4 threads) would be about 2 ms.
+Every number in the rest of this section was measured at 5 cm. After the switch, the firing and
+CO2 cases are measured again, and steps 1–6 are re-judged on those numbers: step 2 (tiles) is
+likely still worth it, steps 1 and 3 may be needed less urgently, or only for smoke and blasts.
+
 ### Where the time goes today (measured)
 
 Two cases in a 1024 × 1024 room of air, averaged over 10 s (600 ticks):
@@ -239,9 +258,10 @@ blast), which adds credibility rather than speed.
 
 ### Order
 
+0. Step 0 (10 cm cells), then measure again.
 1. Step 2 (tiles): small, safe, useful under every option.
 2. Step 1 (field pass) with coarse pressure relaxation, behind the existing tests, measured on
-   the firing and CO2 cases against today's numbers before `update_gas()` is removed.
+   the firing and CO2 cases against the numbers after step 0, before `update_gas()` is removed.
 3. Step 3 (velocity), after a stand-alone prototype of thin walls.
 4. Steps 4 and 5 as measurements ask for them.
 

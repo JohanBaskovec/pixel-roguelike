@@ -61,8 +61,9 @@ These are intentionally unresolved. Record answers in `DECISIONS.md` when they a
 - **Agents.** Are there colonists who carry out orders, a single avatar, or both? (The creature
   engine in roadmap M4c — bodies that push gas and water around, breathing at real rates — is
   needed either way.)
-- **Physical scale.** How big is one pixel? The working assumption is 5 cm (see `SIMULATION.md`).
-  The answer affects character size, gas masses and heat time scales.
+- **Physical scale.** ~~How big is one pixel?~~ Decided: **10 cm** (`DECISIONS.md` D-037), for
+  performance and a pixel-exact default zoom. The code still uses the earlier working assumption
+  of 5 cm until the switch is done (ROADMAP M6c).
 - **Gas model.** Gas can be one particle per pixel (Noita) or carry a mass per pixel with pressure
   (ONI). The plan is to start with particles and move to mass and pressure in M4; see
   `DECISIONS.md` D-005.

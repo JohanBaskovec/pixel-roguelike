@@ -76,6 +76,9 @@ Notes
 
 ## Derived values at 5 cm cells
 
+(Cells will become 10 cm, D-037: the masses and thermal masses per cell below are then 8× larger,
+and the constants given in cells in the next section are rescaled. Not implemented yet.)
+
 These are handy for sanity-checking (`V_cell = 1.25e-4 m³`).
 
 | Element | Mass per cell | Thermal mass per cell (J/K) | Diffusivity α = k/(ρc) (m²/s) |
