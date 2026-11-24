@@ -17,6 +17,7 @@ void test_bullet_cuts_a_log(void);
 void test_rigid_same_for_any_thread_count(void);
 void test_rigid_survives_a_barrage(void);
 void test_burning_log_burns_away(void);
+void test_slivers_crumble_to_sawdust(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
@@ -230,5 +231,28 @@ void test_burning_log_burns_away(void) {
     EXPECT(pixels < before);                                  // some burnt away
     EXPECT(test_mass(w, ELEM_CO2) > 0.003);                   // making carbon dioxide
     EXPECT_EQ(test_count(w, ELEM_WOOD) + test_count(w, ELEM_BURNING_WOOD), cells);
+    world_destroy(w);
+}
+
+void test_slivers_crumble_to_sawdust(void) {
+    // Cut into single pixels, a thin log does not vanish: each pixel becomes sawdust, which falls
+    // to the floor like sand (the cell count is kept).
+    World *w = room(157);
+    int li = rigid_spawn_box(w, 60.5f, 60.5f, 5, 1, 0.0f); // x 58..62, row 60
+    EXPECT(li >= 0);
+    EXPECT_EQ(test_count(w, ELEM_WOOD), 5);
+    fill(w, 59, 55, 59, 65, ELEM_VOID);
+    fill(w, 61, 55, 61, 65, ELEM_VOID);
+    sim_run_ticks(w, 4);
+    EXPECT_EQ(test_count(w, ELEM_SAWDUST), 3);
+    EXPECT_EQ(test_count(w, ELEM_WOOD), 0);
+    int bodies = 0;
+    for (int i = 0; i < w->rigid_count; i++) {
+        bodies += w->rigids[i].active;
+    }
+    EXPECT_EQ(bodies, 0);
+    sim_run_ticks(w, 150);
+    EXPECT_EQ(test_count(w, ELEM_SAWDUST), 3);
+    EXPECT(test_mean_y(w, ELEM_SAWDUST) > 124.0); // on the floor
     world_destroy(w);
 }

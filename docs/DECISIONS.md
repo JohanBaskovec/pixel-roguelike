@@ -725,7 +725,8 @@ to watch).
 - **Alternatives:** Box2D-style bodies outside the grid (a new dependency, and invisible to the
   simulation); stamping bodies with no pixel state (heat and fire could not travel with them).
 - **Consequences:** Only wood bodies so far, liquid is a solid to them, and creatures cannot
-  push them. Rotation resamples the bitmap, so the cell count of a turning body varies by a few
+  push them. Slivers of under 2 pixels crumble to sawdust (a powder element) instead of
+  vanishing. Rotation resamples the bitmap, so the cell count of a turning body varies by a few
   percent while its pixels are exact. A body overlapping the terrain by a few cells draws fewer
   pixels while it does. At most 128 bodies; the level has about 55 (all asleep, checked every 8
   ticks).

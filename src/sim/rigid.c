@@ -161,6 +161,13 @@ static void clear_cell(World *w, int32_t idx) {
     gas_mix_clear(&w->gas[idx]);
 }
 
+// A wood cell that belongs to no body any more (a sliver cut off, too small to be one) crumbles:
+// it becomes sawdust, a powder, which falls and piles up like sand.
+static void crumble(World *w, int32_t idx) {
+    Cell c = w->cells[idx];
+    w->cells[idx] = (Cell){ELEM_SAWDUST, (uint8_t)(w->tick - 1), c.shade, 0};
+}
+
 static void note(World *w, int32_t idx) {
     world_note_moved(w, (int)(idx % w->width), (int)(idx / w->width));
 }
@@ -375,7 +382,7 @@ void rigid_hit(World *w, int x, int y, float ux, float uy, float momentum) {
 
 // Splits body ri (some of its pixels were removed) into connected pieces: the biggest stays in
 // the slot, the others become new bodies with the velocity of their own part; pieces under
-// RIGID_MIN_PIECE pixels vanish. The pose of every piece keeps its pixels where they are.
+// RIGID_MIN_PIECE pixels crumble to sawdust. The pose of every piece keeps its pixels where they are.
 static void restructure(World *w, int ri) {
     Rigid *r = &w->rigids[ri];
     static uint8_t label[RIGID_MAX_DIM * RIGID_MAX_DIM];
@@ -430,7 +437,7 @@ static void restructure(World *w, int ri) {
     if (comps == 0 || size[keep] < RIGID_MIN_PIECE) {
         for (int k = 0; k < old_n; k++) {
             if (is_wood(w->cells[old_idx[k]].element)) {
-                clear_cell(w, old_idx[k]);
+                crumble(w, old_idx[k]);
                 note(w, old_idx[k]);
             }
         }
@@ -556,7 +563,7 @@ static void restructure(World *w, int ri) {
             placed = pieces[k].label == lb;
         }
         if (!placed && is_wood(w->cells[old_idx[q]].element)) {
-            clear_cell(w, old_idx[q]);
+            crumble(w, old_idx[q]); // a sliver (or a piece with no slot): sawdust
             note(w, old_idx[q]);
         }
     }

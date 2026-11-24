@@ -472,13 +472,15 @@ creatures see ordinary wood cells.
 - **Cutting.** A pixel whose cell is no longer wood (a bullet, the eraser, fire burning it away)
   is removed. The rest is split into connected pieces (4-neighbour); the biggest keeps the slot,
   the others become bodies of their own with the velocity of their own part (`v + ω × r`), so a
-  cut half swings down around its pillar. Pieces under 2 pixels, or that cannot be drawn,
-  vanish; with all 128 slots used, pieces are lost. A bullet through wood loses 30 cells/tick of
+  cut half swings down around its pillar. Pieces under 2 pixels crumble into sawdust (`ELEM_SAWDUST`, a powder: it falls and piles
+  up like sand), and so do pieces for which no one of the 128 body slots is left; a piece none of
+  whose pixels can be drawn (it is all inside something solid) is lost. A bullet through wood loses 30 cells/tick of
   speed a cell (about 60 cm of pine), erases a kerf three cells wide across its path, and kicks
   the body with its momentum (3.6 kg m/s) at the hit.
 - **Limits.** Bodies are made of wood only, up to 64 × 64 pixels and 1024 pixels; liquid is a
   solid to them (a log lies on a pool instead of floating); creatures cannot push them; frozen
-  outside the simulated area (D-040). Bodies' own air currents and splinters are not modelled.
+  outside the simulated area (D-040). Bodies' own air currents and splinters are not modelled
+  (only slivers become sawdust).
 
 ### Free particles (M4b; D-026)
 

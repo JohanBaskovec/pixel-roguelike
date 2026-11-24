@@ -36,6 +36,7 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 23 | Molten brass | LIQUID | 7600 (approx.) | 470 (approx.) | 70 (approx.) | freezes 1208 K → brass; painted at 1300 K | `#D8A848`, glows | 6a |
 | 24 | Gas (a mixture of species 6–10) | GAS | its mixture's (air: 1.2922) | its mixture's (air: 1005) | its mixture's (air: 0.026) | its water vapour condenses | mixed from its species | 6a |
 | 25 | Blood | LIQUID | 1060 | 3600 | 0.5 | none (no freezing or boiling yet); starts at 293.15 K | `#8A0F14` α 0.92 | 6b |
+| 28 | Sawdust | POWDER | 250 (bulk) | 1700 | 0.06 | none (does not burn yet) | `#C4A06A` | 6b |
 | 26 | Wood | STATIC | 600 | 1700 | 0.15 | catches fire at 523 K (250 °C) → burning wood | `#9A6A3A` | 6b |
 | 27 | Burning wood | STATIC | 600 | 1700 | 0.15 | goes out below 480 K → wood; burns while oxygen reaches it; painted at 900 K (not in the toolbar) | `#4A2A14`, glows | 6b |
 

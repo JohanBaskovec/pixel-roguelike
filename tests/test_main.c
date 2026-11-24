@@ -94,6 +94,7 @@ void test_bullet_cuts_a_log(void);
 void test_rigid_same_for_any_thread_count(void);
 void test_rigid_survives_a_barrage(void);
 void test_burning_log_burns_away(void);
+void test_slivers_crumble_to_sawdust(void);
 void test_wood_needs_oxygen(void);
 void test_wood_burns_only_above_16_percent_oxygen(void);
 void test_walker_finds_the_hole_down(void);
@@ -232,6 +233,7 @@ int main(int argc, char **argv) {
     RUN(test_rigid_same_for_any_thread_count);
     RUN(test_rigid_survives_a_barrage);
     RUN(test_burning_log_burns_away);
+    RUN(test_slivers_crumble_to_sawdust);
     RUN(test_wood_needs_oxygen);
     RUN(test_wood_burns_only_above_16_percent_oxygen);
     RUN(test_walker_finds_the_hole_down);

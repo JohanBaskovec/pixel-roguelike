@@ -15,7 +15,7 @@
 //
 // A pixel whose cell is no longer wood (shot, erased, burnt away) is removed; the rest is split
 // into connected pieces, each a new body that keeps the velocity of its own part. Pieces under
-// RIGID_MIN_PIECE pixels vanish. Bodies are updated serially at the start of the tick, outside
+// RIGID_MIN_PIECE pixels crumble into sawdust, a powder that falls like sand. Bodies are updated serially at the start of the tick, outside
 // the simulated area they are frozen.
 
 #include "sim/world.h"
@@ -23,7 +23,7 @@
 #define RIGID_MAX        128
 #define RIGID_MAX_DIM    64   // bitmap side, pixels
 #define RIGID_MAX_CELLS  1536 // world cells one body can fill
-#define RIGID_MIN_PIECE  2
+#define RIGID_MIN_PIECE  2 // smaller pieces crumble to sawdust
 
 // What each pixel holds: a wood cell (ELEM_WOOD or ELEM_BURNING_WOOD) and its temperature.
 // cell.element == ELEM_VOID: no pixel.
