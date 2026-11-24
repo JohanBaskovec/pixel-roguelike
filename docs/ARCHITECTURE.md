@@ -186,6 +186,23 @@ row, `dirty_rect_spans`), so a diagonal line of woken cells wakes a strip of til
 chunk. Wakes from jobs merge by min/max and OR (`dirty_rect_merge`), so the result does not
 depend on the thread count. Water pressure and the heat pass still work on whole chunks.
 
+### Simulated area (D-040)
+
+The world is cut into regions of `SIM_REGION` × `SIM_REGION` cells (512: 8 × 8 chunks). The game
+calls `world_simulate_near()` before every tick with the player's position, which marks the
+chunks of the 3 × 3 regions around it as active (`Chunk.active`); without a player (or in tests,
+scenes and the benchmark) everything is active (`world_simulate_all()`, the default). At zoom ×2
+on a 1920-pixel-wide window the view reaches about 420 cells either side of the player, inside the
+512 to 1024 cells of simulated world around it.
+- A frozen chunk takes no part in the tick: at its start its `cur` rect is emptied and its
+  `next` rect, water-pressure relabel flag and heat flag are left as they are, so whatever woke it
+  (matter moved in from the border, a landing particle, an edit) waits until it is active again.
+- Heat: frozen chunks are never in the heat pass's set, so they count as not computed and nothing
+  is exchanged with them (energy is conserved). Wakes that heat and water pressure give for the
+  running tick go to `next` in a frozen chunk (`chunk_wake_now()`).
+- Water pressure takes no water from a frozen chunk (`find_source()`). Creatures whose centre is
+  in a frozen chunk are not updated. Free particles fly everywhere.
+
 ### Parallel movement: 4-phase checkerboard
 
 Chunks are grouped by `(cx & 1, cy & 1)` into 4 phases. The scheduler runs the phases one after

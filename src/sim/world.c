@@ -82,9 +82,29 @@ void world_clear(World *w) {
         dirty_rect_clear(&w->chunks[i].next);
         w->chunks[i].temp_lo = 1e30f;
         w->chunks[i].temp_hi = -1e30f;
+        w->chunks[i].active = 1;
     }
     world_wake_rect(w, 0, 0, w->width - 1, w->height - 1);
     world_wake_heat(w, 0, 0, w->width - 1, w->height - 1);
+}
+
+void world_simulate_near(World *w, int x, int y) {
+    const int per = SIM_REGION / CHUNK_SIZE; // chunks per region side
+    int rx = PR_CLAMP(x, 0, w->width - 1) / SIM_REGION,
+        ry = PR_CLAMP(y, 0, w->height - 1) / SIM_REGION;
+    int cx0 = (rx - 1) * per, cx1 = (rx + 2) * per; // chunks [cx0, cx1)
+    int cy0 = (ry - 1) * per, cy1 = (ry + 2) * per;
+    for (int cy = 0; cy < w->chunks_y; cy++) {
+        for (int cx = 0; cx < w->chunks_x; cx++) {
+            world_chunk(w, cx, cy)->active = cx >= cx0 && cx < cx1 && cy >= cy0 && cy < cy1;
+        }
+    }
+}
+
+void world_simulate_all(World *w) {
+    for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
+        w->chunks[i].active = 1;
+    }
 }
 
 void world_wake_heat(World *w, int x0, int y0, int x1, int y1) {

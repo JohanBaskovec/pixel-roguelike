@@ -632,6 +632,13 @@ static void control_player(App *app) {
 static void run_tick(App *app) {
     double t0 = pr_time_seconds();
     control_player(app);
+    // Only the 3 x 3 regions around the player are simulated (D-040); without a player, all.
+    const Creature *c = player(app);
+    if (c) {
+        world_simulate_near(app->world, c->x + c->w / 2, c->y + c->h / 2);
+    } else {
+        world_simulate_all(app->world);
+    }
     sim_tick(app->world, &app->last_stats);
     app->stat_sim_s += pr_time_seconds() - t0;
     app->stat_ticks++;

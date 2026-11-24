@@ -42,15 +42,17 @@ condense; currents), free particles (jets that
 follow Torricelli, splashes), creatures that walk, swim,
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom ×2), tests
-and a benchmark. Next: **M6b – Roguelike, next** (simulating only near the player, HP, heat
-damage, and the content the user wants: enemies, smoke grenades, rockets, acid), **M6c –
+and a benchmark; only the 3 × 3 regions of 512 × 512 cells around the player are simulated (time
+stops outside, D-040). Next: **M6b – Roguelike, next** (HP, heat damage, and the content the user
+wants: enemies, smoke grenades, rockets, acid), **M6c –
 Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` → Proposed next steps,
 D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is too slow for busy
 scenes. Firing for 10 s, or one big gas cloud, in a 1024 × 1024 room costs 6–11 ms of the
 16.7 ms tick on 4 threads, and it grows with the area stirred. On the player's laptop (Ryzen 7
 4700U) firing at the sky for 10 s cost 50 ms per tick until debris falling through clear air
-stopped stirring it (now about 8 ms here). A few lava pools slow it down more and more over
-minutes (pressure over the heat spreads too slowly: PERFORMANCE → Proposed next steps → Order).
+stopped stirring it (now about 8 ms here). A few lava pools near the player slow it down more and more
+over minutes (pressure over the heat spreads too slowly: PERFORMANCE → Proposed next steps →
+Order); far from the player they cost nothing (D-040).
 The target scene and the plan are in `docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
@@ -118,6 +120,7 @@ On Linux, building SDL3 from source needs the X11/Wayland development packages l
 
 - The **world** is a grid of cells, split into **64×64 chunks**. Each chunk keeps a *dirty rect*
   and which of its 16×16 tiles are awake; only those cells are simulated. Settled matter sleeps.
+  Only the chunks of the 3 × 3 regions of 512 cells around the player are simulated at all.
 - The simulation runs at a **fixed 60 ticks/s**, decoupled from rendering. Each tick runs a
   movement pass (cellular automaton, bottom-up, with an alternating horizontal scan direction) and
   then a heat pass.

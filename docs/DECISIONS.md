@@ -610,3 +610,23 @@ to watch).
   25.7). A big CO₂ cloud in air mixes a little more as it sinks (fingers both ways): about 15%
   more work in that case. Lava pools are not fixed by this: their cost comes from pressure (see
   PERFORMANCE → Proposed next steps).
+
+## D-040 — Only the area around the player is simulated
+
+- **Status:** Accepted (2026-11-24), asked for by the user.
+- **Context:** The world is 4096 × 2048 cells, and every awake cell costs the same wherever it is:
+  a lava pool or a settling gas cloud the player has left keeps the frame rate down. Attempts to
+  make continuous heat sources cheap (PERFORMANCE → Proposed next steps) did not succeed.
+- **Decision:** The world is cut into regions of 512 × 512 cells (8 × 8 chunks, `SIM_REGION`). Only
+  the 3 × 3 regions around the player are simulated (1536 × 1536 cells); outside, time stops, as
+  in Noita. Frozen chunks keep their pending wakes; heat does not cross into them; water is not
+  taken from them; creatures there are not updated; free particles fly on and land there. The
+  user proposed 500 × 500; 512 keeps regions on chunk boundaries. Fixed regions (not a window
+  centred on the player) change only when the player crosses a region border, and always leave
+  512 to 1024 simulated cells around the player, more than the view shows at zoom ×2.
+- **Consequences:** The cost no longer depends on the world's size: lava far from the player went
+  from 65.7 to 2.5 ms per tick. What is near the player costs as before (lava pools beside it
+  still grow within the area). Zoomed out (×1 or less), frozen parts of the world can be in view.
+  Things left behind do not evolve while away (a fire does not burn out, water does not drain).
+  Saving and loading regions (world streaming) is later work (M6).
+

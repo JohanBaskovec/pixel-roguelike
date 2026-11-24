@@ -738,7 +738,12 @@ static void update_one(World *w, Creature *c) {
 
 void creatures_update(World *w) {
     for (int i = 0; i < w->creature_count; i++) {
-        update_one(w, &w->creatures[i]);
+        Creature *c = &w->creatures[i];
+        int cx = PR_CLAMP(c->x + c->w / 2, 0, w->width - 1) >> CHUNK_SHIFT;
+        int cy = PR_CLAMP(c->y + c->h / 2, 0, w->height - 1) >> CHUNK_SHIFT;
+        if (world_chunk(w, cx, cy)->active) { // outside the simulated area: frozen
+            update_one(w, c);
+        }
     }
 }
 

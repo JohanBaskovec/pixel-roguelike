@@ -293,8 +293,10 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [ ] Rockets (a blast: hot gas at high pressure, digging and debris)
 - [ ] Acid that eats through walls (a liquid that reacts with solids)
 
-- [ ] Simulate only what is near the player (the visible part of the level plus a margin), so the
-      world can be as big as we want (with world streaming, M6)
+- [x] Simulate only what is near the player: the 3 × 3 regions of 512 × 512 cells around it
+      (1536 × 1536 cells); time stops outside (D-040). Lava pools left behind cost nothing (65.7 →
+      2.5 ms per tick at 60 s); the world size no longer matters to the cost. World streaming
+      (loading and saving regions) is M6
 - [ ] Smooth zooming
 - [ ] An HP bar with 100 HP (bullets, falls, suffocation)
 - [ ] Heat and cold hurt: the further the air and matter around the body are from comfortable,

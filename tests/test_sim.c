@@ -1,6 +1,7 @@
 #include "test.h"
 
 #include "core/jobs.h"
+#include "sim/creature.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
 
@@ -17,6 +18,7 @@ void test_counts_conserved(void);
 void test_deterministic(void);
 void test_settled_world_sleeps(void);
 void test_dirty_rect_tiles(void);
+void test_frozen_outside_simulated_area(void);
 void test_no_diagonal_leak(void);
 void test_poured_water_spreads(void);
 void test_falling_stream_has_no_chunk_bulges(void);
@@ -231,6 +233,64 @@ void test_dirty_rect_tiles(void) {
     dirty_rect_merge(&r, &s);
     EXPECT(rect_processes(&r, 60, 2));
     EXPECT(!rect_processes(&r, 2, 60));
+}
+
+// Mean row of the water cells with x in [x0, x1].
+static double water_row(const World *w, int x0, int x1) {
+    double sum = 0.0;
+    int n = 0;
+    for (int y = 0; y < w->height; y++) {
+        for (int x = x0; x <= x1; x++) {
+            if (w->cells[world_index(w, x, y)].element == ELEM_WATER) {
+                sum += y;
+                n++;
+            }
+        }
+    }
+    return n ? sum / n : -1.0;
+}
+
+void test_frozen_outside_simulated_area(void) {
+    // Only the 3 x 3 regions (SIM_REGION cells) around a point are simulated: with the point at
+    // x = 100, columns 0..1023. Beyond, time stops: water hangs in mid-air, a hot iron block keeps
+    // its heat, a creature stays where it is. Simulating everything again, they carry on.
+    World *w = test_world_box(2048, 256, 130);
+    Edit e = {500, 40, 500, 40, 6, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT};
+    sim_apply_edit(w, &e);
+    e.x0 = e.x1 = 1500;
+    sim_apply_edit(w, &e);
+    for (int y = 150; y <= 254; y++) { // air around the iron block
+        Edit air = {1600, y, 1800, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT};
+        sim_apply_edit(w, &air);
+    }
+    e.element = ELEM_IRON;
+    e.x0 = e.x1 = 1700;
+    e.y0 = e.y1 = 200;
+    sim_apply_edit(w, &e);
+    for (int y = 194; y <= 206; y++) {
+        for (int x = 1694; x <= 1706; x++) {
+            if (w->cells[world_index(w, x, y)].element == ELEM_IRON) {
+                w->temp[world_index(w, x, y)] = 800.0f;
+            }
+        }
+    }
+    world_wake_heat(w, 1690, 190, 1710, 210);
+    int id = creature_spawn(w, 1300, 40);
+    EXPECT(id >= 0);
+    int64_t water = test_count(w, ELEM_WATER);
+    world_simulate_near(w, 100, 100);
+    sim_run_ticks(w, 120);
+    EXPECT(water_row(w, 480, 520) > 150.0);               // fell to the floor
+    EXPECT(fabs(water_row(w, 1480, 1520) - 40.0) < 0.5);  // hangs where it was painted
+    EXPECT(w->temp[world_index(w, 1700, 194)] == 800.0f); // kept its heat (top edge, in air)
+    EXPECT_EQ(w->creatures[id].y, 40);                    // did not fall
+    world_simulate_all(w);
+    sim_run_ticks(w, 120);
+    EXPECT(water_row(w, 1480, 1520) > 150.0);
+    EXPECT(w->temp[world_index(w, 1700, 194)] < 800.0f);
+    EXPECT(w->creatures[id].y > 40);
+    EXPECT_EQ(test_count(w, ELEM_WATER), water);
+    world_destroy(w);
 }
 
 void test_settled_world_sleeps(void) {

@@ -28,6 +28,14 @@ Each element has exactly one behaviour, used for dispatch in the movement pass:
 **Void** is vacuum: no mass, no heat capacity, no conduction. It is what a cell becomes when
 matter leaves it.
 
+## Simulated area
+
+Only the 3 × 3 regions of 512 × 512 cells around the player are simulated (`world_simulate_near()`;
+ARCHITECTURE → Simulated area; D-040). Outside, nothing moves, no heat flows and creatures stand
+still; matter that crosses into a frozen region (falling, pushed by a rule reaching up to 32 cells,
+carried by a particle) stays there, and the region carries on where it stopped when it is simulated
+again (tested: water hanging in mid-air, a hot iron block and a creature, frozen and released).
+
 ## Movement pass
 
 ### Scan order, phases and the tick stamp

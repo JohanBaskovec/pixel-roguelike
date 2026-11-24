@@ -1537,19 +1537,26 @@ void sim_tick(World *w, SimStats *stats) {
 
     int n = w->chunks_x * w->chunks_y;
     for (int i = 0; i < n; i++) {
-        w->chunks[i].cur = w->chunks[i].next;
-        dirty_rect_clear(&w->chunks[i].next);
-        w->chunks[i].head_dirty = w->chunks[i].head_dirty_next;
-        w->chunks[i].head_dirty_next = 0;
-        w->chunks[i].heat_active = w->chunks[i].heat_active_next;
-        w->chunks[i].heat_active_next = 0;
+        Chunk *ch = &w->chunks[i];
+        if (!ch->active) { // frozen: what woke it waits (next, head_dirty_next, heat_active_next)
+            dirty_rect_clear(&ch->cur);
+            ch->head_dirty = 0;
+            ch->heat_active = 0;
+            continue;
+        }
+        ch->cur = ch->next;
+        dirty_rect_clear(&ch->next);
+        ch->head_dirty = ch->head_dirty_next;
+        ch->head_dirty_next = 0;
+        ch->heat_active = ch->heat_active_next;
+        ch->heat_active_next = 0;
     }
     // Cells moved into these chunks last tick: they need the heat pass only if temperatures differ
     // within the chunk or against its neighbours (a world at one temperature costs nothing).
     for (int cy = 0; cy < w->chunks_y; cy++) {
         for (int cx = 0; cx < w->chunks_x; cx++) {
             Chunk *ch = world_chunk(w, cx, cy);
-            if (!ch->heat_check) {
+            if (!ch->heat_check || !ch->active) {
                 continue;
             }
             ch->heat_check = 0;

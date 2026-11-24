@@ -57,7 +57,8 @@ typedef struct Chunk {
     uint8_t heat_active_next; // ... next tick
     uint8_t heat_check;       // cells arrived: check next tick whether temperatures differ
     uint16_t cost;  // cells the movement pass visited here the last time it ran (job order)
-    uint8_t pad[4]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
+    uint8_t active; // simulated (world_simulate_near); else frozen, its wakes kept for later
+    uint8_t pad[3]; // 32 bytes total: chunk metadata never shares a cache line with 2+ others
 } Chunk;
 
 _Static_assert(sizeof(Chunk) == 32, "Chunk must stay 32 bytes");
@@ -306,6 +307,26 @@ static inline int dirty_rect_spans(const DirtyRect *r, int ty, int x0[2], int x1
         }
     }
     return n;
+}
+
+// Simulated area (D-040): the world is cut into regions of SIM_REGION x SIM_REGION cells (8 x 8
+// chunks), and only the 3 x 3 regions around the player are simulated. Outside, time stops: cells,
+// heat and creatures stay as they are, and what reaches them (matter, wakes) waits there until they
+// are simulated again. Free particles keep flying everywhere.
+#define SIM_REGION 512
+
+_Static_assert(SIM_REGION % CHUNK_SIZE == 0, "regions are whole chunks");
+
+// Simulates the 3 x 3 regions around the cell (x, y) only.
+void world_simulate_near(World *w, int x, int y);
+
+// Simulates the whole world (the default: tests, scenes without a player).
+void world_simulate_all(World *w);
+
+// Wakes the chunk-local rect of chunk c for this tick if it is simulated, else for when it is
+// (heat and water pressure, which run before the movement pass).
+static inline void chunk_wake_now(Chunk *c, int x0, int y0, int x1, int y1) {
+    dirty_rect_add(c->active ? &c->cur : &c->next, x0, y0, x1, y1);
 }
 
 // Wake every cell in the world-space rect (inclusive, clamped) for the next tick, and mark the

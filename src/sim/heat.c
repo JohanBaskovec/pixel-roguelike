@@ -246,10 +246,14 @@ static void wake_now(World *w, int x0, int y0, int x1, int y1) {
         for (int cx = x0 >> CHUNK_SHIFT; cx <= x1 >> CHUNK_SHIFT; cx++) {
             Chunk *c = world_chunk(w, cx, cy);
             int bx = cx << CHUNK_SHIFT, by = cy << CHUNK_SHIFT;
-            dirty_rect_add(&c->cur, PR_MAX(x0 - bx, 0), PR_MAX(y0 - by, 0),
+            chunk_wake_now(c, PR_MAX(x0 - bx, 0), PR_MAX(y0 - by, 0),
                            PR_MIN(x1 - bx, CHUNK_SIZE - 1), PR_MIN(y1 - by, CHUNK_SIZE - 1));
             c->render_dirty = 1;
-            c->head_dirty = 1; // water pressure relabels this tick (it runs after heat)
+            if (c->active) {
+                c->head_dirty = 1; // water pressure relabels this tick (it runs after heat)
+            } else {
+                c->head_dirty_next = 1; // ... or once it is simulated again
+            }
             c->heat_active_next = 1;
         }
     }
@@ -278,7 +282,8 @@ void heat_update(World *w, HeatStats *stats) {
     }
 
     // This tick's set: heat-active chunks and their neighbours (a neighbour's border cells
-    // exchange heat with the active chunk, so both sides must be computed to conserve energy).
+    // exchange heat with the active chunk, so both sides must be computed to conserve energy),
+    // only where the world is simulated (a frozen chunk counts as not computed: no exchange).
     for (int i = 0; i < n_chunks; i++) {
         hs->marked[i] = 0;
     }
@@ -287,18 +292,13 @@ void heat_update(World *w, HeatStats *stats) {
             if (!world_chunk(w, cx, cy)->heat_active) {
                 continue;
             }
-            hs->marked[cy * w->chunks_x + cx] = 1;
-            if (cx > 0) {
-                hs->marked[cy * w->chunks_x + cx - 1] = 1;
-            }
-            if (cx + 1 < w->chunks_x) {
-                hs->marked[cy * w->chunks_x + cx + 1] = 1;
-            }
-            if (cy > 0) {
-                hs->marked[(cy - 1) * w->chunks_x + cx] = 1;
-            }
-            if (cy + 1 < w->chunks_y) {
-                hs->marked[(cy + 1) * w->chunks_x + cx] = 1;
+            static const int8_t d5[5][2] = {{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+            for (int k = 0; k < 5; k++) {
+                int nx = cx + d5[k][0], ny = cy + d5[k][1];
+                if (nx >= 0 && ny >= 0 && nx < w->chunks_x && ny < w->chunks_y &&
+                    world_chunk(w, nx, ny)->active) {
+                    hs->marked[ny * w->chunks_x + nx] = 1;
+                }
             }
         }
     }

@@ -276,8 +276,7 @@ void pressure_update(World *w) {
             }
         }
         if (best < ps->cp[ch].last_top) {
-            Chunk *c = &w->chunks[ch];
-            dirty_rect_add(&c->cur, 0, 0, CHUNK_SIZE - 1, CHUNK_SIZE - 1);
+            chunk_wake_now(&w->chunks[ch], 0, 0, CHUNK_SIZE - 1, CHUNK_SIZE - 1);
         }
         ps->cp[ch].last_top = best;
     }
@@ -367,6 +366,9 @@ static bool find_source(const World *w, int32_t node, int top, ElementId e, int 
     int bx = (ch % w->chunks_x) << CHUNK_SHIFT;
     if (top < 0 || top >= w->height || (top >> CHUNK_SHIFT) != ch / w->chunks_x) {
         return false; // the row is in another chunk than this piece
+    }
+    if (!w->chunks[ch].active) {
+        return false; // frozen (outside the simulated area): no water is taken from there
     }
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         size_t i = world_index(w, bx + lx, top);

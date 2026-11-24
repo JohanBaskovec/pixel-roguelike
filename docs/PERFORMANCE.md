@@ -317,8 +317,8 @@ difference).
   powders, particles and creatures stay at 60 Hz. Gas is slow and smooth. With today's rules: the
   rates per update doubled (diffusion, buoyant and current moves); a cell still moves at most one
   cell per update, so the fastest rise and currents halve (1.5 m/s).
-- **Only near the player** (ROADMAP M6b): the visible part of the level plus a margin, so world
-  size stops mattering.
+- **Only near the player** (done, D-040): the 3 × 3 regions of 512 cells around the player, so
+  world size stops mattering.
 
 ### 5. Smaller gas storage
 
@@ -392,20 +392,23 @@ threads.
    The fix this pointed to was step 3 (a velocity with a set speed of sound). Prototyped, then
    integrated and reverted the same day: it reduced the overpressure but made this scene 2–4×
    slower (step 3 above). Still open.
-4. Gas at 30 Hz by tile parity (step 4): half the tiles' gas cells each tick, rates doubled.
+4. **Simulate only near the player** (done, D-040): lava pools far from the player 65.7 → 2.5 ms
+   per tick at 60 s; near it 59.8 → 53.6 ms (they are inside the simulated area and still grow
+   there, more slowly; the pressure front stops at its edge); the sweep test 5.5 → 4.9 ms.
+5. Gas at 30 Hz by tile parity (step 4): half the tiles' gas cells each tick, rates doubled.
    Estimate: about 1.3× for the whole tick (gas rules are about 55% of it), at some cost in
    fidelity (buoyant rise and currents at most one cell per update).
-5. Fewer wakes: a cell that exchanges gas wakes the 3 × 3 cells around both ends, and 60 000
+6. Fewer wakes: a cell that exchanges gas wakes the 3 × 3 cells around both ends, and 60 000
    visits per tick when firing end within tolerance. Waking only the neighbours that now differ
    from the changed cell. Estimate: about 10%.
-6. Thread scaling for desktops with 8 or more cores (4 threads gave 2.5×). Measured in the sweep:
+7. Thread scaling for desktops with 8 or more cores (4 threads gave 2.5×). Measured in the sweep:
    serial work is under 5% of the tick; a movement phase's jobs add up to 2.3 ms, its costliest
    job takes 0.66 ms and the phase 0.90 ms on 4 threads, and an empty batch cost 55 µs to wake the
    workers. Done (Benchmark log): costliest jobs first, workers spinning briefly between batches.
    Left: a phase can never be shorter than its costliest chunk (a quarter to a third of the
    phase's work in busy scenes), which bounds what more cores can give; only smaller jobs would
    help, and they need a smaller `MAX_MOVE`.
-7. Steps 1 and 3 (field pass and velocity) only together, only with one array per species, and
+8. Steps 1 and 3 (field pass and velocity) only together, only with one array per species, and
    only if the above is not enough: they are a rewrite of the gas model for a gain measured above
    at between 1.4× and none.
 
@@ -445,6 +448,7 @@ threads.
 | 2026-11-24 | M6c clear air | same | gcc 13.3 -O3 | default level, firing at the sky for 10 s sweeping left to right (the player's test); 1024² room, firing; 1024×768 bench scene | 4 | — | sweep 7.6 / 6.7 vs 42.8 / 40.3 (ms/tick averaged over 10 s), at 10 s 8.5 / 7.7 vs 77.9 / 77.3, cells visited 156 000 vs 2 060 000, heat chunks 56 vs 692; room 6.2 / 6.9 vs 6.8 / 7.7; bench 19.8 / 19.8 vs 20.0 / 19.2 (p50) (all alternately) | Lone falling cells kick only the gas they displace (`FALL_WIND_LONE`), currents stop in gas exactly like its neighbours, bullets and casings fired at room temperature. Each part measured in the sweep: bullets at room temperature alone 2.0 M cells visited (the currents remain), with currents stopping in uniform gas 209 000, with lone cells as well 156 000 |
 | 2026-11-24 | M6c threads | same | gcc 13.3 -O3 | default level sweep (as above); 1024² room: firing, CO2 ball; 1024×768 bench scene | 4 | — | sweep 5.55 / 4.49 / 5.13 vs 5.97 / 7.05 / 5.83 (ms/tick averaged over 10 s; costliest-first alone 5.48 / 5.69 / 5.30); CO2 ball 5.61 / 5.56 vs 6.85 / 6.66; room firing 4.52 / 3.86 vs 4.56 / 4.73; bench 16.1 / 16.4 vs 18.1 / 18.5 (p50) (all alternately) | Movement-phase jobs run costliest first (`Chunk.cost`: cells visited last time); pool workers spin up to 0.2 ms between batches before sleeping (an empty batch: 55 → 12 µs). About 15–20% on 4 threads; more expected with 8, where the costliest job bounds each phase |
 | 2026-11-24 | M6c buoyancy (D-039) | same | gcc 13.3 -O3 | 1024² room: firing, CO2 ball; default level sweep; 1024×768 bench scene; default level with 3 lava pools | 4 | — | room firing 4.73 / 5.11 vs 4.67 / 4.83; CO2 ball 6.80 / 7.46 vs 6.06 / 6.24 (ms/tick averaged over 10 s); sweep 4.82 / 4.88 vs 5.99 / 4.69; bench 19.0 / 18.5 vs 18.8 / 17.9 (p50) (all alternately); lava pools 85 vs 74 ms at 2 min (one run each) | Sinking as well as rising; moves cross whole layers when they end within 32 rows; a stable vertical density difference no longer keeps gas awake. A big CO2 cloud mixes a little more as it sinks (about +15%); the rest within noise. The lava pools' cost is pressure (Proposed next steps → Order, 3) |
+| 2026-11-24 | M6b simulated area (D-040) | same | gcc 13.3 -O3 | default level: 3 lava pools far from the player / near it; sweep test; 1024×768 bench scene | 4 | — | lava far 2.5 vs 65.7 ms at 60 s; lava near 53.6 vs 59.8; sweep 4.85 / 4.92 vs 5.55 / 5.44 (averages over 10 s, alternately); bench 19.9 / 20.1 vs 19.2 / 20.1 (p50, everything simulated: unchanged) | Only the 3 × 3 regions of 512 cells around the player are simulated; time stops outside |
 
 Notes on the M1 baseline:
 - The bench scene is a worst case: 65% of the box is a random mix of water, three gases and
