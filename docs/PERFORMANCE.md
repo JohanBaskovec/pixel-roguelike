@@ -490,6 +490,25 @@ remain. The cycle profile taken before the skip (`perf record -e cycles`, 1 thre
 pressure test of `gas_is_mobile`) 10.5% and `gas_moles` 11.5% (not yet re-measured). At 8 threads lava
 is 10–13 ms of the 16.7 ms tick (the phase floor, Lava: what to try next, 7).
 
+**Why more threads stop helping (measured 2026-11-25, same laptop, lava film).** 1 / 2 / 3 / 4 /
+5 / 6 / 8 threads: 30.8 / 18.8 / 13.4 / 11.0 / 10.6 / 10.6 / 13.3 ms (p50). Clocks hold up (3.74
+GHz on one thread, 3.29 on four) but at 8 threads only 3.9 CPUs are busy. Per movement phase
+(about 23 jobs of awake chunks, 4 phases a tick), averaged over 400 ticks:
+
+| threads | phase wall | sum of the jobs | costliest job |
+|---|---|---|---|
+| 1 | 6.28 ms | 6.24 | 1.00 |
+| 4 | 1.86 | 6.89 | 1.13 |
+| 8 | 1.94 | 7.81 | 1.51 |
+
+The costliest job is about 4× the average (it is the chunk in the plume over the lava, 8–11% of
+a phase's cells but the most work per cell), and a phase can never be shorter than it: 1.0–1.5 ms
+a phase, 4–6 ms a tick, which is where 4 to 8 threads meet. The other serial or per-chunk
+stages at 6 threads: heat 2.0 ms (78 small jobs: 4.6 ms on one thread), density 0.8 (1.7),
+pressure 0.2–0.3, the rest under 0.2. Finer jobs need a smaller `MAX_MOVE`, so a smaller chunk or
+block (liquids fall up to `MAX_MOVE` rows a tick, element spreads are asserted to be at most
+`MAX_MOVE`, the tile mask assumes 4 × 4 tiles): a retuning of the physics, not a refactor.
+
 **Next, on a desktop: candidates to measure, one at a time** (same rules; each judged by
 `pr-bench --scene lava --threads 1` and the bench scene, old and new alternately, two runs each,
 plus the behaviour and thread-count tests):
@@ -545,6 +564,9 @@ height, the overpressure over the lava and the CO2-ball mixing time, logged belo
   to the same few L1 sets): L1 misses fall **4×** (5.2 G → 1.3 G) and the time does not move
   (3% worse per cell: the world differs a little). Conflict misses hit L2 and are hidden, which
   confirms that lava is bound by instruction count and not by the L1. No row padding.
+- **`-march=native`** (`PR_NATIVE`, 2026-11-25, Ryzen 7 4700U, lava film, 1 thread, three runs
+  alternately): 31.0 / 30.9 / 30.6 ms against 32.2 / 31.0 / 31.5 ms: 0–3%. Not worth a build
+  target for the release binary.
 - **2 MB pages** for the big arrays (`madvise(MADV_HUGEPAGE)`, 2 MB alignment; the kernel did use
   them, 334 MB resident), on the idea that rows 80 KB apart miss the TLB: lava film, 1 thread,
   39.2 / 39.6 against 33.2 / 32.3 ms: **slower**. Not the bottleneck.
