@@ -126,15 +126,19 @@ static int raster(const World *w, const Rigid *r, float x, float y, float ang, R
     return n;
 }
 
-// May the body be where cell idx is? Void and gas (which it displaces), blood (a droplet, which
-// trades places like gas: a bleeding corpse must not be held up by its own drops), and its own
-// cells. Anything else is solid to it.
-static bool g_support_check; // checking whether a sleeping body is held up: blood holds it up
+// May the body be where cell idx is? Void and gas (which it displaces), falling blood (a
+// droplet, which trades places like gas: a bleeding corpse must not be held up by its own drops),
+// and its own cells. Anything else is solid to it, still blood included: a corpse floats on a
+// pool of blood as a log floats on water. (When moving bodies took all blood as free but a
+// sleeping body was held up by it, a corpse in a pool sank, was held, woke and sank again forever,
+// trading ~20 cells of blood with gas every tick and burying its own drops: D-051.)
+static bool g_support_check; // checking whether a sleeping body is held up: any blood holds it up
 
 static inline bool free_for(const World *w, int32_t idx) {
-    ElementId e = w->cells[idx].element;
-    uint8_t b = g_elem_behavior[e];
-    return (b == BEHAVIOR_NONE || b == BEHAVIOR_GAS) || (e == ELEM_BLOOD && !g_support_check) ||
+    Cell c = w->cells[idx];
+    uint8_t b = g_elem_behavior[c.element];
+    return (b == BEHAVIOR_NONE || b == BEHAVIOR_GAS) ||
+           (c.element == ELEM_BLOOD && (c.aux & 0x7F) != 0 && !g_support_check) ||
            set_get(&g_own, idx) >= 0;
 }
 
@@ -800,9 +804,14 @@ static void update_one(World *w, int ri) {
         return;
     }
     own_build(r);
+    float px0 = r->x, py0 = r->y, pa0 = r->angle;
     bool touched = dynamics(w, r);
     float fastest = sqrtf(r->vx * r->vx + r->vy * r->vy) + fabsf(r->omega) * r->radius;
-    if (touched && fastest < SLEEP_SPEED) {
+    // A body that touches something and could not move at all is at rest too, whatever its
+    // velocity: wedged, gravity and the contact can hold a velocity just above SLEEP_SPEED for
+    // ever, and a body that never slept redrew itself and kept everything around it awake.
+    bool stuck = r->x == px0 && r->y == py0 && r->angle == pa0;
+    if (touched && (fastest < SLEEP_SPEED || stuck)) {
         if (++r->rest_ticks >= SLEEP_TICKS) {
             r->asleep = 1;
             r->vx = r->vy = r->omega = 0.0f;

@@ -784,7 +784,10 @@ to watch).
   temporary name and renamed, so a crash keeps the old save. Autosave at quit, F6 saves, F9 loads.
 - **Consequences:** A save from another build with different struct layouts or byte order is
   refused and a new level is built (no migration). No several slots, no compression of the shade
-  and gas streams yet. Dead players are not autosaved.
+  and gas streams yet. Dead players are not autosaved. A loaded world goes on with the same
+  physics but not cell for cell as the unsaved one would: it starts all awake, which changes the
+  order of the per-chunk random draws (D-051; saving the wake state, the water-pressure
+  bookkeeping and the solids' spare bit too was not worth it).
 
 ## D-049 — Sound: events from the simulation, clips synthesised in the game
 
@@ -826,3 +829,29 @@ to watch).
 - **Consequences:** Hot air hurts at once, however thin; there is no insulation or sweat. The
   breath (hot air in the lungs) is not modelled apart from this. An old save is refused (the
   Creature struct changed) and a new level is built.
+
+## D-051 — Things settle: buried drops, corpses in blood, pools under warm air
+
+- **Context:** The user saw blood and lava pools whose surfaces never stopped moving, and the frame
+  rate drop. Measured in the level: corpses buried in a deep pool of blood cost 190–230 ms a tick,
+  with 130 000 drops of blood in the particle list, all stuck at one spot inside a corpse.
+- **Causes and decisions:**
+  - A particle that found no free cell within 8 waited for ever (and a corpse kept bleeding drops
+    into gaps that closed at once). Now a particle that has waited `PARTICLE_WAIT_TICKS` (60) looks
+    once for a free cell up to `PARTICLE_WAIT_SEARCH` (32) away, and is lost if there is none
+    (its cell's stamp counts the wait while it flies). Matter is lost only where nothing could hold
+    it.
+  - A rigid body took all blood as free space when moving but as support when asleep, so a corpse
+    in a pool sank, was held up, woke and sank again for ever, trading ~20 cells of blood with gas a
+    tick. Now only falling blood is free (a corpse floats on still blood, as wood on water), and a
+    body that touches something and cannot move at all counts as resting (wedged bodies kept a
+    velocity just above the sleep threshold, or a spin, for ever).
+  - Water pressure counted gas pressure in the heads, but gas is evened out only to within 0.3%
+    (about 300 Pa, more than half a cell of water), so the leftovers flipped the rounding of the
+    heads: a pool under a warm body or beside warm corpses moved cells back and forth every tick.
+    A transfer into a gas cell now needs two cells of head (`PRESSURE_GAS_SLACK`); into vacuum one,
+    as before. Pools under air level to within two cells by pressure (local flow still flattens
+    single steps).
+- **Not fixed:** lava stays expensive (11–13 ms a tick on 4 threads for a 300-cell film, against
+  4.5 without): the warm air convects over a whole room, about 150 000 awake gas cells at about
+  230 ns each, memory-bound. PERFORMANCE.md → Proposed next steps → Order, 3 and 5.

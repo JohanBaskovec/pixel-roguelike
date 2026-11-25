@@ -38,6 +38,13 @@ void pressure_update(World *w);
 // PRESSURE_NO_TOP. Valid for the positions labelled at the start of the tick.
 int32_t pressure_body_top(const World *w, int x, int y);
 
+// A transfer into a cell of gas needs the source's head this many cells above the opening's on
+// top of the one cell a transfer moves (D-051). Gas pressure enters both heads, and gas pressure
+// is evened out only to within GAS_EQ_TOL (0.3%, about 300 Pa: more than half a cell of water),
+// so differences below that sat in the heads for ever and flipped their rounding: a pool under a
+// warm body or beside warm corpses moved cells back and forth every tick.
+#define PRESSURE_GAS_SLACK 1
+
 // What presses on liquid `liquid` at (x, y), as a height of it: the liquids stacked from (x, y)
 // upward (each cell counts its density over the liquid's; gaps of fewer than 3 empty cells are
 // bubbles inside the column), at most max_scan cells, plus the pressure of the gas above them (or

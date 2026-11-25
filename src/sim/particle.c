@@ -13,7 +13,9 @@ bool particle_add(World *w, const Particle *p) {
     if (w->particle_count >= PARTICLE_MAX) {
         return false;
     }
-    w->particles[w->particle_count++] = *p;
+    Particle *q = &w->particles[w->particle_count++];
+    *q = *p;
+    q->cell.stamp = 0; // in flight, the cell's stamp counts the ticks it has waited to land
     return true;
 }
 
@@ -93,9 +95,28 @@ static bool land(World *w, Particle *p, int x, int y) {
             break;
         }
     }
-    // Nowhere to land this tick: wait in place and try again.
+    // Nowhere to land this tick: wait in place and try again. A particle that has waited
+    // PARTICLE_WAIT_TICKS (buried: in a pool, under a body) looks once much further for a free
+    // cell, and if there is none it is lost (D-051). Without this, buried particles stayed in the
+    // list for ever: bleeding corpses filled it in seconds (100 000 drops, 0.3 s a tick).
     p->vx = p->vy = 0.0f;
-    return false;
+    if (++p->cell.stamp < PARTICLE_WAIT_TICKS) {
+        return false;
+    }
+    for (int r = LAND_SEARCH + 1; r <= PARTICLE_WAIT_SEARCH; r++) {
+        for (int dy = -r; dy <= r; dy++) {
+            for (int dx = -r; dx <= r; dx++) {
+                if ((dx != -r && dx != r && dy != -r && dy != r) ||
+                    !particle_passes(w, x + dx, y + dy)) {
+                    continue;
+                }
+                if (place(w, p, x + dx, y + dy)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return true; // lost
 }
 
 bool particle_land_now(World *w, Particle *p) {

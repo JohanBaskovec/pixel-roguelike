@@ -12,6 +12,7 @@ void test_particle_flies_ballistic(void);
 void test_deep_reservoir_jets_further(void);
 void test_fast_landing_splashes(void);
 void test_jets_same_for_any_thread_count(void);
+void test_buried_particle_lands_further_or_is_lost(void);
 
 void test_particle_flies_ballistic(void) {
     // A drop thrown sideways at 2 cells/tick from 100 cells up lands where a ballistic arc says:
@@ -137,4 +138,30 @@ void test_jets_same_for_any_thread_count(void) {
     world_destroy(a);
     world_destroy(b);
     jobs_destroy(pool);
+}
+
+// A particle buried where nothing within LAND_SEARCH is free (D-051) waits PARTICLE_WAIT_TICKS,
+// then lands in the nearest free cell up to PARTICLE_WAIT_SEARCH away, or is lost: it never stays
+// in the list for ever.
+void test_buried_particle_lands_further_or_is_lost(void) {
+    for (int pocket = 0; pocket < 2; pocket++) {
+        World *w = test_world_box(128, 128, 9);
+        for (int y = 1; y <= 126; y++) {
+            Edit ed = {1, y, 126, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
+            sim_apply_edit(w, &ed);
+        }
+        if (pocket) {
+            Edit hole = {84, 64, 84, 64, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_PAINT, 0.0f};
+            sim_apply_edit(w, &hole); // 20 cells to the right
+        }
+        Cell blood = {ELEM_BLOOD, 0, 0, 0};
+        Particle p = {64.5f, 64.5f, 0.0f, 0.0f, blood, T_ROOM};
+        EXPECT(particle_add(w, &p));
+        sim_run_ticks(w, PARTICLE_WAIT_TICKS - 5);
+        EXPECT_EQ(w->particle_count, 1); // still waiting
+        sim_run_ticks(w, 10);
+        EXPECT_EQ(w->particle_count, 0);
+        EXPECT_EQ(test_count(w, ELEM_BLOOD), pocket ? 1 : 0);
+        world_destroy(w);
+    }
 }

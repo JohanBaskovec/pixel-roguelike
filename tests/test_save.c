@@ -10,6 +10,7 @@
 #include "sim/scene.h"
 #include "sim/sim.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -95,10 +96,20 @@ void test_save_and_load_round_trip(void) {
         rb += b->rigids[i].active;
     }
     EXPECT(ra >= 1 && ra == rb);
-    // Going on from the save is the same as going on without it.
+    // Going on from the save is physically the same as going on without it, though not cell for
+    // cell: the loaded world starts all awake, which changes the order of the random draws (D-048).
     sim_run_ticks(a, 120);
     sim_run_ticks(b, 120);
-    EXPECT(same_state(a, b));
+    for (int e = 0; e < ELEM_COUNT; e++) {
+        int64_t ca = test_count(a, (ElementId)e), cb = test_count(b, (ElementId)e);
+        EXPECT(llabs(ca - cb) <= 2 + ca / 50); // within 2%
+    }
+    double ga = 0.0, gb = 0.0;
+    for (size_t i = 0; i < (size_t)a->width * (size_t)a->height; i++) {
+        ga += (double)gas_total(&a->gas[i]);
+        gb += (double)gas_total(&b->gas[i]);
+    }
+    EXPECT(fabs(ga - gb) <= 1e-3 * ga);
     world_destroy(a);
     world_destroy(b);
 }

@@ -96,6 +96,8 @@ void test_world_queues_sounds(void);
 void test_events_for_shots_hits_and_deaths(void);
 void test_mixer_plays_and_limits(void);
 void test_heat_burns_people_and_monsters(void);
+void test_buried_particle_lands_further_or_is_lost(void);
+void test_corpses_settle_in_a_blood_pool(void);
 void test_cold_freezes_people_and_monsters(void);
 void test_comfortable_temperatures_do_not_hurt(void);
 void test_monster_dies_of_heat(void);
@@ -255,6 +257,8 @@ int main(int argc, char **argv) {
     RUN(test_events_for_shots_hits_and_deaths);
     RUN(test_mixer_plays_and_limits);
     RUN(test_heat_burns_people_and_monsters);
+    RUN(test_buried_particle_lands_further_or_is_lost);
+    RUN(test_corpses_settle_in_a_blood_pool);
     RUN(test_cold_freezes_people_and_monsters);
     RUN(test_comfortable_temperatures_do_not_hurt);
     RUN(test_monster_dies_of_heat);

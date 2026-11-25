@@ -22,6 +22,7 @@ void test_level_has_crates_and_monsters(void);
 void test_monsters_lose_pixels_with_hit_points(void);
 void test_monster_dies_cut_in_two_or_half_gone(void);
 void test_corpse_is_a_rigid_body_shot_apart(void);
+void test_corpses_settle_in_a_blood_pool(void);
 void test_monsters_chase_until_off_screen(void);
 void test_walker_finds_the_hole_down(void);
 void test_flyer_finds_the_gap(void);
@@ -364,5 +365,45 @@ void test_corpse_is_a_rigid_body_shot_apart(void) {
     sim_run_ticks(w, 30);
     EXPECT(active_bodies(w) >= 2);              // cut in two
     EXPECT(test_count(w, ELEM_BLOOD) > blood);  // bleeding where it was hit
+    world_destroy(w);
+}
+
+// Corpses that fall into a pool of blood and bleed into it come to rest: they float on it, the
+// pool stops moving and no drop is left in flight (D-051: a corpse in a pool used to sink, be held
+// up, wake and sink again for ever, trading blood with gas every tick and burying its own drops,
+// which then stayed in the particle list for ever).
+void test_corpses_settle_in_a_blood_pool(void) {
+    World *w = room(150, 192);
+    for (int y = 121; y <= 126; y++) {
+        Edit ed = {1, y, 190, y, 0, EDIT_SQUARE, ELEM_BLOOD, 0, EDIT_PAINT, 0.0f};
+        sim_apply_edit(w, &ed);
+    }
+    sim_run_ticks(w, 60);
+    for (int k = 0; k < 4; k++) {
+        int m = enemy_spawn(w, KIND_WALKER, 30 + 40 * k, 90);
+        EXPECT(m >= 0);
+        Creature *c = &w->creatures[m];
+        creature_hit(w, c, 1000.0f, c->x - 1, c->y + 2, 1.0f, 0.0f, c->x, c->y + 2);
+        EXPECT(c->corpse);
+    }
+    sim_run_ticks(w, 600); // they fall, and bleed out (54 drops each, one every 5 ticks)
+    size_t n = (size_t)w->width * (size_t)w->height;
+    uint8_t *before = malloc(n);
+    for (size_t i = 0; i < n; i++) {
+        before[i] = w->cells[i].element;
+    }
+    sim_run_ticks(w, 60);
+    int changed = 0;
+    for (size_t i = 0; i < n; i++) {
+        changed += before[i] != w->cells[i].element;
+    }
+    free(before);
+    EXPECT(changed <= 4); // still (it was ~1000 in 60 ticks)
+    EXPECT_EQ(w->particle_count, 0);
+    for (int i = 0; i < w->rigid_count; i++) {
+        const Rigid *r = &w->rigids[i];
+        EXPECT(!r->active || r->asleep);
+        EXPECT(!r->active || r->y < 124.0f); // floating, not sunk to the floor
+    }
     world_destroy(w);
 }

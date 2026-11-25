@@ -177,14 +177,17 @@ transfer checks the whole column (up to 512 cells). In a world at one pressure (
 head shifts by the same amount and this is the plain row rule.
 
 **The rule.** A still cell P next to an open cell Q (void or lighter fluid; above P or beside it)
-asks for a transfer if its body's top is at least one cell above Q's head. After the phase, transfers
+asks for a transfer if its body's top is at least one cell above Q's head (two when Q holds gas,
+`PRESSURE_GAS_SLACK`, D-051: gas pressure is evened out only to within 0.3%, more than half a cell
+of water, and differences that small, under a warm body for instance, flipped the rounded heads
+and moved cells back and forth every tick). After the phase, transfers
 are carried out serially: a free-surface cell is taken from the body's top row (or, once that
 row is used up this tick, from the next rows down, as long as they are still above Q) and moved
 to Q. So:
 
 - water appears at the opening it is pushed toward, and the surface drops where the water really
   came from, which is the physically right bookkeeping for an incompressible liquid;
-- pools level to within one cell over **any distance** (a one-cell step never qualifies, so a
+- pools level to within one cell (two under gas) over **any distance** (a one-cell step never qualifies, so a
   surface with a partial top row is stable, and settled pools sleep completely);
 - U-tubes and communicating vessels balance; a reservoir drains through an opening in its wall
   until both sides are level; a heap or a column of water spreads out;
@@ -492,11 +495,13 @@ creatures see ordinary wood cells.
   the body with its momentum (3.6 kg m/s) at the hit.
 - **Materials.** Wood, and the flesh of dead monsters (`rigid_material()`); `rigid_spawn_from_cells()`
   makes a body from cells already in the grid (a corpse). A corpse carries `bleed`, shared out among
-  its pieces by pixels. Blood is free space to a body (droplets trade places like gas; a bleeding
-  corpse must not be held up by its own drops), but holds a sleeping body up.
+  its pieces by pixels. Falling blood is free space to a body (droplets trade places like gas; a
+  bleeding corpse must not be held up by its own drops); still blood is not: a corpse floats on a
+  pool of blood as a log floats on water (D-051).
 - **Resting.** A body overlapping the terrain too deeply to take another step, which can happen
   after a soft touch, is eased out along the contact normal a quarter cell at a time; it sleeps
-  when it moves under 0.07 cells/tick (its fastest pixel) for 30 ticks.
+  when it moves under 0.07 cells/tick (its fastest pixel) for 30 ticks, or touches something and
+  cannot move at all for 30 ticks (wedged, it can keep a velocity just above that for ever, D-051).
 - **Limits.** Bodies are made of wood and flesh only, up to 64 × 64 pixels and 1024 pixels; liquid is a
   solid to them (a log lies on a pool instead of floating); creatures cannot push them; frozen
   outside the simulated area (D-040). Bodies' own air currents and splinters are not modelled
@@ -522,7 +527,9 @@ lands back into it.
   (spread out, `world_gas_region`). If something has settled into that cell, it lands in
   the nearest free cell (void or gas): straight up first, then rings up to `LAND_SEARCH` (8)
   away, then as a last resort up through liquid to its surface. If it still cannot land, it
-  waits there and tries again next tick. Landing while moving down with nothing below (it hit
+  waits there and tries again next tick; after `PARTICLE_WAIT_TICKS` (60) it looks once for a free
+  cell up to `PARTICLE_WAIT_SEARCH` (32) away, and if there is none it is lost (D-051: buried
+  drops used to wait for ever and filled the list). Landing while moving down with nothing below (it hit
   something sideways), it keeps falling as a grid cell with its fall speed.
 - The list holds `PARTICLE_MAX` (131072). When it is full, jets fall back to placing cells, and
   splashes are skipped (they are allowed only while it is under half full).

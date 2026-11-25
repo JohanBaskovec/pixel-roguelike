@@ -550,12 +550,13 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         int32_t root = ps->root[ch << NODE_SHIFT | pid];
         int32_t top = ps->top[root];
         int32_t q_head = qy - pressure_load_head(w, qx, qy, pc.element, PRESSURE_LOAD_SCAN);
-        if (top == PRESSURE_NO_TOP || top + ps->used[root] > q_head - 1) {
+        int slack = w->cells[world_index(w, qx, qy)].element == ELEM_GAS ? PRESSURE_GAS_SLACK : 0;
+        if (top == PRESSURE_NO_TOP || top + ps->used[root] > q_head - 1 - slack) {
             continue;
         }
         int used0 = ps->used[root];
         int sx = -1, sy = 0;
-        if (!take_source(w, root, pc.element, q_head, &sx, &sy)) {
+        if (!take_source(w, root, pc.element, q_head - slack, &sx, &sy)) {
             world_wake_rect(w, px, py, px, py);
             continue;
         }

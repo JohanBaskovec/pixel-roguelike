@@ -333,9 +333,11 @@ static void update_liquid(TickCtx *c, int x, int y) {
         const int q[3][2] = {{x, y - 1}, {x + dir, y}, {x - dir, y}};
         for (int k = 0; k < 3; k++) {
             int qx = q[k][0], qy = q[k][1];
-            if (body_top <= qy - 1 && can_displace(w, qx, qy, d) &&
+            int slack = world_elem(w, qx, qy) == ELEM_GAS ? PRESSURE_GAS_SLACK : 0;
+            if (body_top <= qy - 1 - slack && can_displace(w, qx, qy, d) &&
                 // A first check; within reach (the transfer counts the whole column above Q).
-                body_top <= qy - 1 - pressure_load_head(w, qx, qy, cell->element, MAX_MOVE - 1)) {
+                body_top <= qy - 1 - slack -
+                                pressure_load_head(w, qx, qy, cell->element, MAX_MOVE - 1)) {
                 if (c->nreq < TICK_MAX_REQUESTS) {
                     c->req[c->nreq++] = (PressureRequest){x, y, qx, qy};
                 } else {

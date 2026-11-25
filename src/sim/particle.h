@@ -10,6 +10,10 @@
 #include "sim/world.h"
 
 #define PARTICLE_MAX (1 << 17) // a full list refuses new particles (jets fall back to cells)
+// A particle that finds nowhere to land (particle.c: land) waits; after this many ticks it looks
+// up to PARTICLE_WAIT_SEARCH cells away once, and if there is still no free cell it is lost.
+#define PARTICLE_WAIT_TICKS  60
+#define PARTICLE_WAIT_SEARCH 32
 
 // Gravity in cells per tick^2: 9.81 m/s^2 at 5 cm per cell and 60 ticks/s.
 #define PARTICLE_GRAVITY (GRAVITY / CELL_SIZE_M * TICK_SECONDS * TICK_SECONDS)
@@ -31,7 +35,8 @@ bool particle_add(World *w, const Particle *p);
 bool particle_step(World *w, Particle *p, float fraction);
 
 // Lands the particle where it is (or the nearest cell above that passes). Used when the list is
-// full. Returns false if there was no room (then the caller must keep it).
+// full. Returns false if there was no room (then the caller must keep it); true if it landed, or
+// was lost after waiting PARTICLE_WAIT_TICKS.
 bool particle_land_now(World *w, Particle *p);
 
 // Gravity and one tick of flight for every particle; landed ones are removed. Call at the end of
