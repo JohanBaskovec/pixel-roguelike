@@ -20,7 +20,9 @@ static void fill_air(World *w) {
 static void set_temperature(World *w, float k) {
     for (int y = 1; y <= w->height - 2; y++) {
         for (int x = 1; x <= w->width - 2; x++) {
-            w->temp[world_index(w, x, y)] = k;
+            if (world_elem(w, x, y) != ELEM_BODY) { // the body starts at its own temperature
+                w->temp[world_index(w, x, y)] = k;
+            }
         }
     }
 }
@@ -30,7 +32,7 @@ static World *room(float k, int kind, int *id) {
     World *w = test_world_box(128, 128, 5);
     fill_air(w);
     *id = kind == KIND_PERSON ? creature_spawn(w, 60, 100) : enemy_spawn(w, kind, 60, 100);
-    set_temperature(w, k);
+    set_temperature(w, k); // the body itself stays at 37 degC (the air has to hurt it)
     sim_run_ticks(w, 5);
     return w;
 }

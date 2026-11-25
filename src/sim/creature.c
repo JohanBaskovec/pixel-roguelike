@@ -745,20 +745,36 @@ static void body_heat(World *w, Creature *c, float work) {
     }
 }
 
-// Heat and cold hurt (D-050): the mean temperature of the skin (the body cells with a neighbour
-// that is not body) against the limits; the damage a second grows with the distance beyond.
+// Heat and cold hurt (D-050). Two temperatures are read from the skin (the body cells with a
+// neighbour that is not body): the skin's own, and what touches it (the mean of the neighbouring
+// cells that are not void: air, water, ground). Thin air passes heat on slowly, so a body can be
+// in hot air for a long while with its skin still cool, yet hot air hurts: the damage a second
+// grows with the distance beyond the limit of either.
 static void thermal_damage(World *w, Creature *c) {
-    double sum = 0.0;
-    int n = 0;
+    double skin = 0.0, around = 0.0;
+    int n = 0, m = 0;
     for (int r = 0; r < c->h; r++) {
         for (int k = 0; k < c->w; k++) {
             int x = c->x + k, y = c->y + r;
             if (world_elem(w, x, y) != ELEM_BODY) {
                 continue;
             }
-            if (world_elem(w, x - 1, y) != ELEM_BODY || world_elem(w, x + 1, y) != ELEM_BODY ||
-                world_elem(w, x, y - 1) != ELEM_BODY || world_elem(w, x, y + 1) != ELEM_BODY) {
-                sum += (double)w->temp[world_index(w, x, y)];
+            static const int8_t d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+            bool edge = false;
+            for (int d = 0; d < 4; d++) {
+                int nx = x + d4[d][0], ny = y + d4[d][1];
+                ElementId e = world_elem(w, nx, ny);
+                if (e == ELEM_BODY) {
+                    continue;
+                }
+                edge = true;
+                if (e != ELEM_VOID && world_in_bounds(w, nx, ny)) {
+                    around += (double)elem_temp(e, w->temp[world_index(w, nx, ny)]);
+                    m++;
+                }
+            }
+            if (edge) {
+                skin += (double)w->temp[world_index(w, x, y)];
                 n++;
             }
         }
@@ -767,18 +783,15 @@ static void thermal_damage(World *w, Creature *c) {
     if (n == 0) {
         return;
     }
-    float t = (float)(sum / n);
+    float ts = (float)(skin / n);
+    float ta = m > 0 ? (float)(around / m) : ts;
     bool beast = c->kind == KIND_WALKER || c->kind == KIND_FLYER;
-    float cold = beast ? T_COLD_DANGER_BEAST : T_COLD_DANGER_PERSON;
-    float over = 0.0f;
-    if (t > T_HOT_DANGER) {
-        over = t - T_HOT_DANGER;
-        c->thermal = 1;
-    } else if (t < cold) {
-        over = cold - t;
-        c->thermal = -1;
-    }
+    float skin_cold = beast ? T_COLD_DANGER_BEAST : T_COLD_DANGER_PERSON;
+    float hot = PR_MAX(PR_MAX(ts, ta) - T_HOT_DANGER, 0.0f);
+    float cold = PR_MAX(PR_MAX(skin_cold - ts, T_COLD_DANGER_BEAST - ta), 0.0f);
+    float over = PR_MAX(hot, cold);
     if (over > 0.0f) {
+        c->thermal = hot >= cold ? 1 : -1;
         creature_damage_thermal(w, c,
                                 PR_MIN(over * THERMAL_DPS_PER_K, THERMAL_DPS_MAX) * TICK_SECONDS);
     }

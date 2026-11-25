@@ -807,11 +807,15 @@ to watch).
 
 - **Context:** The roadmap asks that heat and cold damage bodies, and the user wants the air to look
   red or blue as soon as it is dangerous, and monsters to suffer too.
-- **Decision:** A creature's *skin temperature* is the mean temperature of its outer body cells
-  (those with a non-body neighbour), read each tick (creature.c). Above 45 °C it burns; below its
-  cold limit it freezes: 15 °C for a person, the player included (body heat holds the skin at
-  37 °C while it can, so a skin that cold means the body loses more heat than it makes), 0 °C for a
-  monster (no body heat: it is as warm as the room). Damage is 0.5 hp/s for each kelvin beyond the
+- **Decision:** Two temperatures are read each tick from a creature's outer body cells (those with
+  a non-body neighbour; creature.c): the *skin's own* (their mean) and *what touches it* (the mean of
+  the neighbouring cells that are not void: air, water, ground). Above 45 °C either burns. What
+  touches it below 0 °C freezes it; so does the skin below its cold limit: 15 °C for a person, the
+  player included (body heat holds the skin at 37 °C while it can, so a skin that cold means the
+  body loses more heat than it makes), 0 °C for a monster (no body heat: it is as warm as the
+  room). The surroundings count because thin air passes heat on so slowly that a body would sit in
+  air of hundreds of degrees for minutes with a cool skin (found by playing; the first version
+  read the skin only and its tests set the body's temperature too, so they missed it). Damage is 0.5 hp/s for each kelvin beyond the
   limit, at most 60 hp/s, applied to `hp` (no blood, no lost pixels; the body flashes and the player
   cries out now and then). A monster that dies of it becomes a rigid body as when shot. The HUD shows
   BURNING / FREEZING (`Creature.thermal`). Constants: `T_HOT_DANGER`, `T_COLD_DANGER_*`,
@@ -819,7 +823,6 @@ to watch).
 - **Air tint:** gas above 45 °C is tinted red and below 0 °C blue, deeper as it gets hotter or
   colder (render.c), long before it glows (480 °C). The heat pass marks chunks for redraw while
   they hold such air and change.
-- **Consequences:** Damage comes through the skin, so heat has to reach the body (conduction
-  through the thin air is slow: a brief flash of hot gas hurts little, a room of it kills). The
-  breath (hot air in the lungs) and the contact of liquids are not modelled apart from this. An
-  old save is refused (the Creature struct changed) and a new level is built.
+- **Consequences:** Hot air hurts at once, however thin; there is no insulation or sweat. The
+  breath (hot air in the lungs) is not modelled apart from this. An old save is refused (the
+  Creature struct changed) and a new level is built.

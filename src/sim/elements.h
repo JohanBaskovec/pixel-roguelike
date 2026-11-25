@@ -86,8 +86,9 @@ typedef struct ElementDef {
 #define P_ATM   101325.0f // Pa
 #define T_ROOM  293.15f   // K
 // Heat and cold hurt (D-050). A body is hurt by the temperature of its skin (the mean of its
-// outer cells): above 45 degC it burns, below its cold limit it freezes; the further beyond, the
-// more damage per second. The cold limit is 15 degC for a person (whose body heat holds the skin
+// outer cells) and of what touches it (air, water, ground): above 45 degC either burns, and what
+// touches it below the freezing point freezes; so does the skin below its cold limit; the further
+// beyond, the more damage per second. The skin's cold limit is 15 degC for a person (whose body heat holds the skin
 // up to 37 degC while it can: a skin that cold means the heat it loses is more than it makes) and
 // the freezing point for a monster (it has no body heat: it is as warm as the room).
 #define T_HOT_DANGER         318.15f // K (45 degC)
