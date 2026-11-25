@@ -41,7 +41,7 @@ liquids; each gas cell a mixture of gases that diffuse, rise and sink by real de
 condense; currents), free particles (jets that
 follow Torricelli, splashes), creatures that walk, swim (and burn or freeze, D-050),
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
-(liquids push each other), hydrogen combustion, a camera that follows the player (zoom ×2), tests
+(liquids push each other), hydrogen combustion, radiating lava that crusts (D-052), a camera that follows the player (zoom ×2), tests
 and a benchmark; only the 3 × 3 regions of 512 × 512 cells around the player are simulated (time
 stops outside, D-040). Next: **M6b – Roguelike, next** (HP, heat damage, and the content the user
 wants: ranged enemies, smoke grenades, rockets, acid; the walking and flying monsters, crates and blood are done), **M6c –

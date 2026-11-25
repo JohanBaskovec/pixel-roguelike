@@ -859,3 +859,28 @@ to watch).
   fixes, both dropped: letting heated gas expand at once (at most 20%, and only by discarding the
   gas, which is wrong for sealed vessels; shared out conserving it, it was 55% slower) and waking
   fewer cells after an exchange (no gain).
+
+## D-052 — Radiation from hot matter, and what did not speed up lava
+
+- **Context:** After D-051, a lava film still cost 11–13 ms a tick (4.5 without) and kept the room
+  warm for minutes. Four ways to cut that were asked for: all measured.
+- **Radiation (kept, as a feature):** hot matter radiates to the first matter in view (SIMULATION.md →
+  Radiation), the way real lava loses most of its heat. Lava crusts over in seconds instead of
+  staying molten and heating the air. `RAD_TIME_SCALE` is 30, not conduction's 1000, so a puddle
+  takes seconds to minutes to freeze rather than a blink. Energy is conserved except for rays that
+  leave the world or find nothing in 32 cells. Wood hit by radiation can ignite, and creatures
+  absorb it (D-050). Gain for performance: small (lava film at 120 s: 11.7 against 13.2 ms; the room
+  stays warm for minutes because the walls that absorbed the heat give it back to the air slowly,
+  at the 1000× heat scale).
+- **Measured and dropped** (PERFORMANCE.md → Lava: what to try next, and Tried and dropped):
+  - heat pass at a lower rate where only solids warm: no chunk of the lava scene is solid-only (all
+    88 heat chunks hold air), nothing to slow;
+  - caching each cell's moles per tick: 33.4–33.9 against 33.4–33.5 ms, no gain (so the earlier
+    reading that the gas rule is bound by instruction count was wrong too);
+  - 2 MB pages for the big arrays (transparent huge pages were really used, 334 MB): 20% slower,
+    so TLB misses are not the bottleneck;
+  - gas at 30 Hz by tile parity: at most 10–15% (34.8 / 32.2 against 32.0 / 27.1 ms) for a change in
+    how fast air rises and flows.
+- **Consequences:** The heated air stays the cost of lava; what is left is a different design
+  (activity per cell rather than per tile, or a gas model with a velocity: PERFORMANCE.md steps 1
+  and 3, both tried and reverted before).

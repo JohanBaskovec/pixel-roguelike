@@ -391,7 +391,8 @@ From the lava-film measurement (Order, 3). Each with what it does to the physics
    in tiles that some other cell keeps awake (visits are by tile and rect, and cells keep
    themselves awake), so waking fewer cells does not shrink the set. Cell-level activity would
    need a per-cell flag or list: a different design, as in step 1.
-3. **Fewer instructions per awake gas cell**, with the same rules:
+3. **Fewer instructions per awake gas cell** (tried 2026-11-25: cached moles, no gain, below), with
+   the same rules:
    - work out each awake cell's moles and moles × temperature once per tick, in the pass that
      already works out its density (`gas_rho_update`), instead of again for itself, each
      neighbour and the cells 16 away. Decisions would see values up to a tick old, as with the
@@ -405,15 +406,17 @@ From the lava-film measurement (Order, 3). Each with what it does to the physics
      rates.
    Not the "one random direction per tick" rule: changing it changes diffusion and pressure
    rates, which are tuned to real constants (the mixing tests) and would need retuning.
-4. **The heat pass less often where only solids warm.** About a quarter of the lava tick (2.4 ms
+4. **The heat pass less often where only solids warm (measured: nothing to slow).** In the lava
+   scene all 88 heat chunks hold gas (rooms), none is solid-only; the pass costs 2.0 of 9.8 ms on 4
+   threads (7.5 of 33 on one: compute 5.8, apply 1.7). Original idea: About a quarter of the lava tick (2.4 ms
    on 100 chunks), much of it dirt slowly warming around the lava (to be counted). Heat moves so
    slowly in solids that a step every 4th tick, 4 times as long, stays stable (explicit conduction)
    and looks the same. Physics: the same diffusion, coarser in time.
-5. **Radiation from hot surfaces.** Real lava at 1 200 °C loses most of its heat by radiation
+5. **Radiation from hot surfaces (done, D-052).** Real lava at 1 200 °C loses most of its heat by radiation
    (about 120 kW/m²) to the walls, not the air, and crusts quickly; here all of it goes into the
    air by conduction (sped up ten times for gas). Physics: more realistic, but lava looks different
    (it crusts and darkens sooner). A feature, not a tweak.
-6. **Gas off the screen at a lower rate** (every 2nd or 4th tick) inside the simulated area
+6. **Gas off the screen at a lower rate** (not tried; the 30 Hz experiment suggests at most 10–15%) (every 2nd or 4th tick) inside the simulated area
    (1 536 × 1 536 cells, larger than the screen). Physics: off-screen gas evolves more slowly.
    Little help for lava beside the player, which is on screen.
 7. **The phase floor** (not a fix): a phase is never shorter than its costliest chunk, about 1 ms
@@ -441,6 +444,17 @@ height, the overpressure over the lava and the CO2-ball mixing time, logged belo
 - **Instant expansion of heated gas** and **fewer wakes** (2026-11-25): see Lava: what to try
   next, 2 and 2b. The first is worth at most 20% and only without conserving the gas; the second
   gains nothing.
+- **Caching each cell's moles per tick** (2026-11-25, `World.mol` next to `World.rho`, read by the
+  mobility checks instead of summing the five species for every neighbour): lava film, 1 thread,
+  33.5 / 33.9 against 33.4 / 33.5 ms; cells visited 152 642 against 150 211 (stale values
+  change a few decisions). No gain.
+- **2 MB pages** for the big arrays (`madvise(MADV_HUGEPAGE)`, 2 MB alignment; the kernel did use
+  them, 334 MB resident), on the idea that rows 80 KB apart miss the TLB: lava film, 1 thread,
+  39.2 / 39.6 against 33.2 / 32.3 ms: **slower**. Not the bottleneck.
+- **Gas at 30 Hz** (skipping the gas cells of half the tiles each tick, tiles in a checkerboard of
+  tick parity, the skipped ones kept awake; no rate compensation, so only an upper bound): lava
+  film, 1 thread, 34.8 / 32.2 ms before against 32.0 / 27.1 after, cells visited 150 211 → 113 223.
+  About 10–15% for a change in how fast air rises and currents move: not done.
 - **Comparing density before composition** in `gas_is_mobile` (2026-11-25; the same answer, the
   costly mixture comparison skipped when density already decides): lava film, 1 thread,
   34.1 / 34.2 against 34.2 ms. No gain.
@@ -559,6 +573,7 @@ threads.
 | 2026-11-24 | M6c clear air | same | gcc 13.3 -O3 | default level, firing at the sky for 10 s sweeping left to right (the player's test); 1024² room, firing; 1024×768 bench scene | 4 | — | sweep 7.6 / 6.7 vs 42.8 / 40.3 (ms/tick averaged over 10 s), at 10 s 8.5 / 7.7 vs 77.9 / 77.3, cells visited 156 000 vs 2 060 000, heat chunks 56 vs 692; room 6.2 / 6.9 vs 6.8 / 7.7; bench 19.8 / 19.8 vs 20.0 / 19.2 (p50) (all alternately) | Lone falling cells kick only the gas they displace (`FALL_WIND_LONE`), currents stop in gas exactly like its neighbours, bullets and casings fired at room temperature. Each part measured in the sweep: bullets at room temperature alone 2.0 M cells visited (the currents remain), with currents stopping in uniform gas 209 000, with lone cells as well 156 000 |
 | 2026-11-24 | M6c threads | same | gcc 13.3 -O3 | default level sweep (as above); 1024² room: firing, CO2 ball; 1024×768 bench scene | 4 | — | sweep 5.55 / 4.49 / 5.13 vs 5.97 / 7.05 / 5.83 (ms/tick averaged over 10 s; costliest-first alone 5.48 / 5.69 / 5.30); CO2 ball 5.61 / 5.56 vs 6.85 / 6.66; room firing 4.52 / 3.86 vs 4.56 / 4.73; bench 16.1 / 16.4 vs 18.1 / 18.5 (p50) (all alternately) | Movement-phase jobs run costliest first (`Chunk.cost`: cells visited last time); pool workers spin up to 0.2 ms between batches before sleeping (an empty batch: 55 → 12 µs). About 15–20% on 4 threads; more expected with 8, where the costliest job bounds each phase |
 | 2026-11-24 | M6c buoyancy (D-039) | same | gcc 13.3 -O3 | 1024² room: firing, CO2 ball; default level sweep; 1024×768 bench scene; default level with 3 lava pools | 4 | — | room firing 4.73 / 5.11 vs 4.67 / 4.83; CO2 ball 6.80 / 7.46 vs 6.06 / 6.24 (ms/tick averaged over 10 s); sweep 4.82 / 4.88 vs 5.99 / 4.69; bench 19.0 / 18.5 vs 18.8 / 17.9 (p50) (all alternately); lava pools 85 vs 74 ms at 2 min (one run each) | Sinking as well as rising; moves cross whole layers when they end within 32 rows; a stable vertical density difference no longer keeps gas awake. A big CO2 cloud mixes a little more as it sinks (about +15%); the rest within noise. The lava pools' cost is pressure (Proposed next steps → Order, 3) |
+| 2026-11-25 | Radiation (D-052) | same | gcc 13.3 -O3 | 1024×768 bench scene (nothing hot); lava film (300 × 2) in the default level | 4 | — | bench p50 19.7 (22.0–23.5 earlier the same day on a busier machine: no hot matter, so radiation never runs); lava film at 120 s 11.7 vs 13.2 ms, at 300 s 13.9 | Chunks with a cell at 600 K or more radiate, serially, one ray per exposed face; about 600 rays a tick for the film |
 | 2026-11-25 | Settling fixes (D-051) | same | gcc 13.3 -O3 | default level: 8 corpses buried in a deep blood pool; 8 corpses on the floor; a lava film; 1024×768 bench scene | 4 | — | buried corpses 190–230 ms (130 000 stuck drops) vs 8–15 ms; corpses on the floor 7.3–7.7 vs 7.0–7.4 ms; lava film 11.6 vs 12.8 ms at 40 s (noise); bench p50 22.2 / 23.5 vs 22.0 / 22.9 (alternately): unchanged | Buried particles are dropped after 60 ticks; corpses float on still blood and sleep when wedged; transfers into gas need two cells of head (pools under warm air no longer flicker) |
 | 2026-11-24 | M6b simulated area (D-040) | same | gcc 13.3 -O3 | default level: 3 lava pools far from the player / near it; sweep test; 1024×768 bench scene | 4 | — | lava far 2.5 vs 65.7 ms at 60 s; lava near 53.6 vs 59.8; sweep 4.85 / 4.92 vs 5.55 / 5.44 (averages over 10 s, alternately); bench 19.9 / 20.1 vs 19.2 / 20.1 (p50, everything simulated: unchanged) | Only the 3 × 3 regions of 512 cells around the player are simulated; time stops outside |
 | 2026-11-24 | M6b burning wood (D-044) | same | gcc 13.3 -O3 | 1024×768 bench scene (no wood) | 4 | — | p50 21.3 / 19.9 / 22.8 vs 21.0 (new, new, new vs old; run-to-run noise ±10%): unchanged | One more test on the static cells the movement loop skips; a burning log costs only where it burns |

@@ -869,6 +869,19 @@ Gases get only **10×** (`HEAT_TIME_SCALE_GAS`), and so does any contact involvi
 convection (which runs in real time) must beat conduction. With 1000× conduction, a pocket of hot
 air lost its heat to its surroundings before it could rise (tested: hot gas rises).
 
+### Radiation (D-052)
+
+Code: `radiate_chunk()` in `src/sim/heat.c`, after the parallel conduction pass, in the chunks whose
+hottest cell is at least `RAD_MIN_K` (600 K). Each cell of matter (not gas or void) at that
+temperature sends one ray from each of its faces that touch void or gas, aimed by Lambert's cosine
+law around the face's normal. The ray crosses void and gas (transparent) and is absorbed by the
+first other matter within `RAD_RANGE` (32 cells), including creatures and wood (which can ignite);
+one that finds nothing, or leaves the world, takes its energy away. The energy of a ray is
+`ε σ (T⁴ − T_room⁴) · (5 cm)² · dt · RAD_TIME_SCALE`: the emitter loses what the absorber gains
+(energy is conserved, except for rays that leave), and a cell loses at most a tenth of its heat
+above room temperature in a tick. Serial and seeded per chunk, so the same for any thread count.
+Lava now crusts over: a film of 3 cells is rock after about 15 s, the top first.
+
 ### Convection
 
 - **Moving cells carry their temperature**, including water-pressure transfers (tested with a

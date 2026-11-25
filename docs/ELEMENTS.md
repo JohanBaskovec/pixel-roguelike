@@ -176,6 +176,8 @@ All are clamped to `MAX_MOVE` = 32.
 | `SOURCE_ROWS` | 8 | `sim/pressure.c` | Rows below a body's top a transfer may take water from once the top row is used up |
 | `HEAT_TIME_SCALE` | 1000 | `sim/elements.h` | Speed-up of conduction in solids and liquids (see SIMULATION.md) |
 | `HEAT_TIME_SCALE_GAS` | 10 | `sim/elements.h` | Speed-up of conduction in any contact involving a gas |
+| `RAD_TIME_SCALE` | 30 | `sim/elements.h` | Speed-up of radiation (reality's, at `HEAT_TIME_SCALE`, would freeze a thin lava film within a second) |
+| `RAD_MIN_K`, `RAD_EMISSIVITY`, `RAD_RANGE` | 600 K, 0.9, 32 cells | `sim/elements.h` | Radiation starts at 600 K; emissivity; how far a ray goes |
 | `HEAT_SLEEP_K` | 0.001 K/tick | `sim/heat.c` | A chunk stays heat-active while temperatures change faster than this |
 | `HEAT_WAKE_MOVEMENT_K` | 0.02 K/tick | `sim/heat.c` | Temperature change that wakes a chunk's fluids (convection) |
 | `K_CONVECTION` | 200 | `sim/sim.c` | Liquid convection swap probability per unit of relative density difference |

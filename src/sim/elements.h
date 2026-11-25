@@ -81,6 +81,17 @@ typedef struct ElementDef {
 #define HEAT_TIME_SCALE     1000.0f
 #define HEAT_TIME_SCALE_GAS 10.0f
 
+// Radiation (D-052): matter hotter than RAD_MIN_K sends heat out through the air, in rays that are
+// absorbed by the first matter they meet within RAD_RANGE cells (air is transparent; a ray that
+// finds nothing leaves for good). Power per exposed face: emissivity * sigma * (T^4 - T_room^4) *
+// (5 cm)^2, sped up by RAD_TIME_SCALE (a deviation: reality's would be HEAT_TIME_SCALE, and a thin
+// film of lava would freeze within a second; at 30 it crusts over in seconds).
+#define RAD_MIN_K       600.0f
+#define RAD_EMISSIVITY  0.9f
+#define RAD_SIGMA       5.670374e-8f // W/(m^2 K^4)
+#define RAD_TIME_SCALE  30.0f
+#define RAD_RANGE       32
+
 // Gases (M4): each gas cell holds a mass; pressure follows the ideal gas law.
 #define GAS_R   8.314462f // J/(mol*K)
 #define P_ATM   101325.0f // Pa

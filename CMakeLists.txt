@@ -159,6 +159,7 @@ if(PR_BUILD_TESTS)
     tests/test_save.c
     tests/test_sound.c
     tests/test_thermal.c
+    tests/test_radiation.c
     tests/test_bullet.c
     tests/test_rigid.c
     tests/test_powder.c

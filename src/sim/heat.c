@@ -266,6 +266,91 @@ static void wake_now(World *w, int x0, int y0, int x1, int y1) {
     }
 }
 
+// ---- Radiation (D-052) ----
+
+// One hot cell (physical temperature >= RAD_MIN_K) sends a ray from each exposed face (a 4-neighbour
+// that is void or gas), aimed by Lambert's cosine law around the face's normal. The ray crosses void
+// and gas and is absorbed by the first other matter within RAD_RANGE cells: the emitter loses what
+// the absorber gains, so energy is conserved; a ray that finds nothing, or leaves the world, takes
+// its energy away (radiated far off). The cell loses at most a tenth of its heat above room
+// temperature in a tick. Serial and seeded per chunk: the same for any thread count.
+static void radiate_cell(World *w, Rng *rng, int x, int y, size_t i, float te) {
+    static const int8_t d4[4][2] = {{0, -1}, {-1, 0}, {1, 0}, {0, 1}};
+    ElementId e = w->cells[i].element;
+    float cap = g_elem_cap[e];
+    if (cap <= 0.0f) {
+        return;
+    }
+    int faces[4], nf = 0;
+    for (int k = 0; k < 4; k++) {
+        ElementId n = world_elem(w, x + d4[k][0], y + d4[k][1]);
+        if (n == ELEM_VOID || n == ELEM_GAS) {
+            faces[nf++] = k;
+        }
+    }
+    if (nf == 0) {
+        return;
+    }
+    float t2 = te * te, r2 = T_ROOM * T_ROOM;
+    float power = RAD_EMISSIVITY * RAD_SIGMA * (t2 * t2 - r2 * r2) * CELL_SIZE_M * CELL_SIZE_M *
+                  TICK_SECONDS * RAD_TIME_SCALE; // J per face
+    float budget = 0.1f * cap * (te - T_ROOM);
+    power = PR_MIN(power, budget / (float)nf);
+    for (int f = 0; f < nf; f++) {
+        float nx = (float)d4[faces[f]][0], ny = (float)d4[faces[f]][1];
+        float phi = asinf(2.0f * rng_unit(rng) - 1.0f); // angle from the normal, cosine-weighted
+        float c = cosf(phi), s = sinf(phi);
+        float dx = nx * c - ny * s, dy = nx * s + ny * c;
+        float px = (float)x + 0.5f, py = (float)y + 0.5f;
+        bool absorbed = false;
+        for (int step = 0; step < 2 * RAD_RANGE && !absorbed; step++) {
+            px += dx * 0.5f;
+            py += dy * 0.5f;
+            int cx = (int)floorf(px), cy = (int)floorf(py);
+            if (cx == x && cy == y) {
+                continue;
+            }
+            if (!world_in_bounds(w, cx, cy)) {
+                break;
+            }
+            size_t j = world_index(w, cx, cy);
+            ElementId a = w->cells[j].element;
+            if (a == ELEM_VOID || a == ELEM_GAS) {
+                continue;
+            }
+            float acap = g_elem_cap[a];
+            if (acap > 0.0f) {
+                w->temp[j] += power / acap;
+                world_wake_heat(w, cx, cy, cx, cy);
+                world_chunk(w, cx >> CHUNK_SHIFT, cy >> CHUNK_SHIFT)->render_dirty = 1;
+            }
+            absorbed = true;
+        }
+        w->temp[i] -= power / cap;
+    }
+    world_chunk(w, x >> CHUNK_SHIFT, y >> CHUNK_SHIFT)->render_dirty = 1;
+}
+
+static void radiate_chunk(World *w, int chunk) {
+    const int bx = (chunk % w->chunks_x) << CHUNK_SHIFT;
+    const int by = (chunk / w->chunks_x) << CHUNK_SHIFT;
+    Rng rng = rng_from_seed(w->seed ^ pr_splitmix64(w->tick) ^ ((uint64_t)chunk * 0x9E3779B97F4A7C15ull) ^
+                            0x7ADu);
+    for (int y = by; y < by + CHUNK_SIZE; y++) {
+        for (int x = bx; x < bx + CHUNK_SIZE; x++) {
+            size_t i = world_index(w, x, y);
+            ElementId e = w->cells[i].element;
+            if (e == ELEM_VOID || e == ELEM_GAS) {
+                continue;
+            }
+            float te = elem_temp(e, w->temp[i]);
+            if (te >= RAD_MIN_K) {
+                radiate_cell(w, &rng, x, y, i, te);
+            }
+        }
+    }
+}
+
 void heat_free(World *w) {
     HeatScratch *hs = w->heat_scratch;
     if (hs) {
@@ -360,6 +445,9 @@ void heat_update(World *w, HeatStats *stats) {
              job->lo <= T_COLD_DANGER_BEAST) &&
             job->max_change > 0.05f) {
             c->render_dirty = 1;
+        }
+        if (job->hi >= RAD_MIN_K) {
+            radiate_chunk(w, job->chunk); // (serial: rays cross chunk borders)
         }
         if (job->phase) {
             DirtyRect *r = &job->changed;
