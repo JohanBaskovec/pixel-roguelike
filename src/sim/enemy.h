@@ -31,6 +31,10 @@ int enemy_spawn(World *w, int kind, int x, int y);
 // One tick of a live monster's mind, before it moves: chase or wander, and bite.
 void enemy_think(World *w, Creature *c);
 
+// `c` takes `hp` hit points from heat or cold (no blood, no pixels lost): it dies at 0 (a monster
+// becomes a rigid body). Now and then it flashes and cries out.
+void creature_damage_thermal(World *w, Creature *c, float hp);
+
 // The creature whose body holds cell (x, y), or -1.
 int creature_at(const World *w, int x, int y);
 

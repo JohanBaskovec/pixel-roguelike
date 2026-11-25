@@ -354,7 +354,11 @@ void heat_update(World *w, HeatStats *stats) {
             dirty_rect_add(&c->cur, 0, 0, CHUNK_SIZE - 1, CHUNK_SIZE - 1); // convection
             c->head_dirty_next = 1; // gas pressure on liquid surfaces may have changed
         }
-        if (job->max_temp >= GLOW_START_K && job->max_change > 0.05f) {
+        // Glowing matter, and air tinted red or blue (render.c) once it is dangerous, are redrawn
+        // as they change.
+        if ((job->max_temp >= GLOW_START_K || job->hi >= T_HOT_DANGER ||
+             job->lo <= T_COLD_DANGER_BEAST) &&
+            job->max_change > 0.05f) {
             c->render_dirty = 1;
         }
         if (job->phase) {

@@ -327,7 +327,7 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
       (loading and saving regions) is M6
 - [ ] Smooth zooming
 - [ ] An HP bar with 100 HP (bullets, falls, suffocation)
-- [ ] Heat and cold hurt: the further the air and matter around the body are from comfortable,
+- [x] Heat and cold hurt (D-050): the further the air and matter around the body are from comfortable,
       the more damage per second (burns above about 45 °C at the skin, hypothermia below)
 
 ## M6c – Simulation, next

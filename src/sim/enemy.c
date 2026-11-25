@@ -209,6 +209,31 @@ void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float
     }
 }
 
+void creature_damage_thermal(World *w, Creature *c, float hp) {
+    if (c->state == CREATURE_DEAD) {
+        return;
+    }
+    c->hp -= hp;
+    if ((w->tick + c->id) % 20 == 0) {
+        c->hit_flash = 4;
+        if (!is_monster(c)) {
+            world_sound(w, SOUND_PLAYER_HURT, c->x + c->w / 2, c->y + c->h / 2, 0.4f);
+        }
+    }
+    if (c->hp > 0.0f) {
+        return;
+    }
+    c->hp = 0.0f;
+    if (is_monster(c)) {
+        monster_die(w, c);
+        return;
+    }
+    world_sound(w, SOUND_PLAYER_DIE, c->x + c->w / 2, c->y + c->h / 2, 1.0f);
+    c->state = CREATURE_DEAD;
+    c->walk = 0;
+    c->bleed = BLEED_PER_CELL * (float)(c->w * c->h);
+}
+
 void enemy_bleed(World *w, Creature *c) {
     if (c->bleed <= 0.0f || (w->tick + c->id) % BLEED_TICKS != 0) {
         return;

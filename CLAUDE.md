@@ -39,7 +39,7 @@ cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
 liquids; each gas cell a mixture of gases that diffuse, rise and sink by real density, and
 condense; currents), free particles (jets that
-follow Torricelli, splashes), creatures that walk, swim,
+follow Torricelli, splashes), creatures that walk, swim (and burn or freeze, D-050),
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
 (liquids push each other), hydrogen combustion, a camera that follows the player (zoom ×2), tests
 and a benchmark; only the 3 × 3 regions of 512 × 512 cells around the player are simulated (time

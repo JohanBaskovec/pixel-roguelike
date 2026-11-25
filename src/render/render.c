@@ -129,6 +129,16 @@ static uint32_t gas_color(const WorldRenderer *r, const World *w, size_t i, Cell
         int v = (fg * a + (int)channel(bg, 8 * k) * (255 - a)) / 255;
         out |= (uint32_t)v << (8 * k);
     }
+    // Air that would hurt is tinted: red from 45 degC (deeper as it gets hotter), blue below the
+    // freezing point (deeper as it gets colder), well before it glows.
+    float t = w->temp[i];
+    if (t > T_HOT_DANGER) {
+        float s = 0.25f + 0.55f * PR_CLAMP((t - T_HOT_DANGER) / 355.0f, 0.0f, 1.0f);
+        out = mix(out, 0xFF000000u | 0xE03018u, (int)(s * 256.0f), 256);
+    } else if (t < T_COLD_DANGER_BEAST) {
+        float s = 0.25f + 0.5f * PR_CLAMP((T_COLD_DANGER_BEAST - t) / 80.0f, 0.0f, 1.0f);
+        out = mix(out, 0xFF000000u | 0x3A7CFFu, (int)(s * 256.0f), 256);
+    }
     return out;
 }
 

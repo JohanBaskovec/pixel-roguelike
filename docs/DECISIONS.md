@@ -802,3 +802,24 @@ to watch).
   would need per-chunk event counters instead of a queue.
 - **Spawn buttons:** a panel button selects what a click in the world places (walker, flyer, log,
   health crate); the right button or choosing a tool ends it.
+
+## D-050 — Heat and cold hurt, for the player and the monsters
+
+- **Context:** The roadmap asks that heat and cold damage bodies, and the user wants the air to look
+  red or blue as soon as it is dangerous, and monsters to suffer too.
+- **Decision:** A creature's *skin temperature* is the mean temperature of its outer body cells
+  (those with a non-body neighbour), read each tick (creature.c). Above 45 °C it burns; below its
+  cold limit it freezes: 15 °C for a person, the player included (body heat holds the skin at
+  37 °C while it can, so a skin that cold means the body loses more heat than it makes), 0 °C for a
+  monster (no body heat: it is as warm as the room). Damage is 0.5 hp/s for each kelvin beyond the
+  limit, at most 60 hp/s, applied to `hp` (no blood, no lost pixels; the body flashes and the player
+  cries out now and then). A monster that dies of it becomes a rigid body as when shot. The HUD shows
+  BURNING / FREEZING (`Creature.thermal`). Constants: `T_HOT_DANGER`, `T_COLD_DANGER_*`,
+  `THERMAL_DPS_*` in `elements.h`.
+- **Air tint:** gas above 45 °C is tinted red and below 0 °C blue, deeper as it gets hotter or
+  colder (render.c), long before it glows (480 °C). The heat pass marks chunks for redraw while
+  they hold such air and change.
+- **Consequences:** Damage comes through the skin, so heat has to reach the body (conduction
+  through the thin air is slow: a brief flash of hot gas hurts little, a room of it kills). The
+  breath (hot air in the lungs) and the contact of liquids are not modelled apart from this. An
+  old save is refused (the Creature struct changed) and a new level is built.

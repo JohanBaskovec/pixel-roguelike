@@ -745,6 +745,45 @@ static void body_heat(World *w, Creature *c, float work) {
     }
 }
 
+// Heat and cold hurt (D-050): the mean temperature of the skin (the body cells with a neighbour
+// that is not body) against the limits; the damage a second grows with the distance beyond.
+static void thermal_damage(World *w, Creature *c) {
+    double sum = 0.0;
+    int n = 0;
+    for (int r = 0; r < c->h; r++) {
+        for (int k = 0; k < c->w; k++) {
+            int x = c->x + k, y = c->y + r;
+            if (world_elem(w, x, y) != ELEM_BODY) {
+                continue;
+            }
+            if (world_elem(w, x - 1, y) != ELEM_BODY || world_elem(w, x + 1, y) != ELEM_BODY ||
+                world_elem(w, x, y - 1) != ELEM_BODY || world_elem(w, x, y + 1) != ELEM_BODY) {
+                sum += (double)w->temp[world_index(w, x, y)];
+                n++;
+            }
+        }
+    }
+    c->thermal = 0;
+    if (n == 0) {
+        return;
+    }
+    float t = (float)(sum / n);
+    bool beast = c->kind == KIND_WALKER || c->kind == KIND_FLYER;
+    float cold = beast ? T_COLD_DANGER_BEAST : T_COLD_DANGER_PERSON;
+    float over = 0.0f;
+    if (t > T_HOT_DANGER) {
+        over = t - T_HOT_DANGER;
+        c->thermal = 1;
+    } else if (t < cold) {
+        over = cold - t;
+        c->thermal = -1;
+    }
+    if (over > 0.0f) {
+        creature_damage_thermal(w, c,
+                                PR_MIN(over * THERMAL_DPS_PER_K, THERMAL_DPS_MAX) * TICK_SECONDS);
+    }
+}
+
 static void update_one(World *w, Creature *c) {
     uint64_t h =
         pr_splitmix64(w->seed ^ (w->tick * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)c->id << 32));
@@ -773,6 +812,7 @@ static void update_one(World *w, Creature *c) {
         return;
     }
     if (c->kind == KIND_WALKER || c->kind == KIND_FLYER) {
+        thermal_damage(w, c);
         return; // monsters do not breathe or give off heat
     }
     float work = c->walk != 0 && c->grounded ? WORK_WALKING : 1.0f;
@@ -800,6 +840,9 @@ static void update_one(World *w, Creature *c) {
         c->state = CREATURE_DEAD;
         c->walk = 0;
         exhale(w, c, work); // the last breath out
+    }
+    if (c->state != CREATURE_DEAD) {
+        thermal_damage(w, c);
     }
 }
 

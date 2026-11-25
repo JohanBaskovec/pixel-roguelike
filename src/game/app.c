@@ -1124,6 +1124,10 @@ static void draw_hud(App *app) {
     SDL_FRect bar = {x, y, bw * f, bh};
     SDL_RenderFillRect(app->renderer, &bar);
     ui_text(&hud, x + 6, y + 3, 0xFFFFFF, "HP %d / %d", (int)ceilf(c->hp), (int)c->hp_max);
+    if (c->thermal != 0) {
+        ui_text(&hud, x + bw + 12, y + 3, c->thermal > 0 ? 0xFF6030 : 0x60A8FF, "%s",
+                c->thermal > 0 ? "BURNING" : "FREEZING");
+    }
     const Rifle *r = &app->rifle;
     if (r->reload > 0) {
         ui_text(&hud, x, y - 14, 0xFFC060, "RELOADING");
