@@ -854,4 +854,5 @@ to watch).
     single steps).
 - **Not fixed:** lava stays expensive (11–13 ms a tick on 4 threads for a 300-cell film, against
   4.5 without): the warm air convects over a whole room, about 150 000 awake gas cells at about
-  230 ns each, memory-bound. PERFORMANCE.md → Proposed next steps → Order, 3 and 5.
+  230 ns each (about 2 000 instructions per cell per tick, with some cache misses).
+  PERFORMANCE.md → Proposed next steps → Lava: what to try next.

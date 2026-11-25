@@ -335,6 +335,54 @@ step the bins in parallel with the same checkerboard as the movement pass (landi
 With step 3, particles can take drag from the wind (casings, debris and splashes carried by a
 blast), which adds credibility rather than speed.
 
+### Lava: what to try next (2026-11-25, D-051)
+
+From the lava-film measurement (Order, 3). Each with what it does to the physics.
+
+1. **Measure first what keeps the lava's room awake** (pressure, temperature or composition
+   differences), in the level, as for the firing case. The 2026-11-24 analysis found pressure
+   (248 000 cells flagged for it); not checked again since D-039 and D-040.
+2. **Let heated gas expand at once.** The heat pass raises a gas cell's pressure, and that
+   pressure spreads by diffusion, very slowly; real air expands at the speed of sound and stays at
+   about constant pressure. When gas heats, move the extra gas (n·ΔT/T) straight into the gas
+   around, in the same connected region. Physics: closer to reality (no overpressure front waking
+   rooms, no lava surface pushed for 15 s). Needs a serial step after the parallel heat pass. Two
+   earlier attempts at faster pressure made lava slower (relaying, step 3): prototype it alone
+   first. Potentially the biggest gain, if 1 confirms pressure.
+3. **Fewer instructions per awake gas cell**, with the same rules:
+   - work out each awake cell's moles and moles × temperature once per tick, in the pass that
+     already works out its density (`gas_rho_update`), instead of again for itself, each
+     neighbour and the cells 16 away. Decisions would see values up to a tick old, as with the
+     density already; transfers still use the live gas, so mass and energy stay exact. Same
+     behaviour on average, not cell for cell. Costs 4–8 bytes a cell (32–64 MB at 4096 × 2048),
+     unless kept only for simulated chunks;
+   - the buoyancy scan computing the same result faster (running sums, stopping once decided);
+     scanning fewer scales instead would change how plumes rise: not that;
+   - skip work only where the answer is certain to be "nothing": many awake cells wait on a
+     random roll (warm air rises with a probability each tick), and skipping those would change
+     rates.
+   Not the "one random direction per tick" rule: changing it changes diffusion and pressure
+   rates, which are tuned to real constants (the mixing tests) and would need retuning.
+4. **The heat pass less often where only solids warm.** About a quarter of the lava tick (2.4 ms
+   on 100 chunks), much of it dirt slowly warming around the lava (to be counted). Heat moves so
+   slowly in solids that a step every 4th tick, 4 times as long, stays stable (explicit conduction)
+   and looks the same. Physics: the same diffusion, coarser in time.
+5. **Radiation from hot surfaces.** Real lava at 1 200 °C loses most of its heat by radiation
+   (about 120 kW/m²) to the walls, not the air, and crusts quickly; here all of it goes into the
+   air by conduction (sped up ten times for gas). Physics: more realistic, but lava looks different
+   (it crusts and darkens sooner). A feature, not a tweak.
+6. **Gas off the screen at a lower rate** (every 2nd or 4th tick) inside the simulated area
+   (1 536 × 1 536 cells, larger than the screen). Physics: off-screen gas evolves more slowly.
+   Little help for lava beside the player, which is on screen.
+7. **The phase floor** (not a fix): a phase is never shorter than its costliest chunk, about 1 ms
+   for a chunk of awake gas, so a lava room puts about 4 ms under the tick whatever the thread
+   count; an 8-thread laptop is closer to it than this 4-thread VM. Ideas 2, 5 and 6 lower it.
+
+Plus Order, 5 (gas at 30 Hz by tile parity), which changes the physics (rise and currents at most
+one cell per update). Each change: the behaviour tests, the thread-count tests, the lava film
+with `cells_visited` (deterministic: it tells a pure speed-up from a change of behaviour), plume
+height, the overpressure over the lava and the CO2-ball mixing time, logged below.
+
 ### Tried and dropped
 
 - **Equalising pressure toward the difference instead of in a random direction** (2026-11-24).
@@ -348,6 +396,9 @@ blast), which adds credibility rather than speed.
   its test (aiming alone left 3.7% against 3.0%). Dropped: no time gained.
 - **Not waking whole chunks for convection** from the heat pass (an experiment, to see whether
   those wakes made the awake region broad): no change in cells visited. They are not the cause.
+- **Comparing density before composition** in `gas_is_mobile` (2026-11-25; the same answer, the
+  costly mixture comparison skipped when density already decides): lava film, 1 thread,
+  34.1 / 34.2 against 34.2 ms. No gain.
 - Letting cells that hold water vapour take the "exactly like its neighbours" exit too: no change
   in the firing case (28.4 / 29.0 ms against 30.1 / 28.8 ms at 10 s, 1 thread).
 
@@ -398,14 +449,18 @@ threads.
    **Measured again (2026-11-25, D-051)** with a lava film 300 cells long beside the player in the
    level: 4.5 ms per tick before, 11–13 ms after 40 s (4 threads), unchanged by D-051. About
    150 000 gas cells stay awake (the lava's room and the one above), at about 230 ns each on one
-   thread: callgrind puts most of it in the gas rule's checks (recomputing moles, comparing
-   mixtures, the multi-scale buoyancy scan), but checking density before composition changed
-   nothing measurable (34.1 vs 34.2 ms on one thread), so the cost is memory (neighbours 16 rows
-   away, 80 KB per row of gas mixtures) more than arithmetic. The surface of the lava moves for
+   thread. Callgrind: about 450 M instructions per tick on one thread, against about 45 ms
+   natively (10 G a second, 3–5 per clock at this VM's 2.1 GHz base), so about 2 000 instructions
+   per awake cell: the instruction count looks like the main cost, in the gas rule's checks
+   (recomputing a cell's moles, about 16% of all instructions; comparing mixtures, about 14%; the
+   multi-scale buoyancy scan, about 10%). But a change that cut 11% of the instructions gained no
+   time (Tried and dropped: the partner 16 rows away is probably a cache miss), so some accesses
+   do miss the cache: every change must be judged by wall time, not by instruction counts. (A
+   first reading of these numbers, "memory-bound", was wrong.) The surface of the lava moves for
    about 15 s (100 transfers a tick: the heated air's overpressure), then settles. Also: a phase
    is never shorter than its costliest chunk, and a chunk of 4096 awake gas cells costs about
    1 ms, so four phases put a floor of about 4 ms under such a tick whatever the thread count.
-   The big lever left is structural (step 5, or a gas layout that keeps rows apart less).
+   What to try next: below, "Lava: what to try next".
 5. Gas at 30 Hz by tile parity (step 4): half the tiles' gas cells each tick, rates doubled.
    Estimate: about 1.3× for the whole tick (gas rules are about 55% of it), at some cost in
    fidelity (buoyant rise and currents at most one cell per update).
