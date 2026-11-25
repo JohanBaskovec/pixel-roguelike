@@ -887,3 +887,39 @@ to watch).
 - **Consequences:** The heated air stays the cost of lava; what is left is a different design
   (activity per cell rather than per tile, or a gas model with a velocity: PERFORMANCE.md steps 1
   and 3, both tried and reverted before).
+
+## D-053 — Zoom ×3, and a simulated area that fits the view
+
+- **Status:** Accepted (2026-11-25), asked for by the user.
+- **Context:** The game must play full screen at up to 1920 × 1080. Every awake cell near the player
+  costs the same on or off the screen, and D-040 simulated 1536 × 1536 cells whatever the zoom.
+- **Decision:** The default zoom is ×3 (a 1920 × 1080 screen shows 640 × 360 cells; the side panel
+  will not be in the final game, so it is not counted). The simulated area is that view and a margin:
+  400 columns and 224 rows either side of the player, in whole chunks, following it chunk by chunk
+  and kept inside the world. A constant, not the current window: the simulation does not depend on
+  the window's size.
+- **Consequences:** 1.4× on lava and on shooting (Benchmark log). What is off the screen freezes
+  sooner: fires, water and monsters stop 80 columns or 44 rows beyond the largest view. Zooming out
+  shows frozen world. The frozen edge is a wall for gas, as before.
+
+## D-054 — Gas at half rate, by chunk checkerboard
+
+- **Status:** Accepted (2026-11-25), asked for by the user.
+- **Decision:** `GAS_STEP` = 2 (SIMULATION → Half rate). Chunks rather than tiles, with the rates
+  compensated. Liquids, powders, particles, creatures and heat stay at 60 Hz.
+- **Alternatives measured:** every stirred cell at full rate (all tests pass, but it gives back most
+  of the gain when shooting: 5.8 against 4.5 ms); stirred gas that only flows on skipped ticks (walking
+  stirs the air 10% less, so stirred cells mix with a second neighbour instead).
+- **Consequences:** 1.4–1.5×, and the peaks come down too, as each tick updates half of the chunks. The
+  fastest plumes rise at most one move per two ticks. An earlier try, by tile and on the cloud VM, gave
+  10–15% (PERFORMANCE → Tried and dropped).
+
+## D-055 — Open air does not even out small pressure differences
+
+- **Status:** Accepted (2026-11-25), asked for by the user (a simpler gas).
+- **Decision:** SIMULATION → Open air: a band of 1% around 1 atm, not for gas that touches a liquid.
+- **Alternatives measured:** no pressure at all and heating at constant pressure (the ceiling: lava −25%,
+  shooting −10 to −25%; it breaks vacuum, tanks, trapped air, breathing, burning); a looser tolerance
+  everywhere (×2 to ×8: shooting −10 to −20%, lava almost nothing, breaks the pressure tests); a band
+  without the liquid exception (pools never rest even at 1%); 2% and 5% with it (pools still churn).
+- **Consequences:** shooting −14%, lava −6%. Mass and energy are conserved as before.

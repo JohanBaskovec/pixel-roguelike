@@ -1,6 +1,7 @@
 #include "test.h"
 
 #include "core/jobs.h"
+#include "core/rng.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
 
@@ -21,6 +22,8 @@ void test_co2_blob_sinks_and_pools(void);
 void test_warm_air_rises(void);
 void test_warm_bubble_rises_as_a_whole(void);
 void test_gas_same_for_any_thread_count(void);
+void test_pool_rests_under_uneven_air(void);
+void test_open_air_rests_at_slightly_uneven_pressure(void);
 void test_pressurised_tank_drives_water_up_a_pipe(void);
 void test_air_holds_water_up_a_vacuum_tube(void);
 void test_trapped_air_is_compressed(void);
@@ -539,4 +542,65 @@ void test_trapped_air_is_compressed(void) {
     EXPECT(fabs(air1 - air0) < 1e-4 * air0);
     EXPECT(fabs((room - column) - water_head_cells(p1)) < 3.0);
     world_destroy(w);
+}
+
+void test_pool_rests_under_uneven_air(void) {
+    // Open air within GAS_OPEN_BAND of 1 atm is not evened out (D-055), but the air on a liquid's
+    // surface is: a pool under air whose pressure varies by +-3% from cell to cell still comes to
+    // rest, with a level surface.
+    World *w = test_world_box(256, 128, 126);
+    paint(w, 1, 1, 254, 126, EDIT_AIR);
+    paint(w, 4, 90, 250, 126, ELEM_WATER);
+    sim_run_ticks(w, 200);
+    Rng r = rng_from_seed(7);
+    for (int i = 0; i < w->width * w->height; i++) {
+        if (w->cells[i].element == ELEM_GAS) {
+            gas_mix_scale(&w->gas[i], 0.97f + 0.06f * rng_unit(&r));
+        }
+    }
+    world_wake_rect(w, 0, 0, 255, 127);
+    sim_run_ticks(w, 1200);
+    uint64_t moves = 0;
+    for (int t = 0; t < 300; t++) {
+        SimStats s;
+        sim_tick(w, &s);
+        moves += s.transfers;
+    }
+    EXPECT(moves < 100); // (with the band on the surface too, thousands)
+    int lo = 128, hi = 0;
+    for (int x = 8; x < 246; x++) {
+        int y = 1;
+        while (y < 126 && w->cells[world_index(w, x, y)].element != ELEM_WATER) {
+            y++;
+        }
+        lo = PR_MIN(lo, y);
+        hi = PR_MAX(hi, y);
+    }
+    EXPECT(hi - lo <= 4);
+    world_destroy(w);
+}
+
+void test_open_air_rests_at_slightly_uneven_pressure(void) {
+    // Two halves of a room 1% apart in pressure (half a percent each side of 1 atm): nothing to
+    // do, it sleeps. At 10% apart, it evens out.
+    for (int big = 0; big < 2; big++) {
+        World *w = test_world_box(128, 64, 127);
+        paint(w, 1, 1, 126, 62, EDIT_AIR);
+        sim_run_ticks(w, 60);
+        for (int y = 1; y < 63; y++) {
+            for (int x = 1; x < 127; x++) {
+                float f = x < 64 ? (big ? 1.05f : 1.005f) : (big ? 0.95f : 0.995f);
+                gas_mix_scale(&w->gas[world_index(w, x, y)], f);
+            }
+        }
+        world_wake_rect(w, 0, 0, 127, 63);
+        uint64_t moves = 0;
+        for (int t = 0; t < 120; t++) {
+            SimStats s;
+            sim_tick(w, &s);
+            moves += s.gas_transfers;
+        }
+        EXPECT(big ? moves > 100 : moves == 0);
+        world_destroy(w);
+    }
 }

@@ -30,8 +30,8 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->chunks_x = width / CHUNK_SIZE;
     w->chunks_y = height / CHUNK_SIZE;
     w->seed = seed;
-    w->view_w = 720; // a 1440 x 900 window at zoom x2
-    w->view_h = 450;
+    w->view_w = VIEW_MAX_W;
+    w->view_h = VIEW_MAX_H;
     size_t n = (size_t)width * (size_t)height;
     w->cells = pr_aligned_alloc_zero(64, n * sizeof(Cell));
     w->temp = pr_aligned_alloc_zero(64, n * sizeof(float));
@@ -119,11 +119,10 @@ void world_clear(World *w) {
 }
 
 void world_simulate_near(World *w, int x, int y) {
-    const int per = SIM_REGION / CHUNK_SIZE; // chunks per region side
-    int rx = PR_CLAMP(x, 0, w->width - 1) / SIM_REGION,
-        ry = PR_CLAMP(y, 0, w->height - 1) / SIM_REGION;
-    int cx0 = (rx - 1) * per, cx1 = (rx + 2) * per; // chunks [cx0, cx1)
-    int cy0 = (ry - 1) * per, cy1 = (ry + 2) * per;
+    x = PR_CLAMP(x, SIM_HALF_W, PR_MAX(w->width - SIM_HALF_W, SIM_HALF_W));
+    y = PR_CLAMP(y, SIM_HALF_H, PR_MAX(w->height - SIM_HALF_H, SIM_HALF_H));
+    int cx0 = (x - SIM_HALF_W) >> CHUNK_SHIFT, cx1 = ((x + SIM_HALF_W - 1) >> CHUNK_SHIFT) + 1;
+    int cy0 = (y - SIM_HALF_H) >> CHUNK_SHIFT, cy1 = ((y + SIM_HALF_H - 1) >> CHUNK_SHIFT) + 1;
     for (int cy = 0; cy < w->chunks_y; cy++) {
         for (int cx = 0; cx < w->chunks_x; cx++) {
             world_chunk(w, cx, cy)->active = cx >= cx0 && cx < cx1 && cy >= cy0 && cy < cy1;

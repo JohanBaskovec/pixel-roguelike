@@ -41,18 +41,15 @@ liquids; each gas cell a mixture of gases that diffuse, rise and sink by real de
 condense; currents), free particles (jets that
 follow Torricelli, splashes), creatures that walk, swim (and burn or freeze, D-050),
 breathe the air in and out at real rates and give off body heat, powders and digging, lava, molten iron and oil
-(liquids push each other), hydrogen combustion, radiating lava that crusts (D-052), a camera that follows the player (zoom ×2), tests
-and a benchmark; only the 3 × 3 regions of 512 × 512 cells around the player are simulated (time
-stops outside, D-040). Next: **M6b – Roguelike, next** (HP, heat damage, and the content the user
+(liquids push each other), hydrogen combustion, radiating lava that crusts (D-052), a camera that follows the player (zoom ×3), tests
+and a benchmark; only the area around the player (±400 × ±224 cells: a 1920 × 1080 screen at zoom
+×3 and a margin) is simulated (time stops outside, D-040, D-053); gas runs at half rate (D-054). Next: **M6b – Roguelike, next** (HP, heat damage, and the content the user
 wants: ranged enemies, smoke grenades, rockets, acid; the walking and flying monsters, crates and blood are done), **M6c –
 Simulation, next** (faster gases: the plan is in `docs/PERFORMANCE.md` → Proposed next steps,
-D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is too slow for busy
-scenes. Firing for 10 s, or one big gas cloud, in a 1024 × 1024 room costs 6–11 ms of the
-16.7 ms tick on 4 threads, and it grows with the area stirred. On the player's laptop (Ryzen 7
-4700U) firing at the sky for 10 s cost 50 ms per tick until debris falling through clear air
-stopped stirring it (now about 8 ms here). A few lava pools near the player slow it down more and more
-over minutes (pressure over the heat spreads too slowly: PERFORMANCE → Proposed next steps →
-Order); far from the player they cost nothing (D-040).
+D-036; cells stay 5 cm, D-037) and **M6 – World**. **Known problem:** gas is the cost
+of busy scenes. On the player's laptop (Ryzen 7 4700U, 4 threads) a lava film beside the player costs
+5 ms of the 16.7 ms tick (6.5 after 2 minutes), shooting without stopping 4 ms; it grows with the area
+stirred, up to the simulated area. Far from the player nothing costs anything (D-040).
 The target scene and the plan are in `docs/PERFORMANCE.md`. See `docs/ROADMAP.md`, including the acceptance notes on what
 is still unverified (desktop performance).
 
@@ -122,7 +119,8 @@ On Linux, building SDL3 from source needs the X11/Wayland development packages l
 
 - The **world** is a grid of cells, split into **64×64 chunks**. Each chunk keeps a *dirty rect*
   and which of its 16×16 tiles are awake; only those cells are simulated. Settled matter sleeps.
-  Only the chunks of the 3 × 3 regions of 512 cells around the player are simulated at all.
+  Only the chunks around the player (the largest view and a margin) are simulated at all. Gas cells
+  are updated every second tick, chunks alternating.
 - The simulation runs at a **fixed 60 ticks/s**, decoupled from rendering. Each tick runs a
   movement pass (cellular automaton, bottom-up, with an alternating horizontal scan direction) and
   then a heat pass.

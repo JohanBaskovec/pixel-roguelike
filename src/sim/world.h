@@ -357,15 +357,18 @@ static inline int dirty_rect_spans(const DirtyRect *r, int ty, int x0[2], int x1
     return n;
 }
 
-// Simulated area (D-040): the world is cut into regions of SIM_REGION x SIM_REGION cells (8 x 8
-// chunks), and only the 3 x 3 regions around the player are simulated. Outside, time stops: cells,
-// heat and creatures stay as they are, and what reaches them (matter, wakes) waits there until they
-// are simulated again. Free particles keep flying everywhere.
-#define SIM_REGION 512
+// Simulated area (D-040, D-053): only the chunks within SIM_HALF_W columns and SIM_HALF_H rows of
+// the player are simulated: the largest view (VIEW_MAX_W x VIEW_MAX_H: 1920 x 1080 screen pixels at
+// zoom x3) and a margin around it. Outside, time stops: cells, heat and creatures stay as they are,
+// and what reaches them (matter, wakes) waits there until they are simulated again. Free particles
+// keep flying everywhere.
+#define VIEW_MAX_W 640
+#define VIEW_MAX_H 360
+#define SIM_HALF_W (VIEW_MAX_W / 2 + 80)
+#define SIM_HALF_H (VIEW_MAX_H / 2 + 44)
 
-_Static_assert(SIM_REGION % CHUNK_SIZE == 0, "regions are whole chunks");
-
-// Simulates the 3 x 3 regions around the cell (x, y) only.
+// Simulates the area around the cell (x, y) only. Near the edge of the world the area stays inside
+// it, as the camera does.
 void world_simulate_near(World *w, int x, int y);
 
 // Simulates the whole world (the default: tests, scenes without a player).

@@ -87,7 +87,9 @@ void test_bullet_releases_gas_gradually_or_on_impact(void) {
         put(&d, 0, BULLET_MATTER, ELEM_HYDROGEN, gradual ? RELEASE_GRADUAL : RELEASE_IMPACT, 300.0f,
             1.0f, 0);
         shoot(w, pl, &d, 2);
-        EXPECT(fabs(test_mass(w, ELEM_HYDROGEN) - before - (double)mass) < 0.02 * (double)mass);
+        // (All but the few percent of the trail that burns in the hot muzzle gas.)
+        double burnt = (double)mass - (test_mass(w, ELEM_HYDROGEN) - before);
+        EXPECT(burnt > -0.001 * (double)mass && burnt < (gradual ? 0.05 : 0.001) * (double)mass);
         int cells = 0;
         float biggest = 0.0f;
         for (int x = 1; x < 160; x++) {

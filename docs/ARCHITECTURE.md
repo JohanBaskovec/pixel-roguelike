@@ -199,14 +199,14 @@ row, `dirty_rect_spans`), so a diagonal line of woken cells wakes a strip of til
 chunk. Wakes from jobs merge by min/max and OR (`dirty_rect_merge`), so the result does not
 depend on the thread count. Water pressure and the heat pass still work on whole chunks.
 
-### Simulated area (D-040)
+### Simulated area (D-040, D-053)
 
-The world is cut into regions of `SIM_REGION` × `SIM_REGION` cells (512: 8 × 8 chunks). The game
-calls `world_simulate_near()` before every tick with the player's position, which marks the
-chunks of the 3 × 3 regions around it as active (`Chunk.active`); without a player (or in tests,
-scenes and the benchmark) everything is active (`world_simulate_all()`, the default). At zoom ×2
-on a 1920-pixel-wide window the view reaches about 420 cells either side of the player, inside the
-512 to 1024 cells of simulated world around it.
+The game calls `world_simulate_near()` before every tick with the player's position, which marks
+the chunks within `SIM_HALF_W` = 400 columns and `SIM_HALF_H` = 224 rows of it as active
+(`Chunk.active`), kept inside the world as the camera is; without a player (or in tests and scenes)
+everything is active (`world_simulate_all()`, the default). The area is the largest view, 640 × 360
+cells (`VIEW_MAX_W`, `VIEW_MAX_H`: 1920 × 1080 at zoom ×3), and a margin of 80 columns and 44
+rows around it. Zoomed out further than ×3 on such a screen, the edge of the view is frozen.
 - A frozen chunk takes no part in the tick: at its start its `cur` rect is emptied and its
   `next` rect, water-pressure relabel flag and heat flag are left as they are, so whatever woke it
   (matter moved in from the border, a landing particle, an edit) waits until it is active again.
@@ -281,7 +281,7 @@ whatever the thread count. This requires:
 `sim_tick`: the walking direction, jump and jetpack (the same `W` key) from the keyboard (scancodes, so the physical keys
 are the same on any layout), the facing from the mouse, and `rifle_update()` with the trigger.
 Shots add particles; their flight runs in the tick's serial particle step. The camera follows the
-player at zoom ×2 unless the user pans. The rifle and bullet streaks are drawn over the world
+player at zoom ×3 unless the user pans. The rifle and bullet streaks are drawn over the world
 texture (they are not cells).
 
 ## Sound (D-049)
@@ -359,7 +359,7 @@ Segments go into an `EditQueue` (fixed capacity 256; if it is full, it is flushe
   and snapped to whole screen pixels so the image does not shimmer while panning.
 - Controls: middle-drag or arrows to pan (WASD too when there is no player), Ctrl+wheel to zoom
   around the cursor, Home to fit the whole world, `F` to follow the player again. The game starts
-  at zoom ×2 (two screen pixels per cell), following the player.
+  at zoom ×3 (three screen pixels per cell), following the player.
 - Overlays are alternative colour mappings in the same conversion step: pressure view (`P`,
   depth below the body's top) and temperature view (`T`). While one is on, everything visible is
   redrawn every frame.

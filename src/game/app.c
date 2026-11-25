@@ -24,7 +24,7 @@
 // Zoom levels (screen pixels per world cell). Integer levels >= 1 keep every pixel the same size.
 static const float k_zoom[] = {0.25f, 1.0f / 3.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f};
 #define ZOOM_COUNT   ((int)PR_ARRAY_COUNT(k_zoom))
-#define ZOOM_DEFAULT 4 // x2: two screen pixels per cell
+#define ZOOM_DEFAULT 5 // x3: three screen pixels per cell
 
 // Inspector: partial pressures are averaged over a (2r+1)^2 window around the cursor.
 #define INSPECT_RADIUS 7
@@ -867,7 +867,7 @@ static void control_player(App *app) {
 static void run_tick(App *app) {
     double t0 = pr_time_seconds();
     control_player(app);
-    // Only the 3 x 3 regions around the player are simulated (D-040); without a player, all.
+    // Only the area around the player is simulated (D-040); without a player, all.
     const Creature *c = player(app);
     pickups_collect(app->world, app->player);
     app->world->view_w = (int)(app->view.w / zoom(app)); // what monsters can see (enemy.c)

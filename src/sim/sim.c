@@ -449,6 +449,13 @@ static void update_liquid(TickCtx *c, int x, int y) {
 // direction, diffuse (trade species down their mole-fraction difference) and even out pressure
 // (with a cell up to GAS_REACH away). Still, evenly mixed gas sleeps.
 
+// Gas runs at half rate (D-054): a chunk's gas cells are updated every GAS_STEP ticks, the chunks
+// alternating like a checkerboard, so each tick updates half of them. What happens at a rate
+// (diffusion, buoyancy, spreading) goes `step` = GAS_STEP times as far in an update; a skipped cell
+// stays awake. Currents flow every tick, and gas beside void is updated every tick, at step 1
+// (update_chunk): a blast, a wake or the hole a body leaves must not wait.
+#define GAS_STEP 2
+
 // Farthest gas cell a gas cell equalises its pressure with in one tick. Pressure spreads by
 // diffusion; long jumps make it spread over a room in seconds instead of minutes.
 #define GAS_REACH 16
@@ -495,6 +502,27 @@ static inline float gas_pv(const World *w, size_t i) {
 
 static inline bool gas_differs(float a, float b) {
     return fabsf(a - b) > GAS_EQ_TOL * PR_MAX(PR_MAX(a, b), GAS_PV_FLOOR);
+}
+
+// Open air (D-055): between two cells within GAS_OPEN_BAND of 1 atm, neither touching a liquid,
+// pressure is not evened out: such differences move nothing that can be seen. Vacuum, tanks, steam,
+// blasts and everything beyond the band are exact, and so is the gas on a liquid's surface, whose
+// pressure the liquid feels (1% of 1 atm weighs two cells of water: uneven, pools never rest).
+#define GAS_OPEN_BAND 0.01f
+
+static inline bool gas_open(float pv) {
+    const float p1 = GAS_MOLES_ATM * T_ROOM; // as moles times temperature
+    return fabsf(pv - p1) <= GAS_OPEN_BAND * p1;
+}
+
+static inline bool gas_touches_liquid(const World *w, int x, int y) {
+    for (int k = 0; k < 4; k++) {
+        ElementId e = world_elem(w, x + k_dir4[k][0], y + k_dir4[k][1]);
+        if (g_elem_behavior[e] == BEHAVIOR_LIQUID) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // For cells d apart: GAS_EQ_TOL near, GAS_EQ_TOL_FAR from GAS_REACH / 2 cells on, so a smooth
@@ -582,7 +610,7 @@ static inline int gas_spread_of(float mm) {
 // Diffusion between cell i and its neighbour j: each species moves down its mole-fraction
 // difference (no net moles: pressure is untouched), carrying its heat. Returns true if anything
 // moved.
-static bool gas_diffuse(TickCtx *c, size_t i, size_t j) {
+static bool gas_diffuse(TickCtx *c, size_t i, size_t j, int step) {
     World *w = c->w;
     GasMix *a = gas_at(w, i), *b = gas_at(w, j);
     float na = gas_moles(a), nb = gas_moles(b);
@@ -600,7 +628,7 @@ static bool gas_diffuse(TickCtx *c, size_t i, size_t j) {
         return false;
     }
     int wind = PR_MAX(gas_wind_speed(w->cells[i].aux), gas_wind_speed(w->cells[j].aux));
-    float k = PR_MIN(GAS_DIFFUSE_K * (1.0f + GAS_TURB_PER_WIND * (float)wind), 0.5f);
+    float k = PR_MIN((float)step * GAS_DIFFUSE_K * (1.0f + GAS_TURB_PER_WIND * (float)wind), 0.5f);
     float n = 0.5f * (na + nb) * k;
     // Heat: what leaves a cell leaves at its temperature (energies E = C * T).
     float ta = w->temp[i], tb = w->temp[j];
@@ -722,9 +750,9 @@ static inline float rho_at(const World *w, int x, int y) {
 // Is the density in the cell's column, 16 rows each way, certain to be uniform? Then no window of
 // gas_buoyancy can show a contrast above GAS_BUOY_TOL, and the scan is skipped. From the lowest
 // and highest rho of the three tiles around (the same column of tiles; the cell's own rs too): two
-// means within [lo, hi] differ by at most (hi - lo) / (2 lo) in contrast. The tile ranges are
-// those of the start of the tick, and rho moves with the cells during it, so near a tile's edge
-// this is a tick old (the densities are already).
+// means within [lo, hi] differ by at most (hi - lo) / (2 lo) in contrast. The ranges are worked out
+// at the start of the tick and widened by whatever writes gas during it (swap_cells, gas_spawn,
+// world_rho_note), so they hold every density the scan could read.
 static inline bool gas_column_uniform(const World *w, int x, int y, float rs) {
     int tiles_x = w->chunks_x * CHUNK_TILES, tiles_y = w->chunks_y * CHUNK_TILES;
     int tx = x >> TILE_SHIFT, ty = y >> TILE_SHIFT;
@@ -1220,6 +1248,7 @@ static inline bool gas_density_unstable(int k, float rs, float rn) {
 
 static int gas_is_mobile(const World *w, int x, int y, float n, float pv, float rs) {
     int flags = 0;
+    bool open = gas_open(pv) && !gas_touches_liquid(w, x, y);
     size_t i = world_index(w, x, y);
     const GasMix *g = &w->gas[i];
     for (int k = 0; k < 4; k++) {
@@ -1234,7 +1263,8 @@ static int gas_is_mobile(const World *w, int x, int y, float n, float pv, float 
         size_t ni = world_index(w, nx, ny);
         const GasMix *h = &w->gas[ni];
         float nn = gas_moles(h);
-        if (gas_differs(pv, nn * w->temp[ni]) || n + nn < GAS_SPLIT_MOLES) {
+        float npv = nn * w->temp[ni];
+        if ((!(open && gas_open(npv)) && gas_differs(pv, npv)) || n + nn < GAS_SPLIT_MOLES) {
             return GAS_MOBILE | GAS_PRESSURE;
         }
         if (flags == 0 &&
@@ -1247,9 +1277,11 @@ static int gas_is_mobile(const World *w, int x, int y, float n, float pv, float 
     // equalisation reaches.
     for (int k = 0; k < 2; k++) {
         int fx = x + (k == 0 ? GAS_REACH : 0), fy = y + (k == 0 ? 0 : GAS_REACH);
-        if (world_elem(w, fx, fy) == ELEM_GAS &&
-            gas_differs_at(pv, gas_pv(w, world_index(w, fx, fy)), GAS_REACH)) {
-            return GAS_MOBILE | GAS_PRESSURE;
+        if (world_elem(w, fx, fy) == ELEM_GAS) {
+            float fpv = gas_pv(w, world_index(w, fx, fy));
+            if (!(open && gas_open(fpv)) && gas_differs_at(pv, fpv, GAS_REACH)) {
+                return GAS_MOBILE | GAS_PRESSURE;
+            }
         }
     }
     return flags;
@@ -1280,7 +1312,12 @@ static inline bool gas_same_as_around(const World *w, int x, int y, size_t i) {
     return true;
 }
 
-static void update_gas(TickCtx *c, int x, int y) {
+// Probability (x/65536) that gas with this buoyant drive moves in one update.
+static inline uint32_t gas_buoy_p(float drive, int step) {
+    return (uint32_t)PR_MIN((float)K_BUOY_16 * (float)step * drive, 65535.0f);
+}
+
+static void update_gas(TickCtx *c, int x, int y, int step) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
     Cell self = w->cells[i];
@@ -1327,9 +1364,9 @@ static void update_gas(TickCtx *c, int x, int y) {
         // (Clearly lighter gas just above: stable here, no need to look further.)
         float drive = gas_column_uniform(w, x, y, rs) ? 0.0f
                                                        : gas_buoyancy(w, x, y, rs, -1, &scale);
-        p_up = (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f);
+        p_up = gas_buoy_p(drive, step);
     } else if (g_elem_behavior[up] == BEHAVIOR_LIQUID) {
-        p_up = g_buoy_p[up][ELEM_GAS];
+        p_up = PR_MIN((uint32_t)step * (uint32_t)g_buoy_p[up][ELEM_GAS], 65535u);
     }
     if (p_up > 0 && rng_chance16(&c->rng, p_up)) {
         if (up == ELEM_GAS) {
@@ -1345,7 +1382,7 @@ static void update_gas(TickCtx *c, int x, int y) {
         float drive = gas_column_uniform(w, x, y, rs) ? 0.0f
                                                        : gas_buoyancy(w, x, y, rs, 1, &down_scale);
         if (drive > 0.0f &&
-            rng_chance16(&c->rng, (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f))) {
+            rng_chance16(&c->rng, gas_buoy_p(drive, step))) {
             gas_buoyant_move(c, x, y, rs, 1, down_scale);
             return;
         }
@@ -1391,7 +1428,7 @@ static void update_gas(TickCtx *c, int x, int y) {
         }
         if (drive > GAS_BUOY_TOL) {
             p_up |= 1; // stay awake
-            if (rng_chance16(&c->rng, (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f))) {
+            if (rng_chance16(&c->rng, gas_buoy_p(drive, step))) {
                 for (int j = reach; j > 0; j--) { // the far cell comes back, the row shifts out
                     swap_cells(c, x + side * j, y, x + side * (j - 1), y);
                 }
@@ -1441,7 +1478,19 @@ static void update_gas(TickCtx *c, int x, int y) {
             return;
         }
         // 2c. Diffusion with that neighbour, and pressure with a cell up to GAS_REACH away.
-        bool diffused = gas_diffuse(c, i, ni);
+        bool diffused = gas_diffuse(c, i, ni, step);
+        if (step > 1 && self.aux != 0) {
+            // In a current the pair evens out already (the limit): mix with a second neighbour.
+            int r2 = (r + 1 + (int)rng_range(&c->rng, 3)) & 3;
+            int mx = x + k_dir4[r2][0], my = y + k_dir4[r2][1];
+            if (world_elem(w, mx, my) == ELEM_GAS &&
+                gas_diffuse(c, i, world_index(w, mx, my), step)) {
+                ctx_arrive(c, mx, my, w->cells[world_index(w, mx, my)],
+                           w->temp[world_index(w, mx, my)]);
+                gas_wake(c, x, y, mx, my);
+                diffused = true;
+            }
+        }
         int px = nx, py = ny;
         bool equalized =
             (mobile & GAS_PRESSURE) && gas_equalize(c, x, y, dx, dy, gas_pv(w, i), &px, &py);
@@ -1543,6 +1592,7 @@ static void update_chunk(TickCtx *c) {
     // Bottom to top; horizontal direction alternates every tick (no left/right bias). Only the
     // cells of the rect inside its woken tiles (up to 2 spans per tile row).
     bool left_to_right = (w->tick & 1) == 0;
+    bool gas_turn = (w->tick + (uint64_t)(c->cx + c->cy)) % GAS_STEP == 0;
     for (int ty = r.max_y >> TILE_SHIFT; ty >= r.min_y >> TILE_SHIFT; ty--) {
         int sx0[2], sx1[2];
         int ns = dirty_rect_spans(&r, ty, sx0, sx1);
@@ -1557,6 +1607,7 @@ static void update_chunk(TickCtx *c) {
             for (int s = 0; s < ns; s++) {
                 int k = left_to_right ? s : ns - 1 - s;
                 int n = sx1[k] - sx0[k];
+                int skip0 = CHUNK_SIZE, skip1 = -1; // columns of gas cells left for next tick
                 for (int i = 0; i <= n; i++) {
                     int x = c->base_x + (left_to_right ? sx0[k] + i : sx1[k] - i);
                     Cell *cell = &row[x];
@@ -1572,6 +1623,20 @@ static void update_chunk(TickCtx *c) {
                     if (cell->stamp == c->stamp) {
                         continue;
                     }
+                    int step = 1;
+                    if (b == BEHAVIOR_GAS && !gas_touches_void(w, x, y)) {
+                        step = GAS_STEP;
+                        if (!gas_turn) {
+                            int lx = x - c->base_x;
+                            skip0 = PR_MIN(skip0, lx);
+                            skip1 = PR_MAX(skip1, lx);
+                            if (cell->aux != 0) {
+                                cell->stamp = c->stamp;
+                                gas_follow_wind(c, x, y);
+                            }
+                            continue;
+                        }
+                    }
                     cell->stamp = c->stamp;
                     c->stats.cells_visited++;
                     switch (b) {
@@ -1579,7 +1644,7 @@ static void update_chunk(TickCtx *c) {
                             update_liquid(c, x, y);
                             break;
                         case BEHAVIOR_GAS:
-                            update_gas(c, x, y);
+                            update_gas(c, x, y, step);
                             break;
                         case BEHAVIOR_POWDER:
                             update_powder(c, x, y);
@@ -1587,6 +1652,9 @@ static void update_chunk(TickCtx *c) {
                         default:
                             break;
                     }
+                }
+                if (skip1 >= 0) {
+                    ctx_wake(c, c->base_x + skip0, y, c->base_x + skip1, y, false, false);
                 }
             }
         }

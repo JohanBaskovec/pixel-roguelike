@@ -8,7 +8,7 @@
 void scene_empty_box(World *w, int thickness);
 
 // The default level (M6b): a maze of air (1 atm) carved in dirt with boulders of rock. Rooms are
-// MAZE_ROOM_H (3 player heights) tall and about a screen wide (MAZE_ROOM_W; at zoom x2); they are
+// MAZE_ROOM_H (3 player heights) tall and about a 1440-pixel window wide at zoom x3 (MAZE_ROOM_W); they are
 // the cells of a perfect maze, one room wide and MAZE_ROOM_H + MAZE_WALL cells tall each, and
 // openings join them: doorways in the side walls, shafts (MAZE_ROOM_H wide) through the floors.
 // Deterministic for the world's seed.

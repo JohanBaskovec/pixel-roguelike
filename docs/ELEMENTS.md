@@ -247,8 +247,8 @@ Keep this list complete.
     about 2.5 L more), so a held breath lasts a few breaths, not a minute or two. The breath out
     is dry.
 15. Air control (M6a): the player steers in the air (`AIR_CONTROL`), which a real jumper cannot.
-16. Simulated area (D-040): only the 3 × 3 regions of `SIM_REGION` (512) cells around the player
-    are simulated. Outside, time stops: a lava pool stops cooling, gas stops spreading, a
+16. Simulated area (D-040, D-053): only the area around the player (400 columns and 224 rows either
+    side) is simulated. Outside, time stops: a lava pool stops cooling, gas stops spreading, a
     creature stands still, until the player comes back. Heat does not cross into the frozen part,
     and gas and liquids stop at its edge as at a wall that moves with the player; free particles
     (bullets, debris, splashes) keep flying and land there.

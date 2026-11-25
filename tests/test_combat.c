@@ -353,8 +353,10 @@ void test_corpse_is_a_rigid_body_shot_apart(void) {
     EXPECT_EQ(active_bodies(w), 1);
     int pixels = test_count(w, ELEM_FLYER_CORPSE);
     EXPECT_EQ(pixels, 121 - 11);
-    sim_run_ticks(w, 200);
     const Rigid *r = &w->rigids[0];
+    for (int t = 0; t < 600 && !r->asleep; t++) { // how long it rolls depends on the seed
+        sim_run_ticks(w, 1);
+    }
     EXPECT(r->active && r->asleep);
     EXPECT(r->y > 118.0f); // fell to the floor
     EXPECT(test_count(w, ELEM_FLYER_CORPSE) > 90);

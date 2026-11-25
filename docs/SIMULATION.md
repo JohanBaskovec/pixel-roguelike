@@ -30,8 +30,8 @@ matter leaves it.
 
 ## Simulated area
 
-Only the 3 × 3 regions of 512 × 512 cells around the player are simulated (`world_simulate_near()`;
-ARCHITECTURE → Simulated area; D-040). Outside, nothing moves, no heat flows and creatures stand
+Only the area around the player is simulated: 400 columns and 224 rows either side of it, in whole
+chunks (`world_simulate_near()`; ARCHITECTURE → Simulated area; D-040, D-053). Outside, nothing moves, no heat flows and creatures stand
 still; matter that crosses into a frozen region (falling, pushed by a rule reaching up to 32 cells,
 carried by a particle) stays there, and the region carries on where it stopped when it is simulated
 again (tested: water hanging in mid-air, a hot iron block and a creature, frozen and released).
@@ -293,7 +293,20 @@ the ideal gas law for the cell's moles, `P = n · R · T / V_cell`; partial pres
 species' share. Mass is conserved by every rule below, species by species (tested to 1e-4), except
 condensation (on average).
 
-Each tick, a gas cell:
+**Half rate (D-054).** A chunk's gas cells are updated every `GAS_STEP` = 2 ticks, the chunks
+alternating like a checkerboard, so each tick updates half of them; a skipped cell stays awake.
+In its update, what happens at a rate (diffusion, buoyancy, spreading sideways, bubbles) goes twice
+as far; a cell with a current, whose mixing is at its limit already, mixes with two neighbours.
+Currents flow, and gas beside void is updated, every tick. What is limited to one move an update
+(the fastest rise) is half as fast as at full rate.
+
+**Open air (D-055).** Two gas cells both within `GAS_OPEN_BAND` (1%) of 1 atm, the one looking not
+touching a liquid, do not even out their pressures: nothing visible hangs on such a difference.
+Vacuum, tanks, steam, blasts, anything outside the band, and the air on a liquid's surface are
+exact as before (1% of 1 atm weighs two cells of water: with uneven air on it a pool never rests;
+tested).
+
+In an update, a gas cell:
 
 0. **Sleeps at once** if it is still (no current, nothing hot near, no water vapour) and exactly
    like every gas neighbour (same masses and temperature), with no void or liquid beside it:

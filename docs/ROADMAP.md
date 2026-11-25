@@ -325,6 +325,10 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
       (1536 × 1536 cells); time stops outside (D-040). Lava pools left behind cost nothing (65.7 →
       2.5 ms per tick at 60 s); the world size no longer matters to the cost. World streaming
       (loading and saving regions) is M6
+- [x] Zoom ×3 by default and a simulated area that fits a 1920 × 1080 screen at that zoom (D-053),
+      gas at half rate (D-054), open air does not even out 1% pressure differences (D-055): lava and
+      shooting about 2× faster on 4 threads, 2.5× on one
+- [ ] Sprites finer than the cells (3 × 3 pixels a cell at zoom ×3; the body's cells stay the hitbox)
 - [ ] Smooth zooming
 - [ ] An HP bar with 100 HP (bullets, falls, suffocation)
 - [x] Heat and cold hurt (D-050): the further the air and matter around the body are from comfortable,

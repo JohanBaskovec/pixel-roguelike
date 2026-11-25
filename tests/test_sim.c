@@ -251,8 +251,8 @@ static double water_row(const World *w, int x0, int x1) {
 }
 
 void test_frozen_outside_simulated_area(void) {
-    // Only the 3 x 3 regions (SIM_REGION cells) around a point are simulated: with the point at
-    // x = 100, columns 0..1023. Beyond, time stops: water hangs in mid-air, a hot iron block keeps
+    // Only the area around a point is simulated; near the edge of the world it stays inside it
+    // (as the camera does), so with the point at x = 100: columns 0..831. Beyond, time stops: water hangs in mid-air, a hot iron block keeps
     // its heat, a creature stays where it is. Simulating everything again, they carry on.
     World *w = test_world_box(2048, 256, 130);
     Edit e = {500, 40, 500, 40, 6, EDIT_CIRCLE, ELEM_WATER, 0, EDIT_PAINT, 0.0f};
@@ -279,6 +279,8 @@ void test_frozen_outside_simulated_area(void) {
     EXPECT(id >= 0);
     int64_t water = test_count(w, ELEM_WATER);
     world_simulate_near(w, 100, 100);
+    EXPECT(world_chunk(w, (2 * SIM_HALF_W - 1) >> CHUNK_SHIFT, 0)->active);
+    EXPECT(!world_chunk(w, ((2 * SIM_HALF_W - 1) >> CHUNK_SHIFT) + 1, 0)->active);
     sim_run_ticks(w, 120);
     EXPECT(water_row(w, 480, 520) > 150.0);               // fell to the floor
     EXPECT(fabs(water_row(w, 1480, 1520) - 40.0) < 0.5);  // hangs where it was painted
