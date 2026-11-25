@@ -3,6 +3,7 @@
 #include "core/common.h"
 #include "core/jobs.h"
 #include "sim/elements.h"
+#include "sim/sound.h"
 
 #define CHUNK_SIZE  64
 #define CHUNK_SHIFT 6
@@ -111,6 +112,8 @@ typedef struct World {
     struct Payload *payloads; // owned; what bullets in flight carry (bullet.h), ids 1..PAYLOAD_MAX
     struct Rigid *rigids;    // owned; rigid objects (rigid.h)
     int32_t rigid_count;     // slots in use (some may be inactive)
+    SoundEvent sounds[SOUND_QUEUE_MAX]; // queued noises (sound.h); drained by the game
+    int32_t sound_count;
 } World;
 
 // Width and height are rounded up to multiples of CHUNK_SIZE. Returns NULL on failure.

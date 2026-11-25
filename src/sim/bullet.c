@@ -210,6 +210,15 @@ bool payload_impact(World *w, int id, int x, int y, int hx, int hy, float ux, fl
         }
         release(w, pl, i, pl->left[i], x, y, hx, hy, ux, uy, &h);
     }
+    int loose = 0; // pixels that let go of something now
+    for (int i = 0; i < BULLET_PIXELS; i++) {
+        const BulletPixel *p = &pl->design.px[i];
+        loose += p->kind != BULLET_EMPTY && pl->left[i] > 0.0f &&
+                 !(p->kind == BULLET_MATTER && bullet_element_is_solid(p->element));
+    }
+    if (loose > 0) {
+        world_sound(w, SOUND_BLAST, x, y, 0.35f + 0.65f * (float)loose / 8.0f);
+    }
     bool solid = bullet_design_has_solid(&pl->design);
     pl->active = 0;
     return solid;

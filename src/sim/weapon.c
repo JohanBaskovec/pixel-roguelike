@@ -116,6 +116,7 @@ static void fire(World *w, Rifle *r, const Creature *c, float aim_x, float aim_y
     Particle b = {bx, by, ux * RIFLE_BULLET_SPEED, uy * RIFLE_BULLET_SPEED, bullet, BULLET_TEMP_K};
     particle_add(w, &b);
     muzzle_gas(w, bx, by, ux, uy, h);
+    world_sound(w, SOUND_SHOT, (int)bx, (int)by, 1.0f);
 
     // The casing is thrown up and back from the ejection port (or above the head if the port is
     // inside a wall). In flight it passes through bodies (particle.c). No room: the rifle keeps
@@ -167,6 +168,10 @@ bool rifle_update(World *w, Rifle *r, int shooter, float aim_x, float aim_y, boo
     if (r->nslots > 0 && r->reload > 0) {
         if (--r->reload == 0) {
             r->next_slot = 0;
+            if (shooter >= 0 && shooter < w->creature_count) {
+                const Creature *s = &w->creatures[shooter];
+                world_sound(w, SOUND_RELOAD, s->x + s->w / 2, s->y + s->h / 2, 0.8f);
+            }
         }
         return false;
     }

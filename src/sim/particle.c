@@ -253,6 +253,7 @@ static void bullet_step(World *w, Particle *p) {
     bool in_liquid = g_elem_behavior[world_elem(w, cx, cy)] == BEHAVIOR_LIQUID;
     int n = (int)ceilf(speed * 2.0f);
     float x0 = p->x, y0 = p->y;
+    bool heard = false; // the first thing it hits makes the noise of the impact
     float damage = RIFLE_DAMAGE; // what it does to a creature (a drawn bullet: its solid pixels)
     for (int s = 1; s <= n && speed > BULLET_FAST; s++) {
         float nx = x0 + p->vx * (float)s / (float)n, ny = y0 + p->vy * (float)s / (float)n;
@@ -290,6 +291,20 @@ static void bullet_step(World *w, Particle *p) {
                     }
                     speed = 0.0f;
                     break;
+                }
+                if (!heard) {
+                    heard = true;
+                    SoundKind k = SOUND_IMPACT_HARD;
+                    if (g_elem_behavior[e] == BEHAVIOR_LIQUID) {
+                        k = SOUND_SPLASH;
+                    } else if (e == ELEM_WALKER_CORPSE || e == ELEM_FLYER_CORPSE) {
+                        k = SOUND_IMPACT_FLESH;
+                    } else if (rigid_material(e)) {
+                        k = SOUND_IMPACT_WOOD;
+                    } else if (e == ELEM_DIRT || g_elem_behavior[e] == BEHAVIOR_POWDER) {
+                        k = SOUND_IMPACT_DIRT;
+                    }
+                    world_sound(w, k, tx, ty, 0.7f);
                 }
                 float r = bullet_resistance(e);
                 if (r < 0.0f) {

@@ -52,6 +52,7 @@ int pickups_collect(World *w, int who) {
         }
         c->hp = PR_MIN(c->hp + PICKUP_HEALTH_HP, c->hp_max);
         p->taken = 1;
+        world_sound(w, SOUND_PICKUP, c->x + c->w / 2, c->y + c->h / 2, 0.8f);
         n++;
     }
     return n;

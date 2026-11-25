@@ -469,6 +469,9 @@ static void restructure(World *w, int ri) {
     } Piece;
     Piece pieces[RIGID_MAX];
     int np = 0;
+    if (comps > 1) {
+        world_sound(w, SOUND_SPLIT, (int)px, (int)py, 0.7f);
+    }
     for (int k = 1; k <= comps && np < RIGID_MAX; k++) {
         if (k == keep || size[k] < RIGID_MIN_PIECE) {
             continue;

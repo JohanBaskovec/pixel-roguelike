@@ -483,6 +483,9 @@ static void physics(World *w, Creature *c) {
     if (alive && c->jump && c->grounded) {
         c->vy = -CREATURE_JUMP_SPEED;
         c->grounded = 0;
+        if (c->kind == KIND_PLAYER) {
+            world_sound(w, SOUND_JUMP, c->x + c->w / 2, c->y + c->h, 0.5f);
+        }
     }
     c->jump = 0;
     c->jet_hold = alive && c->thrust ? (uint8_t)PR_MIN(c->jet_hold + 1, 255) : 0;

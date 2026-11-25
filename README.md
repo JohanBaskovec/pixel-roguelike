@@ -27,7 +27,7 @@ automatically at configure time.
 On Linux, SDL needs these development packages (Debian/Ubuntu names):
 
 ```bash
-sudo apt-get install ninja-build libx11-dev libxext-dev libxcursor-dev libxrandr-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
+sudo apt-get install ninja-build libx11-dev libxext-dev libxcursor-dev libxrandr-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev libasound2-dev libpulse-dev   # the last two: sound (without them the game is silent)
 ```
 
 Then:
@@ -46,7 +46,7 @@ cmake --build build/release -j
 
 Options: `--width N --height N` (world size, rounded up to multiples of 64; default 4096×2048),
 `--threads N` (default: one per CPU core), `--seed N`, `--demo` (start with a demo scene), `--new` (ignore the save and start a new level),
-`--no-save` (neither load nor save). The game loads its one save file at start and saves it when
+`--no-save` (neither load nor save), `--no-audio` (silent). The game loads its one save file at start and saves it when
 you quit (D-048); the file is `save.bin` in the SDL pref folder (on Linux
 `~/.local/share/pixel-roguelike/`).
 
@@ -81,6 +81,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `T` | Temperature view |
 | `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Water vapour, Dirt, Rock, Iron, Ice, Eraser |
 | `N` / `G` | Nitrogen / Air (every pixel the same mixture: 21% oxygen, 0.04% CO2, the rest nitrogen), at 1 atm |
+| `M` | Mute / unmute the sound |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `I` | A log (a rigid body: it falls, tips and rolls, and a bullet cuts it in two) at the cursor |
 | `J` / `L` / `O` / `V` | Sand / Lava (1600 K) / Oil / Wood (burns from 250 °C, needs 16% oxygen, gives CO₂ and water: light it with the Heat brush or lava) |
@@ -90,6 +91,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `.` | Advance one tick (pauses) |
 | `Tab` | The gun menu: the gun's slots (1 to 10 bullets, fired in turn, then a reload), each with its design shown and an Edit button: a window like Paint to draw a bullet (solids, liquids, gases with a density, heat; released on impact or gradually). The game waits while it is open |
 | `R` | Reload the gun now (it reloads by itself after the last slot) |
+| Spawn buttons (panel) | Walker, Flyer, Log, Health crate: pick one, then click in the world to place it (a yellow box shows its size); the right button ends it |
 | `F5` | Restart: a new level |
 | `F6` / `F9` | Save the game now / load the save |
 | `Esc` | Quit |

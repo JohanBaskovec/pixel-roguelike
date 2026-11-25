@@ -33,7 +33,7 @@ else()
   set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
   # Subsystems we do not use (yet). Keeps the build small and fast.
-  set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
+  set(SDL_AUDIO ON CACHE BOOL "" FORCE) # sound (D-049)
   set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
   set(SDL_JOYSTICK OFF CACHE BOOL "" FORCE)
   set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
@@ -103,6 +103,7 @@ add_library(pr_sim STATIC
   src/sim/rigid.c
   src/sim/bullet.c
   src/sim/save.c
+  src/sim/sound.c
   src/sim/pickup.c
   src/sim/edit.c
   src/sim/scene.c
@@ -120,6 +121,11 @@ if(PR_TSAN AND NOT MSVC)
   target_link_options(pr_sim INTERFACE -fsanitize=thread)
 endif()
 
+# Sound: synthesised clips, a mixer, and an SDL playback stream (D-049)
+add_library(pr_audio STATIC src/audio/audio.c)
+target_link_libraries(pr_audio PUBLIC pr_sim)
+pr_configure_target(pr_audio)
+
 # ---------------------------------------------------------------------------
 # The game
 # ---------------------------------------------------------------------------
@@ -130,7 +136,7 @@ add_executable(pixel-roguelike
   src/render/render.c
   src/ui/ui.c
 )
-target_link_libraries(pixel-roguelike PRIVATE pr_sim)
+target_link_libraries(pixel-roguelike PRIVATE pr_audio pr_sim)
 pr_configure_target(pixel-roguelike)
 
 # ---------------------------------------------------------------------------
@@ -151,12 +157,13 @@ if(PR_BUILD_TESTS)
     tests/test_combat.c
     tests/test_wood.c
     tests/test_save.c
+    tests/test_sound.c
     tests/test_bullet.c
     tests/test_rigid.c
     tests/test_powder.c
     tests/test_reaction.c
   )
-  target_link_libraries(pr-tests PRIVATE pr_sim)
+  target_link_libraries(pr-tests PRIVATE pr_audio pr_sim)
   pr_configure_target(pr-tests)
   # One CTest test per RUN(...) line in test_main.c, so `ctest -j` runs them in parallel.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS tests/test_main.c)

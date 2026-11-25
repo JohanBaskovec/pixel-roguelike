@@ -157,6 +157,7 @@ void monster_die(World *w, Creature *c) {
         }
     }
     ElementId material = c->kind == KIND_WALKER ? ELEM_WALKER_CORPSE : ELEM_FLYER_CORPSE;
+    world_sound(w, SOUND_MONSTER_DIE, c->x + c->w / 2, c->y + c->h / 2, 0.9f);
     c->hp = 0.0f;
     c->state = CREATURE_DEAD;
     c->walk = 0;
@@ -181,6 +182,8 @@ void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float
     float lost = PR_MIN(hp, c->hp); // hit points actually lost (the last blow is not all of it)
     c->hp -= hp;
     c->hit_flash = 6;
+    world_sound(w, c->kind == KIND_PLAYER ? SOUND_PLAYER_HURT : SOUND_IMPACT_FLESH, c->x + c->w / 2,
+                c->y + c->h / 2, 0.6f + PR_MIN(hp / 40.0f, 0.4f));
     blood_splash(w, x, y, ux, uy, 5 + (int)(hp / 3.0f), c->id * 31u + (uint64_t)w->tick);
     if (is_monster(c)) {
         int total = c->w * c->h;
@@ -199,6 +202,7 @@ void creature_hit(World *w, Creature *c, float hp, int x, int y, float ux, float
     }
     if (c->hp <= 0.0f) {
         c->hp = 0.0f;
+        world_sound(w, SOUND_PLAYER_DIE, c->x + c->w / 2, c->y + c->h / 2, 1.0f);
         c->state = CREATURE_DEAD;
         c->walk = 0;
         c->bleed = BLEED_PER_CELL * (float)(c->w * c->h);
@@ -333,5 +337,6 @@ void enemy_think(World *w, Creature *c) {
         int by = PR_CLAMP((int)cy, p->y, p->y + p->h - 1);
         creature_hit(w, p, walker ? WALKER_BITE : FLYER_BITE, bx, by, ux, uy, -1, -1);
         c->attack_cd = BITE_TICKS;
+        world_sound(w, SOUND_BITE, c->x + c->w / 2, c->y + c->h / 2, 0.8f);
     }
 }

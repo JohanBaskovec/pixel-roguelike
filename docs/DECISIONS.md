@@ -785,3 +785,20 @@ to watch).
 - **Consequences:** A save from another build with different struct layouts or byte order is
   refused and a new level is built (no migration). No several slots, no compression of the shade
   and gas streams yet. Dead players are not autosaved.
+
+## D-049 — Sound: events from the simulation, clips synthesised in the game
+
+- **Context:** The user wants sounds for everything (shots, impacts, ...), and buttons to spawn
+  enemies.
+- **Decision:** `sim/` stays headless: it queues sound events (what, where, how loud) in the world,
+  from serial code only. `src/audio/` turns them into sound: clips are synthesised at start-up from
+  noise and sine sweeps (no asset files, no new dependency: SDL's audio subsystem, now built),
+  mixed in software and fed to an SDL audio stream once a frame (no callback thread). Sounds are
+  spatial: quieter with distance from the player, panned by side. SDL audio is switched on in the
+  build; on Linux it needs ALSA or PulseAudio headers to build a real backend (`libasound2-dev`), and
+  without a device the game runs silent.
+- **Not covered (yet):** noises made inside the parallel passes (hydrogen combustion, burning
+  wood, water pressure jets), footsteps and landings, rigid bodies knocking together, music. They
+  would need per-chunk event counters instead of a queue.
+- **Spawn buttons:** a panel button selects what a click in the world places (walker, flyer, log,
+  health crate); the right button or choosing a tool ends it.

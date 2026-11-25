@@ -10,7 +10,7 @@
 static void usage(void) {
     pr_log_info("Usage: pixel-roguelike [--width N] [--height N] [--seed N] [--demo]\n"
                 "                       [--threads N] [--frames N] [--screenshot file.bmp]\n"
-                "                       [--menu gun|editor] [--example-bullet] [--new] [--no-save]");
+                "                       [--menu gun|editor] [--example-bullet] [--new] [--no-save] [--no-audio]");
 }
 
 int main(int argc, char *argv[]) {
@@ -41,6 +41,8 @@ int main(int argc, char *argv[]) {
             cfg.menu = strcmp(argv[++i], "editor") == 0 ? 2 : 1;
         } else if (strcmp(a, "--example-bullet") == 0) {
             cfg.example_bullet = true;
+        } else if (strcmp(a, "--no-audio") == 0) {
+            cfg.no_audio = true;
         } else if (strcmp(a, "--demo") == 0) {
             cfg.demo = true;
         } else {

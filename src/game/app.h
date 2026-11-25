@@ -3,6 +3,7 @@
 #include "render/render.h"
 #include "sim/edit.h"
 #include "sim/sim.h"
+#include "audio/audio.h"
 #include "game/gunmenu.h"
 #include "sim/weapon.h"
 #include "ui/ui.h"
@@ -18,6 +19,7 @@ typedef struct AppConfig {
     bool demo;              // start with the demo scene instead of the level
     int threads;            // simulation threads; 0 = one per logical core
     int menu;               // 1: start with the gun menu open, 2: with the editor (screenshots)
+    bool no_audio;          // no sound
     bool new_game;          // do not load the save (the game still saves when it ends)
     bool no_save;           // neither load nor save
     bool example_bullet;    // slot 2 holds the example bullet: hydrogen, oxygen, heat (screenshots)
@@ -33,6 +35,8 @@ typedef struct App {
     Ui ui;
     EditQueue edits;
 
+    Audio audio;
+    int spawn; // SpawnKind: the left button places this instead of painting (0: none)
     int tool; // index into the toolbar
     int brush_radius;
     bool brush_square;

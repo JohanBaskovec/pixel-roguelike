@@ -67,6 +67,22 @@ static const Tool k_tools[] = {
 };
 #define TOOL_COUNT ((int)PR_ARRAY_COUNT(k_tools))
 
+// What the spawn buttons place at the cursor (a click in the world; the right button or a tool
+// ends it).
+typedef enum SpawnKind {
+    SPAWN_NONE = 0,
+    SPAWN_WALKER,
+    SPAWN_FLYER,
+    SPAWN_LOG,
+    SPAWN_CRATE,
+    SPAWN_COUNT
+} SpawnKind;
+
+static const char *const k_spawn_labels[SPAWN_COUNT] = {
+    [SPAWN_WALKER] = "Walker", [SPAWN_FLYER] = "Flyer", [SPAWN_LOG] = "Log",
+    [SPAWN_CRATE] = "Health crate",
+};
+
 static float zoom(const App *app) {
     return k_zoom[app->zoom_index];
 }
@@ -169,6 +185,35 @@ static void toast(App *app, const char *text) {
     app->toast_until = pr_time_seconds() + 2.5;
 }
 
+static void screen_to_world(const App *app, float sx, float sy, int *wx, int *wy);
+
+// Places what the spawn button chose, centred on cell (wx, wy).
+static void spawn_at(App *app, int wx, int wy) {
+    World *w = app->world;
+    bool ok = false;
+    switch (app->spawn) {
+        case SPAWN_WALKER:
+            ok = enemy_spawn(w, KIND_WALKER, wx - WALKER_W / 2, wy - WALKER_H / 2) >= 0;
+            break;
+        case SPAWN_FLYER:
+            ok = enemy_spawn(w, KIND_FLYER, wx - FLYER_W / 2, wy - FLYER_H / 2) >= 0;
+            break;
+        case SPAWN_LOG:
+            ok = rigid_spawn_box(w, (float)wx + 0.5f, (float)wy + 0.5f, 40, 5, 0.0f) >= 0;
+            break;
+        case SPAWN_CRATE:
+            ok = pickup_add(w, PICKUP_HEALTH, wx, wy + PICKUP_H / 2) >= 0;
+            break;
+        default:
+            break;
+    }
+    if (ok) {
+        world_sound(w, SOUND_SPAWN, wx, wy, 0.8f);
+    } else {
+        toast(app, "No room there");
+    }
+}
+
 // Writes the game to the save (to a temporary file first, so a failure keeps the old save).
 static bool save_game(App *app) {
     char tmp[1100];
@@ -241,6 +286,9 @@ bool app_init(App *app, const AppConfig *cfg) {
     world_set_job_pool(app->world, app->jobs);
     pr_log_info("World %dx%d, %d simulation threads", app->world->width, app->world->height,
                 jobs_thread_count(app->jobs));
+    if (cfg->frames == 0 && !cfg->demo && !cfg->no_audio) {
+        audio_init(&app->audio); // without a device the game is silent
+    }
     app->saves = !cfg->no_save && cfg->frames == 0 && !cfg->demo;
     if (!(app->saves && !cfg->new_game && load_game(app))) {
         reset_world(app);
@@ -278,6 +326,7 @@ void app_shutdown(App *app) {
     if (app->saves && pl && pl->state != CREATURE_DEAD) {
         save_game(app); // (not a dead player: the last save is kept)
     }
+    audio_shutdown(&app->audio);
     render_shutdown(&app->wr);
     world_destroy(app->world);
     jobs_destroy(app->jobs);
@@ -365,6 +414,7 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             }
             if (tool >= 0) {
                 app->tool = tool;
+                app->spawn = SPAWN_NONE;
             } else if (k == SDLK_SPACE) {
                 app->paused = !app->paused;
             } else if (k == SDLK_PERIOD) {
@@ -410,12 +460,17 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 int id = creature_spawn(app->world, wx - CREATURE_W / 2, wy - CREATURE_H / 2);
                 if (id >= 0) {
                     app->world->creatures[id].wander = 1;
+                    world_sound(app->world, SOUND_SPAWN, wx, wy, 0.8f);
                 }
             } else if (k == SDLK_I && mouse_over_world(app)) {
                 // A log (a rigid body, 2 m by 25 cm) centred on the cursor (D-045).
                 int wx, wy;
                 screen_to_world(app, app->mouse_x, app->mouse_y, &wx, &wy);
                 rigid_spawn_box(app->world, (float)wx + 0.5f, (float)wy + 0.5f, 40, 5, 0.0f);
+                world_sound(app->world, SOUND_SPAWN, wx, wy, 0.8f);
+            } else if (k == SDLK_M) {
+                app->audio.muted = !app->audio.muted;
+                toast(app, app->audio.muted ? "Sound off" : "Sound on");
             } else if (k == SDLK_MINUS) {
                 app->gas_atm = PR_MAX(app->gas_atm * 0.5f, 1.0f / 16.0f); // gas brush: less dense
             } else if (k == SDLK_EQUALS || k == SDLK_PLUS) {
@@ -460,6 +515,15 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 app->follow = false;
             } else if (ev->button.button == SDL_BUTTON_LEFT && on_panel) {
                 app->ui_click = true;
+                audio_play_ui(&app->audio, SOUND_CLICK);
+            } else if (app->spawn != SPAWN_NONE && !on_panel) {
+                if (ev->button.button == SDL_BUTTON_LEFT) {
+                    int wx, wy;
+                    screen_to_world(app, ev->button.x, ev->button.y, &wx, &wy);
+                    spawn_at(app, wx, wy);
+                } else if (ev->button.button == SDL_BUTTON_RIGHT) {
+                    app->spawn = SPAWN_NONE;
+                }
             } else if (k_tools[app->tool].mode == TOOL_RIFLE) {
                 app->trigger = !on_panel && ev->button.button == SDL_BUTTON_LEFT;
             } else if (!on_panel && app->paint_button == 0 &&
@@ -489,12 +553,23 @@ void app_handle_event(App *app, const SDL_Event *ev) {
 }
 
 static void draw_brush_outline(App *app) {
-    if (!mouse_over_world(app) || k_tools[app->tool].mode == TOOL_RIFLE) {
+    if (!mouse_over_world(app) || (k_tools[app->tool].mode == TOOL_RIFLE && !app->spawn)) {
         return;
     }
     float scale = zoom(app);
     int wx, wy;
     screen_to_world(app, app->mouse_x, app->mouse_y, &wx, &wy);
+    if (app->spawn != SPAWN_NONE) {
+        // The box of what a click places.
+        static const int sz[SPAWN_COUNT][2] = {{0, 0}, {WALKER_W, WALKER_H}, {FLYER_W, FLYER_H},
+                                               {40, 5}, {PICKUP_W, PICKUP_H}};
+        SDL_FRect box = {app->view.x + ((float)(wx - sz[app->spawn][0] / 2) - app->cam_x) * scale,
+                         app->view.y + ((float)(wy - sz[app->spawn][1] / 2) - app->cam_y) * scale,
+                         (float)sz[app->spawn][0] * scale, (float)sz[app->spawn][1] * scale};
+        SDL_SetRenderDrawColor(app->renderer, 255, 255, 120, 220);
+        SDL_RenderRect(app->renderer, &box);
+        return;
+    }
     float cx = app->view.x + ((float)wx + 0.5f - app->cam_x) * scale;
     float cy = app->view.y + ((float)wy + 0.5f - app->cam_y) * scale;
     float r = ((float)app->brush_radius + 0.5f) * scale;
@@ -578,8 +653,23 @@ static void draw_panel(App *app) {
         float bw = (w - 4.0f) * 0.5f, bx = x + (float)(i % 2) * (bw + 4.0f);
         if (ui_button(ui, (SDL_FRect){bx, y, bw, 19.0f}, label, swatch, app->tool == i)) {
             app->tool = i;
+            app->spawn = SPAWN_NONE;
         }
         if (i % 2 == 1 || i == TOOL_COUNT - 1) {
+            y += 21.0f;
+        }
+    }
+
+    y += 8.0f;
+    ui_text(ui, x, y, 0x9AA0AA, "SPAWN (click in the world)");
+    y += 14.0f;
+    for (int i = SPAWN_WALKER; i < SPAWN_COUNT; i++) {
+        float bw = (w - 4.0f) * 0.5f, bx = x + (float)((i - 1) % 2) * (bw + 4.0f);
+        if (ui_button(ui, (SDL_FRect){bx, y, bw, 19.0f}, k_spawn_labels[i], UI_NO_SWATCH,
+                      app->spawn == i)) {
+            app->spawn = app->spawn == i ? SPAWN_NONE : i;
+        }
+        if ((i - 1) % 2 == 1 || i == SPAWN_COUNT - 1) {
             y += 21.0f;
         }
     }
@@ -1111,6 +1201,22 @@ bool app_frame(App *app, double frame_dt) {
         }
     }
     app->step_once = false;
+    {
+        // Sound: what the simulation queued, heard from the player (or the screen's centre).
+        const Creature *pc = player(app);
+        float lx = app->cam_x + app->view.w / zoom(app) * 0.5f;
+        float ly = app->cam_y + app->view.h / zoom(app) * 0.5f;
+        float jet = 0.0f;
+        if (pc) {
+            lx = (float)pc->x + (float)pc->w * 0.5f;
+            ly = (float)pc->y + (float)pc->h * 0.5f;
+            jet = pc->state != CREATURE_DEAD && pc->jet_hold >= JETPACK_DELAY && !pc->grounded &&
+                          !app->paused && !gunmenu_open(&app->menu)
+                      ? 1.0f
+                      : 0.0f;
+        }
+        audio_frame(&app->audio, app->world, lx, ly, jet);
+    }
 
     SDL_SetRenderDrawColor(app->renderer, 8, 8, 10, 255);
     SDL_RenderClear(app->renderer);

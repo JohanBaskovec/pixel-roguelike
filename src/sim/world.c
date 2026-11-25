@@ -91,6 +91,7 @@ void world_clear(World *w) {
     w->creature_count = 0;
     w->pickup_count = 0;
     w->rigid_count = 0;
+    w->sound_count = 0;
     payloads_reset(w);
     for (int i = 0; i < w->chunks_x * w->chunks_y; i++) {
         dirty_rect_clear(&w->chunks[i].cur);

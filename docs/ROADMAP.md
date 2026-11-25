@@ -283,6 +283,7 @@ The game is an action roguelike (decided 2026-11-23; docs/VISION.md, D-031).
   air control, water around a body, breathing in and out and holding a breath, muzzle gas,
   melting, gas mixtures (diffusion, staying mixed, turning over, pooling, dew point)
 
+- [x] Sound: synthesised effects for everything the player does and hears, spawn buttons (D-049)
 - [x] One save file, loaded at start, saved at quit and on F6 (D-048); test round trip
 
 ## M6b – Roguelike, next

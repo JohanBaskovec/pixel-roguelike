@@ -280,6 +280,18 @@ Shots add particles; their flight runs in the tick's serial particle step. The c
 player at zoom ×2 unless the user pans. The rifle and bullet streaks are drawn over the world
 texture (they are not cells).
 
+## Sound (D-049)
+
+The simulation queues `SoundEvent`s (kind, cell, volume; `sim/sound.h`) in `World.sounds` from serial
+code only (shots, bullet impacts, hits, bites, deaths, pickups, jumps, blasts, cut logs); the queue
+holds 256 and drops the rest. `audio/audio.c` synthesises every clip at start-up (noise through a
+one-pole filter and sine sweeps: no assets), mixes up to 32 voices (5 per kind, ±10 % pitch
+variation, soft limiter), and attenuates by distance from the player (1/(1+(d/120)²), nothing
+beyond 700 cells) and pans by side. Once a frame `audio_frame` drains the queue, sets the jetpack
+loop (a continuous voice that fades with the jetpack state) and keeps about 70 ms queued on an SDL
+playback stream (no audio callback, so no threads or locks). No device: the game is silent.
+Headless runs (`--frames`, `--demo`) have no sound.
+
 ## Saves (D-048)
 
 `sim/save.c` writes one file: a header (magic, `sizeof` signature of `Cell`, `Particle`, `Creature`,
