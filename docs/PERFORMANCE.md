@@ -81,6 +81,13 @@ Planned experiments, decided by data only:
   - updated cells per tick
   - **ns per updated cell** (the main number to watch)
   - thread count, world size, build type, compiler
+- **`perf`** (Linux). In the cloud VM used for development there are no hardware counters (no
+  cycles, cache misses or branch misses), but timer sampling works and shows where the time goes
+  line by line (not why): `apt-get install linux-tools-generic`, then the binary under
+  `/usr/lib/linux-tools-*/perf` (the `perf` wrapper refuses a kernel it does not know):
+  `perf record -e cpu-clock -F 2000 -g ./prog` and `perf report --no-children --sort srcline`.
+  Build with debug info (RelWithDebInfo, `build/prof`). On a desktop, `perf stat -e
+  cycles,instructions,cache-misses` adds the counters this VM lacks.
 - **In-game HUD timers**, built on `SDL_GetPerformanceCounter` and averaged over half a second:
   Sim (per tick), Draw (convert + upload of visible dirty chunks, per frame), Frame (all work per
   frame, excluding the wait for vsync).
@@ -422,6 +429,20 @@ From the lava-film measurement (Order, 3). Each with what it does to the physics
 7. **The phase floor** (not a fix): a phase is never shorter than its costliest chunk, about 1 ms
    for a chunk of awake gas, so a lava room puts about 4 ms under the tick whatever the thread
    count; an 8-thread laptop is closer to it than this 4-thread VM. Ideas 2, 5 and 6 lower it.
+
+**Where the time goes, sampled with `perf` (2026-11-25).** Lava film, one thread, 97 000 samples
+(timer sampling: a stall is charged to the instruction that waited, give or take a few):
+the movement pass 48% of the tick (the gas rule inlined in `phase_job`), `gas_buoyancy` 10%,
+`gas_equalize` 9%, the heat pass 20% (`compute_chunk` 14%, `pair_flux` 3%, `apply_chunk` 3%),
+`gas_rho_job` 5%. By line, the time sits on the *first reads of other cells' gas*: summing a
+neighbour's or a far cell's moles (`gas_moles`, 14%), comparing two pressures (`gas_differs`, 8%),
+comparing two mixtures (6%), the column scans of the buoyancy test (4%), `world_elem` (4%), and in
+the heat pass building the halo (`gas_heat_cap`, 5%). So the cost is reaching other cells' data
+(neighbours, the cells 16 away, columns up to 16 rows up), not arithmetic: that is why fewer
+instructions and cached moles (still a read 16 cells away) gained nothing. What could help: fewer
+distinct far cells read per update (the two pressure checks 16 cells away, the multi-scale column
+scans), or per-tile summaries computed once per tick and read instead of the cells. Confirm with
+cache-miss counts on a desktop before building it.
 
 Plus Order, 5 (gas at 30 Hz by tile parity), which changes the physics (rise and currents at most
 one cell per update). Each change: the behaviour tests, the thread-count tests, the lava film
