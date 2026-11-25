@@ -339,16 +339,35 @@ blast), which adds credibility rather than speed.
 
 From the lava-film measurement (Order, 3). Each with what it does to the physics.
 
-1. **Measure first what keeps the lava's room awake** (pressure, temperature or composition
-   differences), in the level, as for the firing case. The 2026-11-24 analysis found pressure
-   (248 000 cells flagged for it); not checked again since D-039 and D-040.
+1. **What keeps the lava's room awake (measured 2026-11-25).** The gas cells woken for the next
+   tick, classified with the gas rule's own tests in its order (a copy outside the simulation:
+   approximate), with the lava film after 40 s against the same level without lava after 20 s:
+
+   | | lava | no lava |
+   |---|---|---|
+   | awake gas cells | 145 000 | 59 000 |
+   | pressure differs from a neighbour (79% of them over 25 °C: the plume) | 29 000 | 4 000 |
+   | pressure differs from the cell 16 away (mostly cool air: the front) | 29 000 | 4 000 |
+   | woken, but within tolerance (nothing to do: a neighbour changed) | 59 000 | 37 000 |
+   | current | 25 000 | 11 000 |
+   | density (warm or cold air) | 2 000 | 1 400 |
+   | composition, water vapour, void, liquid | ~0 | ~0 |
+
+   So lava adds about 50 000 cells awake for pressure (40%), half of them out in cool air the
+   front has reached: idea 2. Warm air rising (density) keeps almost nothing awake. And with or
+   without lava the largest group (41–63%) is cells woken around a change that find nothing to
+   do: Order, 6 ("Fewer wakes") is worth more than its 10% estimate suggested (such a visit costs
+   less than a full update, but it runs the costly checks of `gas_is_mobile`).
 2. **Let heated gas expand at once.** The heat pass raises a gas cell's pressure, and that
    pressure spreads by diffusion, very slowly; real air expands at the speed of sound and stays at
    about constant pressure. When gas heats, move the extra gas (n·ΔT/T) straight into the gas
    around, in the same connected region. Physics: closer to reality (no overpressure front waking
    rooms, no lava surface pushed for 15 s). Needs a serial step after the parallel heat pass. Two
    earlier attempts at faster pressure made lava slower (relaying, step 3): prototype it alone
-   first. Potentially the biggest gain, if 1 confirms pressure.
+   first. Potentially the biggest gain for lava (1: pressure keeps 40% awake).
+2b. **Fewer wakes** (Order, 6): a cell that exchanges gas wakes the 3 × 3 cells around both ends;
+   waking only the neighbours that now differ from it would spare most of the 41–63% that find
+   nothing to do. Physics: none, if a neighbour that would act is always woken.
 3. **Fewer instructions per awake gas cell**, with the same rules:
    - work out each awake cell's moles and moles × temperature once per tick, in the pass that
      already works out its density (`gas_rho_update`), instead of again for itself, each
