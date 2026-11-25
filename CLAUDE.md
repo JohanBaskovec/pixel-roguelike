@@ -211,6 +211,12 @@ benchmark all link.
 
 - Use Debug + `PR_SANITIZE` for correctness work. Use Release or RelWithDebInfo for performance
   work. **Never quote performance numbers from a Debug build.**
+- Judge hot-path changes on a desktop CPU when one is available: the cloud VM has no hardware
+  counters and misjudges instruction cuts (it showed no gain where the player's Zen 2 laptop is
+  bound by instruction count). With `perf`: `perf stat -e cycles,instructions,cache-misses,
+  L1-dcache-load-misses ./build/release/pr-bench --scene lava --threads 1`, and `perf record` /
+  `perf report --sort srcline` on a RelWithDebInfo build (`docs/PERFORMANCE.md` → Measuring; the
+  next candidates are under Proposed next steps → Lava: what to try next).
 - Run `ctest -j4` (Release, then the ASan build) before committing. Run `pr-bench` before
   committing changes to `src/sim/`. While iterating, run only the tests you touch
   (`pr-tests <name>`); the full suites take about 20 s (Release) and 2 min (ASan) on 4 cores.

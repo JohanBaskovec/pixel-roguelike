@@ -441,12 +441,61 @@ the movement pass 48% of the tick (the gas rule inlined in `phase_job`), `gas_bu
 `gas_rho_job` 5%. By line, the time sits on the *first reads of other cells' gas*: summing a
 neighbour's or a far cell's moles (`gas_moles`, 14%), comparing two pressures (`gas_differs`, 8%),
 comparing two mixtures (6%), the column scans of the buoyancy test (4%), `world_elem` (4%), and in
-the heat pass building the halo (`gas_heat_cap`, 5%). So the cost is reaching other cells' data
-(neighbours, the cells 16 away, columns up to 16 rows up), not arithmetic: that is why fewer
-instructions and cached moles (still a read 16 cells away) gained nothing. What could help: fewer
-distinct far cells read per update (the two pressure checks 16 cells away, the multi-scale column
-scans), or per-tile summaries computed once per tick and read instead of the cells. Confirm with
-cache-miss counts on a desktop before building it.
+the heat pass building the halo (`gas_heat_cap`, 5%). (A first reading, "the cost is reaching
+other cells' data, not arithmetic", was overturned by the counters below.)
+
+**Hardware counters on the player's laptop (2026-11-25).** Ryzen 7 4700U (Zen 2, 8 cores, about
+4 GHz while busy), gcc 13.3, one thread, `perf stat -e cycles,instructions,cache-misses,
+L1-dcache-load-misses` (on Zen 2 `cache-misses` counts L2 misses). The cloud VM used so far has no
+hardware counters.
+
+| | bench scene (`pr-bench --threads 1 --ticks 200`) | lava (`pr-bench --scene lava --threads 1 --ticks 300`) |
+|---|---|---|
+| ms/tick (p50), ns per updated cell | 83.4, 223 | 34.8, 229 |
+| updated cells/tick | 380 252 (200 621 moved) | 152 888 (5 824 moved) |
+| instructions per cycle | 1.57 | **2.28** |
+| per updated cell: cycles / instructions | ~920 / ~1 450 | ~915 / ~2 100 |
+| per updated cell: L1 data misses / L2 misses | ~42 / ~3.4 | ~46 / ~4.2 |
+
+(Per-cell figures divide the whole run, warm-up and level setup included, by the measured ticks:
+approximate.) What it means:
+- **Lava is mostly instruction count.** At 2.28 instructions per cycle the core is busy; the four L2
+  misses per cell (about 40 cycles each from L3) are worth roughly 15–20% of the time, and the L1
+  misses that hit L2 are mostly hidden behind the work. About 2 100 instructions per awake gas cell
+  per tick is the cost to cut.
+- **The bench scene is more memory-bound** (1.57 per cycle): water and gas moving every tick touch
+  far more cache lines per useful instruction.
+- **The cloud VM misjudges instruction cuts.** Two experiments that removed instructions (cached
+  moles, density before composition, Tried and dropped) showed no gain on the VM; on this CPU they
+  should. The VM even gives the same ns per cell as the 4 GHz laptop. Judge hot-path changes on a
+  desktop CPU (CLAUDE.md → Workflow).
+
+**Where the L1 misses happen, lava** (`perf record -e L1-dcache-load-misses,cache-misses`, then
+`perf report --no-children --sort srcline`, 127 000 samples):
+
+| share of misses | code | what it reads |
+|---|---|---|
+| ~33% | `gas_differs` (sim.c, `nn * w->temp[ni]`), `gas_moles` (world.h), `gas_mix_differs` | the 4 neighbours' gas and temperature (`gas_is_mobile`) |
+| ~16% | `gas_buoyancy`, its column loop | up to 16 rows above and below, at 4 scales |
+| ~5% | `gas_differs_at` | the cells 16 to the right and below |
+| ~4% | `world_in_bounds` / `world_elem` | the neighbours' elements |
+| ~4% | `gas_same_as_around` | the "exactly like its neighbours" exit |
+
+**Next, on a desktop: candidates to measure, one at a time** (same rules; each judged by
+`pr-bench --scene lava --threads 1` and the bench scene, old and new alternately, two runs each,
+plus the behaviour and thread-count tests):
+1. **Cache each cell's moles per tick** (`World.mol`, filled with `World.rho` in `gas_rho_update`),
+   read by `gas_is_mobile` and the cheap test of `gas_equalize` instead of summing five species for
+   every neighbour and far cell. Decisions see values up to a tick old (as the density already);
+   transfers read the live gas. +4 bytes a cell. Tried on the VM only (no change there).
+2. **Column sums of density once per tick**, so the buoyancy scan reads two values per scale
+   instead of up to 16 cells. Exact only if `World.rho` does not change during the movement pass
+   (check how swaps treat it first); otherwise decisions a tick old, as above.
+3. **A cheaper mixture comparison**: an exact-equality fast path, or testing density first (the
+   same answer).
+4. **Fewer instructions in `gas_is_mobile`** generally: it runs for every awake cell that is not
+   exactly like its neighbours (most of them) and is the biggest single block.
+Then, if lava is still too slow: the far checks less often, or per-tile summaries for them.
 
 Plus Order, 5 (gas at 30 Hz by tile parity), which changes the physics (rise and currents at most
 one cell per update). Each change: the behaviour tests, the thread-count tests, the lava film
@@ -472,7 +521,8 @@ height, the overpressure over the lava and the CO2-ball mixing time, logged belo
 - **Caching each cell's moles per tick** (2026-11-25, `World.mol` next to `World.rho`, read by the
   mobility checks instead of summing the five species for every neighbour): lava film, 1 thread,
   33.5 / 33.9 against 33.4 / 33.5 ms; cells visited 152 642 against 150 211 (stale values
-  change a few decisions). No gain.
+  change a few decisions). No gain **on the cloud VM**; worth trying again on a desktop CPU,
+  where the counters show lava bound by instruction count (above).
 - **2 MB pages** for the big arrays (`madvise(MADV_HUGEPAGE)`, 2 MB alignment; the kernel did use
   them, 334 MB resident), on the idea that rows 80 KB apart miss the TLB: lava film, 1 thread,
   39.2 / 39.6 against 33.2 / 32.3 ms: **slower**. Not the bottleneck.
@@ -482,7 +532,7 @@ height, the overpressure over the lava and the CO2-ball mixing time, logged belo
   About 10–15% for a change in how fast air rises and currents move: not done.
 - **Comparing density before composition** in `gas_is_mobile` (2026-11-25; the same answer, the
   costly mixture comparison skipped when density already decides): lava film, 1 thread,
-  34.1 / 34.2 against 34.2 ms. No gain.
+  34.1 / 34.2 against 34.2 ms. No gain on the cloud VM; to retry on a desktop.
 - Letting cells that hold water vapour take the "exactly like its neighbours" exit too: no change
   in the firing case (28.4 / 29.0 ms against 30.1 / 28.8 ms at 10 s, 1 thread).
 

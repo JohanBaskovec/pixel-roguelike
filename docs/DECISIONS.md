@@ -875,8 +875,11 @@ to watch).
 - **Measured and dropped** (PERFORMANCE.md → Lava: what to try next, and Tried and dropped):
   - heat pass at a lower rate where only solids warm: no chunk of the lava scene is solid-only (all
     88 heat chunks hold air), nothing to slow;
-  - caching each cell's moles per tick: 33.4–33.9 against 33.4–33.5 ms, no gain (so the earlier
-    reading that the gas rule is bound by instruction count was wrong too);
+  - caching each cell's moles per tick: 33.4–33.9 against 33.4–33.5 ms on the cloud VM, no gain
+    there. Hardware counters measured afterwards on the player's laptop show the lava tick bound
+    mostly by instruction count (2.28 instructions per cycle, about 2 100 per awake cell): the VM
+    misjudges such changes, so this is to be tried again on a desktop (PERFORMANCE.md → Hardware
+    counters on the player's laptop);
   - 2 MB pages for the big arrays (transparent huge pages were really used, 334 MB): 20% slower,
     so TLB misses are not the bottleneck;
   - gas at 30 Hz by tile parity: at most 10–15% (34.8 / 32.2 against 32.0 / 27.1 ms) for a change in
