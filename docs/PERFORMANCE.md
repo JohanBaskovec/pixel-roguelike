@@ -358,16 +358,39 @@ From the lava-film measurement (Order, 3). Each with what it does to the physics
    without lava the largest group (41–63%) is cells woken around a change that find nothing to
    do: Order, 6 ("Fewer wakes") is worth more than its 10% estimate suggested (such a visit costs
    less than a full update, but it runs the costly checks of `gas_is_mobile`).
-2. **Let heated gas expand at once.** The heat pass raises a gas cell's pressure, and that
-   pressure spreads by diffusion, very slowly; real air expands at the speed of sound and stays at
-   about constant pressure. When gas heats, move the extra gas (n·ΔT/T) straight into the gas
-   around, in the same connected region. Physics: closer to reality (no overpressure front waking
-   rooms, no lava surface pushed for 15 s). Needs a serial step after the parallel heat pass. Two
-   earlier attempts at faster pressure made lava slower (relaying, step 3): prototype it alone
-   first. Potentially the biggest gain for lava (1: pressure keeps 40% awake).
-2b. **Fewer wakes** (Order, 6): a cell that exchanges gas wakes the 3 × 3 cells around both ends;
-   waking only the neighbours that now differ from it would spare most of the 41–63% that find
-   nothing to do. Physics: none, if a neighbour that would act is always woken.
+2. **Let heated gas expand at once: measured 2026-11-25, dropped as a conserving rule.** The heat
+   pass raises a gas cell's pressure and that spreads by diffusion; real air expands at the speed
+   of sound. Tried in `apply_chunk` (heat.c): a gas cell whose temperature changes from T_old to
+   T_new keeps n·T_old/T_new of its gas, and gives up the rest (taking it in when it cools). Lava
+   film, 4 threads' scene on one thread, ms per tick, 40 s:
+
+   | | ms/tick | cells visited | awake gas after 40 s | awake for pressure |
+   |---|---|---|---|---|
+   | today | 31–34 | 150 000 | 145 000 | 58 000 |
+   | the excess **discarded** (not conserving: the ceiling of the idea) | 24–25 | 128 000 | 99 000 | 9 500 |
+   | the excess **pooled per chunk and shared out** over the gas of the 3 × 3 chunks around it, with its heat (conserving; a third parallel pass in which each job pulls the pools around it) | 49–52 | 224 000 | 280 000 | 82 000 |
+
+   So the idea is worth at most about 20%, and only if the gas that leaves is *not kept*. Kept, it
+   lands as an overpressure on the cells that receive it, in blocks the size of the window, and
+   those differ from their neighbours and from the cells 16 away, so more cells stay awake than
+   before, and the pass itself costs more (a lava room's 100 chunks × 4 096 cells). The physics
+   explains it: in the world the excess goes to a huge connected volume (a sealed room does rise in
+   pressure; an open one does not), and a rule that is right for both must know how much volume is
+   connected. Discarding it is right only for gas that is open to the world; a sealed tank heated
+   (a pressurised vessel, gas pushing on water, D-025) must keep it. Telling them apart needs the
+   connected region of every heated cell (a flood fill of up to tens of thousands of cells per
+   chunk per tick), which costs about what it saves. With the discard, warm air rises as it
+   should (39% of the awake cells wait on density, not pressure). Same conclusion as the two
+   earlier attempts at faster pressure (relaying, step 3). Left: a cheap openness test, for
+   example by chunk (does the chunk's gas touch the border of a simulated region that is not
+   closed?); not built.
+2b. **Fewer wakes: measured 2026-11-25, dropped.** `gas_wake` after an exchange wakes the 3 × 3
+   cells around both ends. Waking only the two cells themselves (more extreme than any exact rule,
+   and it breaks behaviour) cut cells visited by 4% (143 758 against 150 211) and the time not at
+   all (30.0 against 29.8 ms, lava film, one thread). The cells woken "for nothing" (41–63%) are
+   in tiles that some other cell keeps awake (visits are by tile and rect, and cells keep
+   themselves awake), so waking fewer cells does not shrink the set. Cell-level activity would
+   need a per-cell flag or list: a different design, as in step 1.
 3. **Fewer instructions per awake gas cell**, with the same rules:
    - work out each awake cell's moles and moles × temperature once per tick, in the pass that
      already works out its density (`gas_rho_update`), instead of again for itself, each
@@ -415,6 +438,9 @@ height, the overpressure over the lava and the CO2-ball mixing time, logged belo
   its test (aiming alone left 3.7% against 3.0%). Dropped: no time gained.
 - **Not waking whole chunks for convection** from the heat pass (an experiment, to see whether
   those wakes made the awake region broad): no change in cells visited. They are not the cause.
+- **Instant expansion of heated gas** and **fewer wakes** (2026-11-25): see Lava: what to try
+  next, 2 and 2b. The first is worth at most 20% and only without conserving the gas; the second
+  gains nothing.
 - **Comparing density before composition** in `gas_is_mobile` (2026-11-25; the same answer, the
   costly mixture comparison skipped when density already decides): lava film, 1 thread,
   34.1 / 34.2 against 34.2 ms. No gain.
