@@ -36,6 +36,8 @@ void test_gas_pressure_equalizes(void);
 void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
 void test_vapour_condenses_below_dew_point(void);
+void test_steam_condenses_on_cold_iron(void);
+void test_steam_stays_beside_hot_iron(void);
 void test_air_stays_mixed(void);
 void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
@@ -202,6 +204,8 @@ int main(int argc, char **argv) {
     RUN(test_sealed_gas_pressure_follows_temperature);
     RUN(test_boiling_keeps_mass);
     RUN(test_vapour_condenses_below_dew_point);
+    RUN(test_steam_condenses_on_cold_iron);
+    RUN(test_steam_stays_beside_hot_iron);
     RUN(test_air_stays_mixed);
     RUN(test_gases_diffuse_into_each_other);
     RUN(test_gas_mixture_stays_mixed);

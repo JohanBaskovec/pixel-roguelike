@@ -32,6 +32,11 @@ void test_hydrogen_burns_in_oxygen(void) {
     // and oxygen turn into steam, 8 kg of oxygen per kg of hydrogen, and the steam is hot. Mass is
     // conserved exactly (counted before the steam has cooled enough to condense).
     World *w = knallgas(91);
+    for (int i = 0; i < w->width * w->height; i++) { // hot walls: steam does not condense on them
+        if (w->cells[i].element != ELEM_GAS) {
+            w->temp[i] = 400.0f;
+        }
+    }
     double h2 = test_mass(w, ELEM_HYDROGEN), o2 = test_mass(w, ELEM_OXYGEN);
     for (int y = 30; y <= 33; y++) {
         for (int x = 60; x <= 63; x++) {

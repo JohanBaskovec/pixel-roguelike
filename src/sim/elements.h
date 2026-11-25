@@ -80,6 +80,11 @@ typedef struct ElementDef {
 // rising. Between two materials the smaller factor applies.
 #define HEAT_TIME_SCALE     1000.0f
 #define HEAT_TIME_SCALE_GAS 10.0f
+// Film condensation (D-056): water vapour gives its heat to matter colder than its dew point far
+// faster than still gas conducts. The heat transfer coefficient of pure steam on a cold surface,
+// W/(m^2 K), in real time (no speed-up); in a mixture, times the vapour's mole fraction in excess
+// of saturation at the surface.
+#define CONDENSE_FILM_H 8000.0f
 
 // Radiation (D-052): matter hotter than RAD_MIN_K sends heat out through the air, in rays that are
 // absorbed by the first matter they meet within RAD_RANGE cells (air is transparent; a ray that

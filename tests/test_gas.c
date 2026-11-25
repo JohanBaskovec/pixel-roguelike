@@ -15,6 +15,8 @@ void test_gas_pressure_equalizes(void);
 void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
 void test_vapour_condenses_below_dew_point(void);
+void test_steam_condenses_on_cold_iron(void);
+void test_steam_stays_beside_hot_iron(void);
 void test_air_stays_mixed(void);
 void test_gases_diffuse_into_each_other(void);
 void test_gas_mixture_stays_mixed(void);
@@ -112,7 +114,8 @@ void test_sealed_gas_pressure_follows_temperature(void) {
 }
 
 void test_boiling_keeps_mass(void) {
-    // A pool of boiling water in a room of hot air (390 K: the vapour does not condense): each
+    // A pool of boiling water in a hot room (air and walls at 390 K, the pool at the boiling point:
+    // the vapour does not condense): each
     // boiled cell becomes water vapour with the water's mass (at very high pressure), which
     // pushes the air aside and expands. The vapour's mass equals the mass of water lost.
     World *w = test_world_box(128, 128, 44);
@@ -122,11 +125,14 @@ void test_boiling_keeps_mass(void) {
         sim_apply_edit(w, &air);
     }
     for (int i = 0; i < w->width * w->height; i++) {
-        if (w->cells[i].element == ELEM_GAS) {
-            w->temp[i] = 390.0f;
-        }
+        w->temp[i] = 390.0f;
     }
     paint(w, 40, 120, 88, 126, ELEM_WATER);
+    for (int i = 0; i < w->width * w->height; i++) {
+        if (w->cells[i].element == ELEM_WATER) {
+            w->temp[i] = 373.15f;
+        }
+    }
     int64_t water0 = test_count(w, ELEM_WATER);
     double air0 = test_mass(w, ELEM_GAS) - test_mass(w, ELEM_STEAM);
     for (int t = 0; t < 120; t++) {
@@ -196,6 +202,58 @@ void test_vapour_condenses_below_dew_point(void) {
     EXPECT(drops > 0);
     EXPECT(fabs((double)drops - expect) < 4.0 * sqrt(expect) + 1.0);
     world_destroy(w);
+}
+
+// A sealed room (walls at 100 degC) of steam at 100 degC and `atm` atmospheres, with a bar of iron
+// at t_iron in the middle. After `ticks`: the vapour before and left (kg), the water and ice made
+// (kg), and the heat the iron gained over the latent heat of the vapour lost.
+static void steam_and_iron(float atm, float t_iron, int ticks, double *v0, double *v1, double *water,
+                           double *heat_ratio) {
+    World *w = test_world_box(64, 64, 47);
+    const float t = 373.15f;
+    GasMix g = gas_mix_pure(GAS_H2O, gas_mass_at(ELEM_STEAM, atm * P_ATM, t));
+    for (int y = 1; y <= 62; y++) {
+        for (int x = 1; x <= 62; x++) {
+            world_set_mix(w, x, y, &g, t, (uint32_t)(x * 31 + y));
+        }
+    }
+    paint(w, 16, 28, 47, 35, ELEM_IRON);
+    double heat = 0.0;
+    for (int i = 0; i < w->width * w->height; i++) {
+        w->temp[i] = w->cells[i].element == ELEM_IRON ? t_iron : t;
+        heat -= w->cells[i].element == ELEM_IRON ? (double)(g_elem_cap[ELEM_IRON] * w->temp[i]) : 0.0;
+    }
+    world_wake_rect(w, 0, 0, 63, 63);
+    world_wake_heat(w, 0, 0, 63, 63);
+    *v0 = test_mass(w, ELEM_STEAM);
+    sim_run_ticks(w, ticks);
+    *v1 = test_mass(w, ELEM_STEAM);
+    *water = (double)test_count(w, ELEM_WATER) * (double)g_elem_mass[ELEM_WATER] +
+             (double)test_count(w, ELEM_ICE) * (double)g_elem_mass[ELEM_ICE];
+    for (int i = 0; i < w->width * w->height; i++) {
+        heat += w->cells[i].element == ELEM_IRON ? (double)(g_elem_cap[ELEM_IRON] * w->temp[i]) : 0.0;
+    }
+    *heat_ratio = heat / ((*v0 - *v1) * 2257e3 + 1e-9);
+    world_destroy(w);
+}
+
+void test_steam_condenses_on_cold_iron(void) {
+    // Steam at 100 degC beside very cold iron condenses on it (D-056): the vapour becomes water,
+    // and its latent heat goes into the iron.
+    double v0, v1, water, ratio;
+    steam_and_iron(40.0f, 23.0f, 1200, &v0, &v1, &water, &ratio);
+    EXPECT(v1 < 0.8 * v0);
+    double cells = (v0 - v1) / (double)g_elem_mass[ELEM_WATER];
+    EXPECT(fabs(water / (double)g_elem_mass[ELEM_WATER] - cells) < 4.0 * sqrt(cells) + 2.0);
+    EXPECT(ratio > 0.7 && ratio < 1.5);
+}
+
+void test_steam_stays_beside_hot_iron(void) {
+    // Beside iron above its dew point steam stays vapour.
+    double v0, v1, water, ratio;
+    steam_and_iron(1.0f, 383.15f, 300, &v0, &v1, &water, &ratio);
+    EXPECT(water == 0.0);
+    EXPECT(fabs(v1 - v0) < 1e-4 * v0);
 }
 
 void test_air_stays_mixed(void) {

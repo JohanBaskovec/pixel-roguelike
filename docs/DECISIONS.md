@@ -923,3 +923,17 @@ to watch).
   everywhere (×2 to ×8: shooting −10 to −20%, lava almost nothing, breaks the pressure tests); a band
   without the liquid exception (pools never rest even at 1%); 2% and 5% with it (pools still churn).
 - **Consequences:** shooting −14%, lava −6%. Mass and energy are conserved as before.
+
+## D-056 — Film condensation on cold matter
+
+- **Status:** Accepted (2026-11-25), from a bug the user found: steam at 100 °C beside extremely cold
+  iron never became water.
+- **Context:** Vapour gave up its latent heat (2257 kJ/kg) only through still-gas conduction: a bar at
+  −250 °C condensed 28 g of 48 kg of steam in a minute.
+- **Decision:** In the heat pass, vapour touching matter colder than its dew point exchanges heat with
+  the film condensation coefficient of steam, times the vapour's excess over saturation at the surface
+  (SIMULATION → Heat pass). Symmetric, so energy is conserved; the condensing itself is unchanged.
+- **Alternatives:** saturation at the real pressure rather than 1 atm: it would condense part of every
+  freshly boiled cell (1700 atm) at once, which D-035 avoids. Not done.
+- **Consequences:** Steam rains on cold walls and floors, and steam over cold water condenses into it.
+  16 kg of the same steam now condenses in a minute. No cost in the benchmark scenes.

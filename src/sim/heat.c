@@ -40,14 +40,17 @@ typedef struct HeatScratch {
 // Between two gas cells, a current (gas wind, in either cell) mixes heat by turbulence: the
 // coefficient is multiplied by 1 + GAS_TURB_PER_WIND * speed (docs/SIMULATION.md -> Heat pass;
 // D-034). Most currents then exchange at the stability limit.
+//
+// `film` (J/K) adds to the coefficient: vapour condensing on colder matter.
 #define GAS_COND_SCALE (CELL_SIZE_M * TICK_SECONDS * HEAT_TIME_SCALE_GAS)
+#define FILM_SCALE     (CONDENSE_FILM_H * CELL_SIZE_M * CELL_SIZE_M * TICK_SECONDS)
 
 static inline float gas_flux(float ka, float ca, float ta, uint8_t wa, bool ga, float kb, float cb,
-                             float tb, uint8_t wb, bool gb, float boost) {
+                             float tb, uint8_t wb, bool gb, float boost, float film) {
     if (ka <= 0.0f || kb <= 0.0f || ca <= 0.0f || cb <= 0.0f) {
         return 0.0f;
     }
-    float k = 2.0f * ka * kb / (ka + kb) * GAS_COND_SCALE * boost;
+    float k = 2.0f * ka * kb / (ka + kb) * GAS_COND_SCALE * boost + film;
     if ((wa | wb) != 0 && ga && gb) {
         k *= 1.0f + GAS_TURB_PER_WIND * (float)PR_MAX(wa, wb);
     }
@@ -56,14 +59,15 @@ static inline float gas_flux(float ka, float ca, float ta, uint8_t wa, bool ga, 
 }
 
 // Conductivity of a gas mixture: the mole-fraction-weighted mean of its species' (an
-// approximation).
-static inline float gas_mix_conduct(const GasMix *g) {
+// approximation). *vapour: the mole fraction of water vapour.
+static inline float gas_mix_conduct(const GasMix *g, float *vapour) {
     float n = 0.0f, k = 0.0f;
     for (int s = 0; s < GAS_SPECIES; s++) {
         float ns = g->m[s] * g_species_inv_molar[s];
         n += ns;
         k += ns * g_species_k[s];
     }
+    *vapour = n > 0.0f ? g->m[GAS_H2O] * g_species_inv_molar[GAS_H2O] / n : 0.0f;
     return n > 0.0f ? k / n : 0.0f;
 }
 
@@ -76,6 +80,7 @@ typedef struct HeatHalo {
     float tp[HALO][HALO];     // physical temperature
     float cap[HALO][HALO];    // thermal mass, J/K (gases: from their mixture)
     float cond[HALO][HALO];   // conductivity, W/(m K) (gases: from their mixture)
+    float vap[HALO][HALO];    // gases: mole fraction of water vapour
     uint8_t wind[HALO][HALO]; // gases: the current's speed (0..GAS_WIND_MAX)
 } HeatHalo;
 
@@ -93,8 +98,18 @@ static inline float pair_flux(const HeatHalo *h, int ay, int ax, int by, int bx)
     // radiate): WOOD_GAS_COUPLING times, up to the stability limit.
     bool wood = ea == ELEM_WOOD || ea == ELEM_BURNING_WOOD || eb == ELEM_WOOD ||
                 eb == ELEM_BURNING_WOOD;
+    // Water vapour beyond saturation at the surface it touches condenses there (D-056).
+    float film = 0.0f;
+    if (ga != gb) {
+        float v = ga ? h->vap[ay][ax] : h->vap[by][bx];
+        float ts = ga ? tb : ta;
+        if (v > 0.0f && ts < (ga ? ta : tb)) {
+            float excess = v - water_saturation_pressure(ts) / P_ATM;
+            film = PR_MAX(excess, 0.0f) * FILM_SCALE;
+        }
+    }
     return gas_flux(h->cond[ay][ax], h->cap[ay][ax], ta, h->wind[ay][ax], ga, h->cond[by][bx],
-                    h->cap[by][bx], tb, h->wind[by][bx], gb, wood ? WOOD_GAS_COUPLING : 1.0f);
+                    h->cap[by][bx], tb, h->wind[by][bx], gb, wood ? WOOD_GAS_COUPLING : 1.0f, film);
 }
 
 static void compute_chunk(void *user, int index) {
@@ -112,12 +127,13 @@ static void compute_chunk(void *user, int index) {
     float(*tp)[HALO] = halo.tp;
     float(*cap)[HALO] = halo.cap;
     float(*cond)[HALO] = halo.cond;
+    float(*vap)[HALO] = halo.vap;
     uint8_t(*wind)[HALO] = halo.wind;
     for (int ly = -1; ly <= CHUNK_SIZE; ly++) {
         for (int lx = -1; lx <= CHUNK_SIZE; lx++) {
             int x = bx + lx, y = by + ly;
             ElementId e = ELEM_VOID;
-            float t = 0.0f, k = 0.0f, kc = 0.0f;
+            float t = 0.0f, k = 0.0f, kc = 0.0f, v = 0.0f;
             uint8_t wd = 0;
             bool inside = lx >= 0 && ly >= 0 && lx < CHUNK_SIZE && ly < CHUNK_SIZE;
             if (world_in_bounds(w, x, y) &&
@@ -128,13 +144,14 @@ static void compute_chunk(void *user, int index) {
                 t = elem_temp(e, w->temp[i]);
                 bool gas = e == ELEM_GAS;
                 k = gas ? gas_heat_cap(&w->gas[i]) : g_elem_cap[e];
-                kc = gas ? gas_mix_conduct(&w->gas[i]) : g_elem_defs[e].conduct;
+                kc = gas ? gas_mix_conduct(&w->gas[i], &v) : g_elem_defs[e].conduct;
                 wd = gas ? (uint8_t)gas_wind_speed(cell.aux) : 0;
             }
             el[ly + 1][lx + 1] = e;
             tp[ly + 1][lx + 1] = t;
             cap[ly + 1][lx + 1] = k;
             cond[ly + 1][lx + 1] = kc;
+            vap[ly + 1][lx + 1] = v;
             wind[ly + 1][lx + 1] = wd;
         }
     }

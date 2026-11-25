@@ -860,6 +860,13 @@ T_i'   = T_i + Σ_j a_ij · (T_j − T_i) / C_i       // physical temperatures o
   moves gas, not heat between neighbours). Not between a gas and a solid or liquid (a surface
   keeps its boundary layer). Currents come from moving bodies, breath, bullets, falling matter and
   the muzzle; convection makes none. Symmetric, so energy is still conserved.
+- **Condensing on cold matter** (D-056). Where a gas cell touches colder matter (not gas) at which
+  its vapour is beyond saturation, the pair's coefficient gains `CONDENSE_FILM_H · A · dt ·
+  (x − p_sat(T_surface) / 1 atm)`, x being the vapour's mole fraction: film condensation, 8000
+  W/(m²K) for pure steam, in real time, still under the stability limit. The gas cools below its dew
+  point and condenses (Phase changes), its latent heat going into the surface. Still gas conducts
+  about 800 times less, so without it cold iron made no water out of steam. A surface at 100 °C or
+  more gets none of it.
 - **Void has no heat capacity and exchanges nothing.** Vacuum insulates perfectly (D-017).
 - **Jacobi:** all new temperatures are computed from the old ones into `temp_next`, then written
   back. Both passes run in parallel, one job per chunk.
@@ -942,7 +949,11 @@ condensing as long as the gas is cooled. The condensed water becomes a droplet, 
 (125 g) whose gas is pushed into the gas around, with probability mass / 125 g; otherwise it is
 gone (deterministic per-chunk RNG), so mass is conserved **on average**. Saturation is taken at
 1 atm total pressure (the vapour's mole fraction times 1 atm): a cell of vapour just boiled off,
-at 1700 atm, does not condense back at once. So air can be humid: air with 1% vapour (dew point
+at 1700 atm, does not condense back at once. (So compressed steam stays vapour at 100 °C: in reality
+it would partly condense and heat up to its higher dew point, 256 °C at 44 atm.) Cold matter is what
+condenses steam, by film condensation (Heat pass): in a minute, an iron bar of 64 × 16 cells at
+−250 °C turns 16 kg of the 48 kg of steam at 44 atm around it into water, but steam at 1 atm is thin:
+1700 cells of it make one cell of water. So air can be humid: air with 1% vapour (dew point
 7 °C) stays vapour at room temperature, and cooled below 7 °C it rains out (tested: humid air held
 at 20 °C condenses to saturation, and the droplets hold the vapour lost). Water does not evaporate
 below 100 °C (no evaporation from surfaces yet).

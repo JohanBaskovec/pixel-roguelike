@@ -67,7 +67,8 @@ Notes
   0.9% argon) by moles, at 1 atm, dry. It is settled at once. Breathing (M4c) consumes ~250 mL/min
   of O₂ at rest.
 - **Water vapour** (M6a): condenses at its dew point (saturation by Antoine's equation, at 1 atm
-  total pressure), so air can be humid.
+  total pressure), so air can be humid. On matter below its dew point it condenses by film
+  condensation, `CONDENSE_FILM_H` = 8000 W/(m²K) (the real value for steam, not sped up: D-056).
 - **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
   spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
