@@ -81,6 +81,10 @@ Planned experiments, decided by data only:
   - updated cells per tick
   - **ns per updated cell** (the main number to watch)
   - thread count, world size, build type, compiler
+
+  `--scene lava` runs the default level instead (4096 × 2048, simulated around the player as in
+  the game) with a film of lava 300 cells long and 2 deep on the floor beside the player, after a
+  warm-up of 300 ticks (5 s) so the air over it convects: the case of D-051 and D-052.
 - **`perf`** (Linux). In the cloud VM used for development there are no hardware counters (no
   cycles, cache misses or branch misses), but timer sampling works and shows where the time goes
   line by line (not why): `apt-get install linux-tools-generic`, then the binary under

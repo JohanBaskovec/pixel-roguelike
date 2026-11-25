@@ -58,7 +58,8 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 ```
 
 ```bash
-./build/release/pr-bench
+./build/release/pr-bench                 # the churning water and gas scene
+./build/release/pr-bench --scene lava    # the level with a lava film beside the player
 ```
 
 ## Controls
