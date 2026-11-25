@@ -106,6 +106,7 @@ typedef struct World {
     struct PressureState *pressure;  // owned; water-pressure pieces, union-find, body tops
     GasMix   *gas;                   // per cell: kg of each gas species, gas cells only (D-035)
     float    *rho;                   // per cell: gas density at 1 atm, for buoyancy (per tick)
+    float    *rho_lo, *rho_hi;       // per 16 x 16 tile: range of rho over its gas cells (buoyancy skip)
 } World;
 ```
 
@@ -166,7 +167,10 @@ sim_tick(world):
     water pressure: relabel chunks whose still liquid changed (parallel), rebuild bodies with a
         union-find (serial); chunks whose body top rose are added to this tick's rects
     gas densities: each chunk with a non-empty cur rect recomputes World.rho, its gas cells'
-        densities at 1 atm, for buoyancy (parallel)
+        densities at 1 atm, for buoyancy, and the lowest and highest of each touched tile
+        (World.rho_lo / rho_hi; parallel). Anything that writes a gas cell during the movement
+        pass widens its tile's range: swap_cells, gas_spawn, and world_rho_note() after the
+        water-pressure transfers (otherwise a scan could read a density outside the range)
     movement pass over chunks with a non-empty cur rect, in 4 checkerboard phases;
         the first phase rotates with the tick; the chunks of a phase run in parallel;
         after each phase, the phase's water-pressure transfer requests are applied (serial;

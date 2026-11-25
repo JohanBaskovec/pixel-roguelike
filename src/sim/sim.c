@@ -20,6 +20,7 @@
 #include "sim/pressure.h"
 #include "sim/rigid.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -170,6 +171,16 @@ static inline void swap_cells(TickCtx *c, int x0, int y0, int x1, int y1) {
     float r = w->rho[i0]; // the cached densities follow (buoyancy reads them this tick)
     w->rho[i0] = w->rho[i1];
     w->rho[i1] = r;
+    // The tile ranges of rho must hold whatever a scan can read: widen them where a gas density
+    // arrives in another tile. (Writes stay within the job's reach: whole tiles.)
+    if (((x0 ^ x1) | (y0 ^ y1)) >> TILE_SHIFT) {
+        if (b.element == ELEM_GAS) {
+            world_rho_widen(w, x0, y0, w->rho[i0]);
+        }
+        if (a.element == ELEM_GAS) {
+            world_rho_widen(w, x1, y1, w->rho[i1]);
+        }
+    }
     ctx_arrive(c, x1, y1, a, t);           // a moved to (x1, y1)
     ctx_arrive(c, x0, y0, b, w->temp[i0]); // b moved to (x0, y0)
     // Both cells changed: wake their 3x3 neighbourhoods (as one rect) and re-render.
@@ -524,6 +535,7 @@ static inline void gas_spawn(TickCtx *c, int x, int y, const GasMix *g, float ts
     size_t i = world_index(w, x, y);
     Cell like = {ELEM_GAS, c->stamp, (uint8_t)rng_next(&c->rng), 0};
     w->cells[i] = like;
+    world_rho_note(w, x, y); // its density is not computed until next tick
     w->gas[i] = *g;
     w->temp[i] = ts;
     ctx_arrive(c, x, y, like, ts);
@@ -705,6 +717,24 @@ static const int8_t k_spread_d[GAS_BUOY_SCALES] = {1, 4, 8, 16};
 
 static inline float rho_at(const World *w, int x, int y) {
     return w->rho[world_index(w, x, y)];
+}
+
+// Is the density in the cell's column, 16 rows each way, certain to be uniform? Then no window of
+// gas_buoyancy can show a contrast above GAS_BUOY_TOL, and the scan is skipped. From the lowest
+// and highest rho of the three tiles around (the same column of tiles; the cell's own rs too): two
+// means within [lo, hi] differ by at most (hi - lo) / (2 lo) in contrast. The tile ranges are
+// those of the start of the tick, and rho moves with the cells during it, so near a tile's edge
+// this is a tick old (the densities are already).
+static inline bool gas_column_uniform(const World *w, int x, int y, float rs) {
+    int tiles_x = w->chunks_x * CHUNK_TILES, tiles_y = w->chunks_y * CHUNK_TILES;
+    int tx = x >> TILE_SHIFT, ty = y >> TILE_SHIFT;
+    float lo = rs, hi = rs;
+    for (int k = PR_MAX(ty - 1, 0); k <= PR_MIN(ty + 1, tiles_y - 1); k++) {
+        size_t t = (size_t)k * (size_t)tiles_x + (size_t)tx;
+        lo = PR_MIN(lo, w->rho_lo[t]);
+        hi = PR_MAX(hi, w->rho_hi[t]);
+    }
+    return hi - lo <= 1.9f * GAS_BUOY_TOL * lo;
 }
 
 // The buoyant drive of the gas at (x, y) (density rs) and the height at which it applies; 0 if
@@ -1295,7 +1325,8 @@ static void update_gas(TickCtx *c, int x, int y) {
     int scale = 1;
     if (up == ELEM_GAS && rho_at(w, x, y - 1) >= rs * (1.0f - GAS_BUOY_TOL)) {
         // (Clearly lighter gas just above: stable here, no need to look further.)
-        float drive = gas_buoyancy(w, x, y, rs, -1, &scale);
+        float drive = gas_column_uniform(w, x, y, rs) ? 0.0f
+                                                       : gas_buoyancy(w, x, y, rs, -1, &scale);
         p_up = (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f);
     } else if (g_elem_behavior[up] == BEHAVIOR_LIQUID) {
         p_up = g_buoy_p[up][ELEM_GAS];
@@ -1311,7 +1342,8 @@ static void update_gas(TickCtx *c, int x, int y) {
     // ... or sink into clearly lighter gas just below (the same drive, looking down).
     if (world_elem(w, x, y + 1) == ELEM_GAS && rho_at(w, x, y + 1) < rs * (1.0f - GAS_BUOY_TOL)) {
         int down_scale = 1;
-        float drive = gas_buoyancy(w, x, y, rs, 1, &down_scale);
+        float drive = gas_column_uniform(w, x, y, rs) ? 0.0f
+                                                       : gas_buoyancy(w, x, y, rs, 1, &down_scale);
         if (drive > 0.0f &&
             rng_chance16(&c->rng, (uint32_t)PR_MIN((float)K_BUOY_16 * drive, 65535.0f))) {
             gas_buoyant_move(c, x, y, rs, 1, down_scale);
@@ -1650,6 +1682,33 @@ static void gas_rho_job(void *user, int index) {
                                     ? gas_mix_density_atm(&w->gas[i], w->temp[i])
                                     : 0.0f;
                 }
+            }
+        }
+    }
+    // The range of rho of every tile touched, over the whole tile (cells outside the woken ones
+    // hold the density they had when last computed, which is what the scans read).
+    int tiles_x = w->chunks_x * CHUNK_TILES;
+    for (int ty = r->min_y >> TILE_SHIFT; ty <= r->max_y >> TILE_SHIFT; ty++) {
+        int sx0[2], sx1[2];
+        int ns = dirty_rect_spans(r, ty, sx0, sx1);
+        for (int s = 0; s < ns; s++) {
+            for (int tx = sx0[s] >> TILE_SHIFT; tx <= sx1[s] >> TILE_SHIFT; tx++) {
+                float lo = FLT_MAX, hi = 0.0f;
+                size_t base = world_index(w, x0 + tx * TILE_SIZE, y0 + ty * TILE_SIZE);
+                for (int ly = 0; ly < TILE_SIZE; ly++) {
+                    size_t row = base + (size_t)ly * (size_t)w->width;
+                    for (int lx = 0; lx < TILE_SIZE; lx++) {
+                        if (w->cells[row + lx].element == ELEM_GAS) {
+                            float rho = w->rho[row + lx];
+                            lo = PR_MIN(lo, rho);
+                            hi = PR_MAX(hi, rho);
+                        }
+                    }
+                }
+                size_t t = (size_t)((y0 >> TILE_SHIFT) + ty) * (size_t)tiles_x +
+                           (size_t)((x0 >> TILE_SHIFT) + tx);
+                w->rho_lo[t] = lo;
+                w->rho_hi[t] = hi;
             }
         }
     }

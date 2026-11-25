@@ -89,6 +89,10 @@ typedef struct World {
     // buoyancy and the sleep checks. Recomputed at the start of every tick for the awake cells
     // (sim.c), so at most a tick old where cells changed.
     float *rho;
+    // Per 16 x 16 tile: the lowest and highest rho of its gas cells, set when the tile's densities
+    // are recomputed (lo = FLT_MAX, hi = 0: no gas; lo = 0, hi = FLT_MAX: not known yet). Lets the
+    // buoyancy scan of a cell skip a column whose tiles are uniform (sim.c).
+    float *rho_lo, *rho_hi;
     uint8_t *piece; // water pressure: body piece id of still liquid within its chunk (pressure.h)
     Chunk *chunks;
     uint64_t seed;
@@ -255,6 +259,24 @@ static inline size_t world_index(const World *w, int x, int y) {
 
 static inline ElementId world_elem(const World *w, int x, int y) {
     return world_in_bounds(w, x, y) ? w->cells[world_index(w, x, y)].element : ELEM_OUT;
+}
+
+// Widens the range of rho of the tile holding (x, y) (World.rho_lo, rho_hi) to include rho.
+static inline void world_rho_widen(World *w, int x, int y, float rho) {
+    size_t t = (size_t)(y >> TILE_SHIFT) * (size_t)(w->chunks_x * CHUNK_TILES) +
+               (size_t)(x >> TILE_SHIFT);
+    w->rho_lo[t] = PR_MIN(w->rho_lo[t], rho);
+    w->rho_hi[t] = PR_MAX(w->rho_hi[t], rho);
+}
+
+// Call after writing a cell during the movement pass (between the density pass and the end of the
+// tick) in any way but swap_cells: if it is gas now, the density cached for it (possibly stale)
+// joins its tile's range.
+static inline void world_rho_note(World *w, int x, int y) {
+    size_t i = world_index(w, x, y);
+    if (w->cells[i].element == ELEM_GAS) {
+        world_rho_widen(w, x, y, w->rho[i]);
+    }
 }
 
 static inline Chunk *world_chunk(World *w, int cx, int cy) {

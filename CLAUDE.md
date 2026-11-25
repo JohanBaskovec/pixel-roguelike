@@ -81,6 +81,8 @@ cmake --build build/debug -j
 ctest --test-dir build/debug -j4 --output-on-failure   # in parallel (one CTest test per test)
 ./build/debug/pr-tests creature   # only tests whose name contains "creature" (prints timings)
 ctest --test-dir build/tsan -j4 -R thread_count     # the multithreaded tests, under TSan
+# TSan on newer kernels dies with "unexpected memory mapping": run it without ASLR instead:
+#   setarch "$(uname -m)" -R ./build/tsan/pr-tests <name>
 ```
 
 ```bash

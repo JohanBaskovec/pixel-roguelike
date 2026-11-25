@@ -446,6 +446,7 @@ static void refill_with_gas(World *w, int sx, int sy) {
     w->cells[is] = c;
     w->gas[is] = m;
     w->temp[is] = t;
+    world_rho_note(w, sx, sy); // a new gas cell: its cached density is stale (sim.c, buoyancy)
     world_note_moved(w, sx, sy);
     world_wake_rect(w, sx - GAS_REGION_RADIUS, sy - GAS_REGION_RADIUS, sx + GAS_REGION_RADIUS,
                     sy + GAS_REGION_RADIUS);
@@ -646,6 +647,7 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
             w->gas[iq] = mt;
             world_wake_rect(w, qx - 1, ty - 1, qx + 1, ty + 1);
             world_note_moved(w, qx, ty);
+            world_rho_note(w, qx, ty);
         }
         w->cells[is] = replaced;
         w->temp[is] = w->temp[iq];
@@ -658,6 +660,9 @@ int pressure_apply(World *w, const PressureRequest *req, int count) {
         }
         w->piece[is] = 0; // no longer a source this tick
         w->piece[iq] = 0;
+        // Gas may have been written here, and its cached density is stale (sim.c, buoyancy).
+        world_rho_note(w, sx, sy);
+        world_rho_note(w, qx, qy);
         world_wake_rect(w, sx - 1, sy - 1, sx + 1, sy + 1);
         world_wake_rect(w, qx - 1, qy - 1, qx + 1, qy + 1);
         world_note_moved(w, qx, qy);

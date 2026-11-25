@@ -9,6 +9,7 @@
 #include "sim/bullet.h"
 #include "sim/rigid.h"
 
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,6 +38,12 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->temp_next = pr_aligned_alloc_zero(64, n * sizeof(float));
     w->gas = pr_aligned_alloc_zero(64, n * sizeof(GasMix));
     w->rho = pr_aligned_alloc_zero(64, n * sizeof(float));
+    size_t tiles = ((size_t)w->chunks_x * CHUNK_TILES) * ((size_t)w->chunks_y * CHUNK_TILES);
+    w->rho_lo = pr_aligned_alloc_zero(64, tiles * sizeof(float));
+    w->rho_hi = pr_aligned_alloc_zero(64, tiles * sizeof(float));
+    for (size_t t = 0; w->rho_hi && w->rho_lo && t < tiles; t++) {
+        w->rho_hi[t] = FLT_MAX; // unknown
+    }
     w->piece = pr_aligned_alloc_zero(64, n * sizeof(uint8_t));
     w->chunks = pr_aligned_alloc_zero(64, (size_t)w->chunks_x * w->chunks_y * sizeof(Chunk));
     w->particles = pr_aligned_alloc_zero(64, PARTICLE_MAX * sizeof(Particle));
@@ -45,7 +52,7 @@ World *world_create(int32_t width, int32_t height, uint64_t seed) {
     w->rigids = pr_aligned_alloc_zero(64, RIGID_MAX * sizeof(Rigid));
     w->payloads = pr_aligned_alloc_zero(64, (PAYLOAD_MAX + 1) * sizeof(Payload));
     w->pressure = w->chunks ? pressure_create(w) : NULL;
-    if (!w->cells || !w->temp || !w->temp_next || !w->gas || !w->rho || !w->particles ||
+    if (!w->cells || !w->temp || !w->temp_next || !w->gas || !w->rho || !w->rho_lo || !w->rho_hi || !w->particles ||
         !w->creatures || !w->pickups || !w->rigids || !w->payloads || !w->piece || !w->chunks || !w->pressure) {
         pr_log_error("world_create: out of memory for %dx%d world", width, height);
         world_destroy(w);
@@ -64,6 +71,8 @@ void world_destroy(World *w) {
     pr_aligned_free(w->temp_next);
     pr_aligned_free(w->gas);
     pr_aligned_free(w->rho);
+    pr_aligned_free(w->rho_lo);
+    pr_aligned_free(w->rho_hi);
     heat_free(w);
     pr_aligned_free(w->piece);
     pressure_destroy(w->pressure);
@@ -86,6 +95,11 @@ void world_clear(World *w) {
         gas_mix_clear(&w->gas[i]);
         w->rho[i] = 0.0f;
         w->piece[i] = 0;
+    }
+    size_t tiles = ((size_t)w->chunks_x * CHUNK_TILES) * ((size_t)w->chunks_y * CHUNK_TILES);
+    for (size_t t = 0; t < tiles; t++) {
+        w->rho_lo[t] = 0.0f;
+        w->rho_hi[t] = FLT_MAX;
     }
     w->particle_count = 0;
     w->creature_count = 0;

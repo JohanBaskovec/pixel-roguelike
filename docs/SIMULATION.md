@@ -309,7 +309,9 @@ Each tick, a gas cell:
 2. **Burns** (Reactions) and **condenses** water vapour (Phase changes) when that applies.
 3. **Buoyancy.** It rises through denser gas above. Densities are compared **at 1 atm** for each
    cell's temperature and molar mass (`World.rho`, recomputed each tick for the awake chunks),
-   whatever its actual pressure: a parcel at another pressure would be squeezed or expanded to
+   whatever its actual pressure (a column whose three tiles hold densities within 2 × `GAS_BUOY_TOL`
+   of each other cannot show any contrast, and its scan is skipped: same result, 72% of the scans
+   in the lava scene; `gas_column_uniform`): a parcel at another pressure would be squeezed or expanded to
    its surroundings' pressure long before it rose or sank. So warm air rises, CO₂-rich air sinks,
    hydrogen rises, and **an even mixture is the same everywhere, so it does not unmix** (tested).
    Not only against the cell above: diffusion blurs every boundary, so a heavy layer on a light

@@ -481,6 +481,15 @@ approximate.) What it means:
 | ~4% | `world_in_bounds` / `world_elem` | the neighbours' elements |
 | ~4% | `gas_same_as_around` | the "exactly like its neighbours" exit |
 
+**Results on the desktop (2026-11-25).** Candidate 1 (cached moles): no gain, the misses just
+move (Tried and dropped). Candidate 2, done differently: not column sums but a per-tile range of
+density that lets a column that cannot show a contrast skip the scan (Benchmark log: −12 to −18%
+of the cycles, −8 to −12% of the time on one thread, identical behaviour). Candidates 3 and 4
+remain. The cycle profile taken before the skip (`perf record -e cycles`, 1 thread): `phase_job`
+49%, `gas_buoyancy` 21%, `gas_equalize` 10%, `compute_chunk` 7%; by line `gas_differs` (the
+pressure test of `gas_is_mobile`) 10.5% and `gas_moles` 11.5% (not yet re-measured). At 8 threads lava
+is 10–13 ms of the 16.7 ms tick (the phase floor, Lava: what to try next, 7).
+
 **Next, on a desktop: candidates to measure, one at a time** (same rules; each judged by
 `pr-bench --scene lava --threads 1` and the bench scene, old and new alternately, two runs each,
 plus the behaviour and thread-count tests):
@@ -523,6 +532,19 @@ height, the overpressure over the lava and the CO2-ball mixing time, logged belo
   33.5 / 33.9 against 33.4 / 33.5 ms; cells visited 152 642 against 150 211 (stale values
   change a few decisions). No gain **on the cloud VM**; worth trying again on a desktop CPU,
   where the counters show lava bound by instruction count (above).
+- **Caching each cell's moles, again, on a desktop CPU** (2026-11-25, Ryzen 7 4700U, `perf stat`,
+  lava film, 1 thread, old and new alternately): instructions 234.6 G → 230.4 G (−1.8%), but L1
+  data misses 5.25 G → 6.7–6.8 G (+27%: the cached array is one more cache line per neighbour),
+  cycles 124 G / 122 G against 124 G / 126 G, ms/tick 35.7 against 35.6. **No gain**: the
+  instructions saved are paid for in misses. (The patch is not kept.)
+- **A balanced sum in `gas_moles`** (two dependency chains instead of five dependent adds; the
+  sleep checks wait on it): same cells visited, 34.9 / 34.3 / 34.4 against 36.7 / 35.1 / 34.0 ms.
+  No gain: the latency of the sum is not what the cores wait for.
+- **Row stride not a power of two** (lava film at 4112 and 4160 cells wide against 4096, to test
+  L1 set conflicts: every array's row stride is a multiple of 4 KB, so the cells of a column map
+  to the same few L1 sets): L1 misses fall **4×** (5.2 G → 1.3 G) and the time does not move
+  (3% worse per cell: the world differs a little). Conflict misses hit L2 and are hidden, which
+  confirms that lava is bound by instruction count and not by the L1. No row padding.
 - **2 MB pages** for the big arrays (`madvise(MADV_HUGEPAGE)`, 2 MB alignment; the kernel did use
   them, 334 MB resident), on the idea that rows 80 KB apart miss the TLB: lava film, 1 thread,
   39.2 / 39.6 against 33.2 / 32.3 ms: **slower**. Not the bottleneck.
@@ -651,6 +673,7 @@ threads.
 | 2026-11-25 | Radiation (D-052) | same | gcc 13.3 -O3 | 1024×768 bench scene (nothing hot); lava film (300 × 2) in the default level | 4 | — | bench p50 19.7 (22.0–23.5 earlier the same day on a busier machine: no hot matter, so radiation never runs); lava film at 120 s 11.7 vs 13.2 ms, at 300 s 13.9 | Chunks with a cell at 600 K or more radiate, serially, one ray per exposed face; about 600 rays a tick for the film |
 | 2026-11-25 | Settling fixes (D-051) | same | gcc 13.3 -O3 | default level: 8 corpses buried in a deep blood pool; 8 corpses on the floor; a lava film; 1024×768 bench scene | 4 | — | buried corpses 190–230 ms (130 000 stuck drops) vs 8–15 ms; corpses on the floor 7.3–7.7 vs 7.0–7.4 ms; lava film 11.6 vs 12.8 ms at 40 s (noise); bench p50 22.2 / 23.5 vs 22.0 / 22.9 (alternately): unchanged | Buried particles are dropped after 60 ticks; corpses float on still blood and sleep when wedged; transfers into gas need two cells of head (pools under warm air no longer flicker) |
 | 2026-11-24 | M6b simulated area (D-040) | same | gcc 13.3 -O3 | default level: 3 lava pools far from the player / near it; sweep test; 1024×768 bench scene | 4 | — | lava far 2.5 vs 65.7 ms at 60 s; lava near 53.6 vs 59.8; sweep 4.85 / 4.92 vs 5.55 / 5.44 (averages over 10 s, alternately); bench 19.9 / 20.1 vs 19.2 / 20.1 (p50, everything simulated: unchanged) | Only the 3 × 3 regions of 512 cells around the player are simulated; time stops outside |
+| 2026-11-25 | Buoyancy skip by tile density range | Ryzen 7 4700U (8 cores) | gcc 13.3 -O3 | lava film (the level, 4096 × 2048); 1024×768 bench scene | 1 / 4 / 8; 4 | — | lava, 1 thread: 30.8 / 29.7 / 29.9 vs 34.9 / 32.9 / 31.8 ms (p50, alternately, three runs); `perf stat`: 102 G cycles against 116–124 G (−12 to −18%), 221.8 G instructions against 234.6 G, IPC 2.17 against 1.9–2.0; 4 threads 11.0 / 11.2 vs 11.6 / 12.2; 8 threads 12.3 / 13.5 vs 12.9 / 12.6 (noise: the phase floor); bench 28.9 / 29.2 vs 29.1 / 29.3 (unchanged) | The same cells visited (152 888 per tick, 5 824 moved: identical behaviour). A gas cell whose column of three tiles holds densities within 2 × `GAS_BUOY_TOL` skips the 4-scale buoyancy scan, which cannot find a contrast there: 27 M of the 37.8 M scans in 600 ticks, all of them ones that returned zero (76% of calls did). The range is kept per tile (`World.rho_lo/hi`, computed in the density pass, widened by `swap_cells`, `gas_spawn` and the water-pressure transfers). Checked by running every skipped scan and asserting it finds nothing: zero misses over all 137 tests and the lava scene |
 | 2026-11-24 | M6b burning wood (D-044) | same | gcc 13.3 -O3 | 1024×768 bench scene (no wood) | 4 | — | p50 21.3 / 19.9 / 22.8 vs 21.0 (new, new, new vs old; run-to-run noise ±10%): unchanged | One more test on the static cells the movement loop skips; a burning log costs only where it burns |
 | 2026-11-24 | M6b rigid objects (D-045) | same | gcc 13.3 -O3 | 1024×768 bench scene (no bodies); the default level (about 55 sleeping bodies) | 4 | — | bench p50 20.4 / 20.7 vs 21.0 (run-to-run noise ±10%): unchanged; level 2.7 ms a tick at tick 600 (was 2.3-2.8) | Bodies are updated serially at the start of the tick: a sleeping one costs a readback and one collision test every 8 ticks; a tumbling log about 0.1-0.3 ms |
 
