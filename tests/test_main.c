@@ -90,6 +90,8 @@ void test_monster_dies_cut_in_two_or_half_gone(void);
 void test_corpse_is_a_rigid_body_shot_apart(void);
 void test_monsters_chase_until_off_screen(void);
 void test_wood_burns_in_air(void);
+void test_save_and_load_round_trip(void);
+void test_save_refuses_other_sizes_and_cut_files(void);
 void test_bullet_design_rules(void);
 void test_bullet_releases_gas_gradually_or_on_impact(void);
 void test_bullet_liquid_and_heat(void);
@@ -240,6 +242,8 @@ int main(int argc, char **argv) {
     RUN(test_corpse_is_a_rigid_body_shot_apart);
     RUN(test_monsters_chase_until_off_screen);
     RUN(test_wood_burns_in_air);
+    RUN(test_save_and_load_round_trip);
+    RUN(test_save_refuses_other_sizes_and_cut_files);
     RUN(test_bullet_design_rules);
     RUN(test_bullet_releases_gas_gradually_or_on_impact);
     RUN(test_bullet_liquid_and_heat);

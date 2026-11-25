@@ -280,6 +280,18 @@ Shots add particles; their flight runs in the tick's serial particle step. The c
 player at zoom ×2 unless the user pans. The rifle and bullet streaks are drawn over the world
 texture (they are not cells).
 
+## Saves (D-048)
+
+`sim/save.c` writes one file: a header (magic, `sizeof` signature of `Cell`, `Particle`, `Creature`,
+`Pickup`, `Rigid`, `Rifle`, world size, seed, tick, counts), then run-length encoded streams of
+(element, aux), temperatures and gas mixtures (of gas cells only), the shade bytes, and the raw
+arrays of particles, creatures, pickups, active rigid bodies and the player's gun. Aux of static
+solids is not saved (random noise that breaks runs). Loading validates everything, clears the world,
+and wakes every chunk and tile so the derived state (pressure bodies, gas density, rest flags) is
+recomputed by the simulation. A file that does not match (other struct layout, byte order, world
+size, cut) is refused and a new level is built. `game/app.c` loads at start, saves at quit (not
+when the player is dead) and on F6; F9 loads. Headless `--frames`/`--demo` runs never touch it.
+
 ## Player edits
 
 The brush never writes into the world directly. `game/app.c` turns mouse events into

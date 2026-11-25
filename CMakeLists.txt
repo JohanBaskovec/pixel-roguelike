@@ -102,6 +102,7 @@ add_library(pr_sim STATIC
   src/sim/path.c
   src/sim/rigid.c
   src/sim/bullet.c
+  src/sim/save.c
   src/sim/pickup.c
   src/sim/edit.c
   src/sim/scene.c
@@ -149,6 +150,7 @@ if(PR_BUILD_TESTS)
     tests/test_weapon.c
     tests/test_combat.c
     tests/test_wood.c
+    tests/test_save.c
     tests/test_bullet.c
     tests/test_rigid.c
     tests/test_powder.c

@@ -18,6 +18,8 @@ typedef struct AppConfig {
     bool demo;              // start with the demo scene instead of the level
     int threads;            // simulation threads; 0 = one per logical core
     int menu;               // 1: start with the gun menu open, 2: with the editor (screenshots)
+    bool new_game;          // do not load the save (the game still saves when it ends)
+    bool no_save;           // neither load nor save
     bool example_bullet;    // slot 2 holds the example bullet: hydrogen, oxygen, heat (screenshots)
 } AppConfig;
 
@@ -59,6 +61,11 @@ typedef struct App {
     Rifle rifle;
     bool trigger; // left button held over the world with the rifle tool
     GunMenu menu; // the gun menu (Tab) and the bullet editor
+
+    // The save (D-048): one file, loaded when the game starts, written when it ends (and by F6).
+    bool saves;       // enabled: interactive runs only
+    char toast[64];   // a message ("Saved") for a moment
+    double toast_until;
 
     // Timing and stats
     double accumulator;

@@ -772,3 +772,16 @@ to watch).
   no cost to a bullet yet (the user will limit weapons with unlocks). A blast does not break walls
   or hurt creatures beyond the heat and fire of its gas (the next step of the bomb idea). The
   designs are not saved between runs.
+
+## D-048 — One save file, loaded at every start
+
+- **Context:** For testing, the user wants one save that the game loads each time it runs.
+- **Decision:** A dump of the state, not a portable format: the structs are written as they are,
+  guarded by a `sizeof` signature in the header, and the big grids are run-length encoded
+  (a fresh level is about 20 MB: gas mixtures, shade and temperatures dominate). Derived state is
+  not saved: loading wakes the whole world and the simulation rebuilds it. In-flight bullets lose
+  their payload (the bullet design is kept in the gun, which is saved). The file is written to a
+  temporary name and renamed, so a crash keeps the old save. Autosave at quit, F6 saves, F9 loads.
+- **Consequences:** A save from another build with different struct layouts or byte order is
+  refused and a new level is built (no migration). No several slots, no compression of the shade
+  and gas streams yet. Dead players are not autosaved.

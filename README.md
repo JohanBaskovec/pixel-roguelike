@@ -45,7 +45,10 @@ cmake --build build/release -j
 ```
 
 Options: `--width N --height N` (world size, rounded up to multiples of 64; default 4096×2048),
-`--threads N` (default: one per CPU core), `--seed N`, `--demo` (start with a demo scene).
+`--threads N` (default: one per CPU core), `--seed N`, `--demo` (start with a demo scene), `--new` (ignore the save and start a new level),
+`--no-save` (neither load nor save). The game loads its one save file at start and saves it when
+you quit (D-048); the file is `save.bin` in the SDL pref folder (on Linux
+`~/.local/share/pixel-roguelike/`).
 
 Tests and benchmark:
 
@@ -88,6 +91,7 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | `Tab` | The gun menu: the gun's slots (1 to 10 bullets, fired in turn, then a reload), each with its design shown and an Edit button: a window like Paint to draw a bullet (solids, liquids, gases with a density, heat; released on impact or gradually). The game waits while it is open |
 | `R` | Reload the gun now (it reloads by itself after the last slot) |
 | `F5` | Restart: a new level |
+| `F6` / `F9` | Save the game now / load the save |
 | `Esc` | Quit |
 
 The panel shows FPS, simulation time per tick, drawing time, frame time, threads, how many cells

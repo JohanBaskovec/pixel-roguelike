@@ -6,6 +6,7 @@
 #include "sim/particle.h"
 #include "sim/pickup.h"
 #include "sim/rigid.h"
+#include "sim/save.h"
 #include "sim/scene.h"
 
 #include <SDL3/SDL.h>
@@ -151,6 +152,68 @@ static void reset_world(App *app) {
     app->follow = true;
 }
 
+// ---- The save (D-048): one file, in the user's data folder ----
+
+static const char *save_path(void) {
+    static char path[1024];
+    if (path[0] == 0) {
+        char *dir = SDL_GetPrefPath("pixel-roguelike", "pixel-roguelike");
+        SDL_snprintf(path, sizeof(path), "%ssave.bin", dir ? dir : "");
+        SDL_free(dir);
+    }
+    return path;
+}
+
+static void toast(App *app, const char *text) {
+    SDL_snprintf(app->toast, sizeof(app->toast), "%s", text);
+    app->toast_until = pr_time_seconds() + 2.5;
+}
+
+// Writes the game to the save (to a temporary file first, so a failure keeps the old save).
+static bool save_game(App *app) {
+    char tmp[1100];
+    SDL_snprintf(tmp, sizeof(tmp), "%s.tmp", save_path());
+    FILE *f = fopen(tmp, "wb");
+    if (!f) {
+        pr_log_error("Cannot write %s", tmp);
+        toast(app, "Save failed");
+        return false;
+    }
+    SaveExtra extra = {app->player, app->rifle};
+    bool ok = world_save(app->world, f, &extra);
+    ok = fclose(f) == 0 && ok && SDL_RenamePath(tmp, save_path());
+    if (!ok) {
+        pr_log_error("Saving to %s failed", save_path());
+        SDL_RemovePath(tmp);
+    }
+    toast(app, ok ? "Saved" : "Save failed");
+    return ok;
+}
+
+// Loads the save, if there is one of this build. On failure the world is empty: the caller
+// builds a level.
+static bool load_game(App *app) {
+    FILE *f = fopen(save_path(), "rb");
+    if (!f) {
+        return false;
+    }
+    SaveExtra extra;
+    memset(&extra, 0, sizeof(extra));
+    bool ok = world_load(app->world, f, &extra);
+    fclose(f);
+    if (!ok) {
+        pr_log_error("%s is not a save of this build: ignored", save_path());
+        return false;
+    }
+    app->player = extra.player;
+    app->rifle = extra.rifle;
+    app->trigger = false;
+    app->follow = true;
+    render_invalidate(app->world);
+    toast(app, "Loaded");
+    return true;
+}
+
 bool app_init(App *app, const AppConfig *cfg) {
     *app = (App){0};
     app->cfg = *cfg;
@@ -178,7 +241,10 @@ bool app_init(App *app, const AppConfig *cfg) {
     world_set_job_pool(app->world, app->jobs);
     pr_log_info("World %dx%d, %d simulation threads", app->world->width, app->world->height,
                 jobs_thread_count(app->jobs));
-    reset_world(app);
+    app->saves = !cfg->no_save && cfg->frames == 0 && !cfg->demo;
+    if (!(app->saves && !cfg->new_game && load_game(app))) {
+        reset_world(app);
+    }
     if (cfg->example_bullet) {
         // The example: a pixel of hydrogen and one of oxygen at 300 kPa, released 1% per pixel
         // traveled, and 2000 degC released on impact.
@@ -208,6 +274,10 @@ bool app_init(App *app, const AppConfig *cfg) {
 }
 
 void app_shutdown(App *app) {
+    const Creature *pl = player(app);
+    if (app->saves && pl && pl->state != CREATURE_DEAD) {
+        save_game(app); // (not a dead player: the last save is kept)
+    }
     render_shutdown(&app->wr);
     world_destroy(app->world);
     jobs_destroy(app->jobs);
@@ -308,6 +378,15 @@ void app_handle_event(App *app, const SDL_Event *ev) {
                 app->brush_square = !app->brush_square;
             } else if (k == SDLK_R) {
                 rifle_reload(&app->rifle);
+            } else if (k == SDLK_F6 && app->saves) {
+                save_game(app);
+            } else if (k == SDLK_F9 && app->saves) {
+                if (load_game(app)) {
+                    camera_follow(app);
+                } else {
+                    reset_world(app);
+                    toast(app, "No save to load");
+                }
             } else if (k == SDLK_F5) {
                 reset_world(app);
                 camera_follow(app);
@@ -644,7 +723,7 @@ static void draw_panel(App *app) {
         "P  pressure  T  temperature",
         "K creature  I log at cursor",
         "Space  pause  . step",
-        "R reload  F5 new  Esc quit",
+        "R reload F5 new F6 save F9 load",
     };
     float hy = app->panel.h - (float)PR_ARRAY_COUNT(help) * 12.0f - 8.0f;
     for (int i = 0; i < (int)PR_ARRAY_COUNT(help); i++) {
@@ -961,6 +1040,9 @@ static void draw_hud(App *app) {
     }
     ui_text(&hud, x + bw + 16, y + 3, 0xE8E8E8, "SLOT %d / %d", PR_MIN(r->next_slot + 1, (int)r->nslots),
             (int)r->nslots);
+    if (pr_time_seconds() < app->toast_until) {
+        ui_text(&hud, app->view.x + 12.0f, app->view.y + 12.0f, 0xFFE070, "%s", app->toast);
+    }
     if (c->state == CREATURE_DEAD) {
         ui_text(&hud, app->view.x + app->view.w * 0.5f - 80, app->view.y + app->view.h * 0.4f,
                 0xFF6040, "YOU DIED   F5 restarts");
