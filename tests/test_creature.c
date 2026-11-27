@@ -24,7 +24,7 @@ void test_breath_held_under_water(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }
@@ -110,7 +110,7 @@ void test_creature_floats_in_water(void) {
 
 static World *air_room(int width, int height, uint64_t seed) {
     World *w = test_world_box(width, height, seed);
-    Edit air = {1, 1, width - 2, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
+    Edit air = {1, 1, width - 2, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f, 0.0f};
     for (int y = 1; y <= height - 2; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);

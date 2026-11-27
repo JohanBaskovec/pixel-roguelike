@@ -36,6 +36,9 @@ void test_gas_pressure_equalizes(void);
 void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
 void test_vapour_condenses_below_dew_point(void);
+void test_cryogenic_liquids_boil_and_keep_mass(void);
+void test_cold_gases_condense(void);
+void test_rock_boils_and_condenses(void);
 void test_steam_condenses_on_cold_iron(void);
 void test_steam_stays_beside_hot_iron(void);
 void test_air_stays_mixed(void);
@@ -147,7 +150,8 @@ void test_edit_single_pixel(void);
 void test_edit_circle_area(void);
 void test_edit_stroke_has_no_gaps(void);
 void test_edit_only_void(void);
-void test_gas_painted_at_pressure_up_to_liquid(void);
+void test_gas_painted_by_mass_up_to_liquid(void);
+void test_paint_form_follows_temperature(void);
 void test_edit_erase(void);
 
 // Only tests whose name contains this (the first argument), or all; with --exact, only the test
@@ -204,6 +208,9 @@ int main(int argc, char **argv) {
     RUN(test_sealed_gas_pressure_follows_temperature);
     RUN(test_boiling_keeps_mass);
     RUN(test_vapour_condenses_below_dew_point);
+    RUN(test_cryogenic_liquids_boil_and_keep_mass);
+    RUN(test_cold_gases_condense);
+    RUN(test_rock_boils_and_condenses);
     RUN(test_steam_condenses_on_cold_iron);
     RUN(test_steam_stays_beside_hot_iron);
     RUN(test_air_stays_mixed);
@@ -314,7 +321,8 @@ int main(int argc, char **argv) {
     RUN(test_edit_circle_area);
     RUN(test_edit_stroke_has_no_gaps);
     RUN(test_edit_only_void);
-    RUN(test_gas_painted_at_pressure_up_to_liquid);
+    RUN(test_gas_painted_by_mass_up_to_liquid);
+    RUN(test_paint_form_follows_temperature);
     RUN(test_edit_erase);
     if (s_exact && s_ran == 0) {
         printf("No test named %s\n", s_filter);

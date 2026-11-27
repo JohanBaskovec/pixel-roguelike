@@ -14,18 +14,18 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 1 | Dirt | STATIC | 1500 | 800 | 0.5 | — (later: dries or bakes) | `#6B4A2E` | 1 |
 | 2 | Rock (granite) | STATIC | 2700 | 790 | 2.8 | melts 1500 K → lava, L = 400 kJ/kg | `#6E6E73` | 1 |
 | 3 | Iron | STATIC | 7874 | 449 | 80 | melts 1811 K → molten iron, L = 247 kJ/kg | `#8A8F96` | 1 |
-| 4 | Ice | STATIC | 917 | 2100 | 2.2 | melts 273.15 K → water, L = 334 kJ/kg | `#BFE6F5` | 1 |
+| 4 | Ice | STATIC | 917 | 2100 | 2.2 | melts 273.15 K → water, L = 334 kJ/kg; painted as Water below 0 °C | `#BFE6F5` | 1 |
 | 5 | Water | LIQUID | 1000 | 4186 | 0.6 | freezes 273.15 K → ice; boils 373.15 K → steam, L = 2257 kJ/kg | `#2A5DB0` α 0.85 | 1 |
-| 6 | Oxygen (O₂) | GAS | 1.429 | 918 | 0.026 | condenses 90.2 K (liquid O₂, later) | `#9CC8F0` α 0.43 | 1 |
-| 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice (later) | `#7A7A7A` α 0.55 | 1 |
-| 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.3 K (later) | `#E9A6E0` α 0.43 | 1 |
+| 6 | Oxygen (O₂) | GAS | 1.429 | 918 | 0.026 | condenses 90.19 K → liquid oxygen | `#9CC8F0` α 0.43 | 1 |
+| 7 | Carbon dioxide (CO₂) | GAS | 1.977 | 844 | 0.0166 | deposits 194.7 K → dry ice | `#7A7A7A` α 0.55 | 1 |
+| 8 | Hydrogen (H₂) | GAS | 0.0899 | 14300 | 0.18 | condenses 20.28 K → liquid hydrogen | `#E9A6E0` α 0.43 | 1 |
 | 9 | Water vapour (steam) | GAS | 0.59 (at 100 °C) | 2080 | 0.025 | condenses at its dew point → water | `#E6ECF2` α 0.25 | 3 |
-| 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.4 K (later) | `#7C86A8` α 0.16 | 4 |
+| 10 | Nitrogen (N₂) | GAS | 1.2506 | 1040 | 0.026 | condenses 77.36 K → liquid nitrogen | `#7C86A8` α 0.16 | 4 |
 | 11 | Body (a creature) | STATIC | 985 | 3500 | 0.5 | none (held at 37 °C) | `#D9A066` | 4c |
 | 12 | Sand | POWDER | 1600 (bulk, dry) | 830 | 0.25 | (melts ≈ 1990 K, later) | `#C2B280` | 5 |
 | 13 | Loose soil (dug dirt) | POWDER | 1200 (bulk) | 800 | 0.3 | none | `#7E5A3A` | 5 |
 | 14 | Rubble (dug rock) | POWDER | 1700 (bulk, broken rock) | 790 | 0.5 | none | `#85858B` | 5 |
-| 15 | Lava (molten rock) | LIQUID | 2600 | 1100 | 1.5 | freezes 1500 K → rock; painted at 1600 K | `#C8461E`, glows | 5 |
+| 15 | Lava (molten rock) | LIQUID | 2600 | 1100 | 1.5 | freezes 1500 K → rock; boils 3000 K → rock vapour, L = 6 MJ/kg | `#C8461E`, glows | 5 |
 | 16 | Molten iron | LIQUID | 6980 | 820 | 35 | freezes 1811 K → iron; painted at 1900 K | `#D07830`, glows | 5 |
 | 17 | Oil (crude) | LIQUID | 870 | 2000 | 0.15 | none yet (flammable later) | `#3C2A12` α 0.92 | 5 |
 | 18 | Bullet (lead) | POWDER | 11340 | 129 | 35 | melts 600.6 K → molten lead, L = 23 kJ/kg | `#50545C` | 6a |
@@ -38,6 +38,14 @@ the deviation is listed under "Gameplay deviations" below. Never change it silen
 | 25 | Blood | LIQUID | 1060 | 3600 | 0.5 | none (no freezing or boiling yet); starts at 293.15 K | `#8A0F14` α 0.92 | 6b |
 | 29 | Walker corpse | STATIC | 985 | 3500 | 0.5 | none; part of a rigid body | `#2C4A2A` | 6b |
 | 30 | Flyer corpse | STATIC | 985 | 3500 | 0.5 | none; part of a rigid body | `#4A2C55` | 6b |
+| 31 | Liquid oxygen | LIQUID | 1141 | 1700 | 0.15 | freezes 54.36 K, L = 13.9 kJ/kg; boils 90.19 K, L = 213 kJ/kg | `#8CC4F4` α 0.75 | 6b |
+| 32 | Solid oxygen | STATIC | 1300 | 1440 | 0.2 | melts 54.36 K | `#6FA8E8` | 6b |
+| 33 | Liquid nitrogen | LIQUID | 808 | 2040 | 0.14 | freezes 63.15 K, L = 25.7 kJ/kg; boils 77.36 K, L = 199 kJ/kg | `#C4D2F0` α 0.67 | 6b |
+| 34 | Solid nitrogen | STATIC | 947 | 1640 | 0.2 | melts 63.15 K | `#DCE4F4` | 6b |
+| 35 | Liquid hydrogen | LIQUID | 70.8 | 9700 | 0.1 | freezes 13.99 K, L = 58 kJ/kg; boils 20.28 K, L = 446 kJ/kg | `#F0C8EC` α 0.63 | 6b |
+| 36 | Solid hydrogen | STATIC | 86 | 2800 | 0.9 | melts 13.99 K | `#F6DDF3` | 6b |
+| 37 | Dry ice (solid CO₂) | POWDER | 1562 | 1200 | 0.4 | sublimes 194.7 K, L = 571 kJ/kg | `#E4E8EA` | 6b |
+| 38 | Rock vapour | GAS | 1.79 (at 0 °C, as SiO) | 1000 | 0.1 | condenses at its dew point → lava | `#E8A060` α 0.59 | 6b |
 | 28 | Sawdust | POWDER | 250 (bulk) | 1700 | 0.06 | none (does not burn yet) | `#C4A06A` | 6b |
 | 26 | Wood | STATIC | 600 | 1700 | 0.15 | catches fire at 523 K (250 °C) → burning wood | `#9A6A3A` | 6b |
 | 27 | Burning wood | STATIC | 600 | 1700 | 0.15 | goes out below 480 K → wood; burns while oxygen reaches it; painted at 900 K (not in the toolbar) | `#4A2A14`, glows | 6b |
@@ -69,8 +77,20 @@ Notes
 - **Water vapour** (M6a): condenses at its dew point (saturation by Antoine's equation, at 1 atm
   total pressure), so air can be humid. On matter below its dew point it condenses by film
   condensation, `CONDENSE_FILM_H` = 8000 W/(m²K) (the real value for steam, not sped up: D-056).
-- **Default spawn temperature** for all painted elements is 293.15 K (20 °C). Exceptions: ice
-  spawns at 263.15 K and steam at 383.15 K, so they do not change phase immediately.
+- **Every gas condenses** (D-057): oxygen, nitrogen and hydrogen to their liquids, CO₂ to dry ice,
+  rock vapour to lava, each at its dew point for its share of the gas (at 1 atm total pressure,
+  as water). Saturation pressure: water by Antoine's equation, the others by Clausius-Clapeyron
+  from the boiling point and latent heat (one curve above the liquid and the solid alike, an
+  approximation). There is no liquid CO₂: at 1 atm it does not exist (it needs 5.1 atm, and phase
+  changes do not depend on pressure yet). Dry ice is a powder, so the frost that forms in cold air
+  falls rather than hangs.
+- **Rock vapour** is a stand-in for boiled silicate rock: molar mass of SiO (44 g/mol), boiling at
+  3000 K at 1 atm with 6 MJ/kg (real silicates vaporise between about 2500 and 3200 K, partly
+  decomposing). Iron does not boil yet (3134 K: it needs a gas slot, ROADMAP).
+- **Painting** (D-057): a tool paints at the temperature chosen in the game (20 °C to start) and
+  the substance takes its form at it at 1 atm (`elem_form_at`). An edit with no temperature uses
+  the element's spawn temperature (the table's), as tests and scenes do: 293.15 K for most, ice
+  263.15 K, steam 383.15 K, lava 1600 K, the cryogenic liquids just below their boiling points.
 - **Phase changes** (M3): ice → water above 0 °C (L = 334 kJ/kg); water → ice below 0 °C; water →
   water vapour above 100 °C (L = 2257 kJ/kg); vapour → water at its dew point (M6a). **Lead and brass** (M6a): spent
   bullets and solid lead melt at 327.5 °C; casings and solid brass at 935 °C (cartridge brass,
@@ -289,6 +309,7 @@ Keep this list complete.
 4. Add behaviour tests for anything new (a new behaviour, a phase change, a reaction).
    A new **gas** is a species, not a cell element of its own: give it an element row for its
    properties, then add it to `GAS_SPECIES`, the `GAS_*` indices and `g_species_elem`
-   (`sim/elements.h`, `sim/elements.c`) with its molar mass. Every gas cell then carries it
-   (4 more bytes per cell).
+   (`sim/elements.h`, `sim/elements.c`) with its molar mass, and what it condenses to in
+   `g_species_condensed` (that element's `g_elem_above` must boil into `ELEM_GAS`). Every gas
+   cell then carries it (4 more bytes per cell, about 5% more time for gas: PERFORMANCE).
 5. Update "Gameplay deviations" if anything is non-physical.

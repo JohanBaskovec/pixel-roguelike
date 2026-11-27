@@ -328,6 +328,12 @@ scene; the target scene is in `PERFORMANCE.md` → Budgets):
 - [x] Zoom ×3 by default and a simulated area that fits a 1920 × 1080 screen at that zoom (D-053),
       gas at half rate (D-054), open air does not even out 1% pressure differences (D-055): lava and
       shooting about 2× faster on 4 threads, 2.5× on one
+- [x] Every tool paints at a temperature (`)` `=` on AZERTY) and takes its form at it; gases at a
+      mass (`ç` `à`); one tool per substance (D-057). Liquid and solid oxygen, nitrogen and hydrogen,
+      dry ice, rock vapour; every gas condenses (on cold matter too)
+- [ ] Rare gas slots: about 5 gases per cell beyond the five common ones, so every element can have
+      a vapour (metals, helium, sulfur...) at almost no cost where there is none (D-057)
+- [ ] Boiling points that depend on pressure (liquid CO2 above 5.1 atm; compressed steam condenses)
 - [ ] Sprites finer than the cells (3 × 3 pixels a cell at zoom ×3; the body's cells stay the hitbox)
 - [ ] Smooth zooming
 - [ ] An HP bar with 100 HP (bullets, falls, suffocation)

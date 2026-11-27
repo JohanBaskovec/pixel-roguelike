@@ -13,7 +13,7 @@ void test_wood_burns_only_above_16_percent_oxygen(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }

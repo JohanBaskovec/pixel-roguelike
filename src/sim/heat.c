@@ -59,7 +59,8 @@ static inline float gas_flux(float ka, float ca, float ta, uint8_t wa, bool ga, 
 }
 
 // Conductivity of a gas mixture: the mole-fraction-weighted mean of its species' (an
-// approximation). *vapour: the mole fraction of water vapour.
+// approximation). *vapour: the mole fraction of the species that may condense at any temperature
+// (water vapour, rock vapour).
 static inline float gas_mix_conduct(const GasMix *g, float *vapour) {
     float n = 0.0f, k = 0.0f;
     for (int s = 0; s < GAS_SPECIES; s++) {
@@ -67,7 +68,9 @@ static inline float gas_mix_conduct(const GasMix *g, float *vapour) {
         n += ns;
         k += ns * g_species_k[s];
     }
-    *vapour = n > 0.0f ? g->m[GAS_H2O] * g_species_inv_molar[GAS_H2O] / n : 0.0f;
+    float nv = g->m[GAS_H2O] * g_species_inv_molar[GAS_H2O] +
+               g->m[GAS_ROCK] * g_species_inv_molar[GAS_ROCK];
+    *vapour = n > 0.0f ? nv / n : 0.0f;
     return n > 0.0f ? k / n : 0.0f;
 }
 
@@ -80,9 +83,27 @@ typedef struct HeatHalo {
     float tp[HALO][HALO];     // physical temperature
     float cap[HALO][HALO];    // thermal mass, J/K (gases: from their mixture)
     float cond[HALO][HALO];   // conductivity, W/(m K) (gases: from their mixture)
-    float vap[HALO][HALO];    // gases: mole fraction of water vapour
+    float vap[HALO][HALO];    // gases: mole fraction of water and rock vapour
     uint8_t wind[HALO][HALO]; // gases: the current's speed (0..GAS_WIND_MAX)
+    const World *w;
+    int bx, by; // world cell of halo cell (1, 1)
 } HeatHalo;
+
+// Mole fraction of the gas in excess of what matter at temperature ts lets stay vapour: what
+// condenses on it (D-056, D-057).
+static float film_excess(const GasMix *g, float ts) {
+    float n = gas_moles(g), sum = 0.0f;
+    if (n <= 0.0f) {
+        return 0.0f;
+    }
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        if (g->m[s] > 0.0f && ts < g_species_boil[s]) {
+            float x = g->m[s] * g_species_inv_molar[s] / n;
+            sum += PR_MAX(x - gas_saturation_pressure(s, ts) / P_ATM, 0.0f);
+        }
+    }
+    return sum;
+}
 
 static inline float pair_flux(const HeatHalo *h, int ay, int ax, int by, int bx) {
     float ta = h->tp[ay][ax], tb = h->tp[by][bx];
@@ -98,14 +119,14 @@ static inline float pair_flux(const HeatHalo *h, int ay, int ax, int by, int bx)
     // radiate): WOOD_GAS_COUPLING times, up to the stability limit.
     bool wood = ea == ELEM_WOOD || ea == ELEM_BURNING_WOOD || eb == ELEM_WOOD ||
                 eb == ELEM_BURNING_WOOD;
-    // Water vapour beyond saturation at the surface it touches condenses there (D-056).
+    // Vapour beyond saturation at the surface it touches condenses there (D-056).
     float film = 0.0f;
     if (ga != gb) {
         float v = ga ? h->vap[ay][ax] : h->vap[by][bx];
         float ts = ga ? tb : ta;
-        if (v > 0.0f && ts < (ga ? ta : tb)) {
-            float excess = v - water_saturation_pressure(ts) / P_ATM;
-            film = PR_MAX(excess, 0.0f) * FILM_SCALE;
+        if ((v > 0.0f || ts < GAS_CRYO_K) && ts < (ga ? ta : tb)) {
+            int gy = h->by + (ga ? ay : by) - 1, gx = h->bx + (ga ? ax : bx) - 1;
+            film = film_excess(&h->w->gas[world_index(h->w, gx, gy)], ts) * FILM_SCALE;
         }
     }
     return gas_flux(h->cond[ay][ax], h->cap[ay][ax], ta, h->wind[ay][ax], ga, h->cond[by][bx],
@@ -123,6 +144,9 @@ static void compute_chunk(void *user, int index) {
     // cells outside the world, or in a chunk not computed this tick, count as void (no exchange:
     // only pairs computed on both sides exchange heat, so energy cannot leak).
     HeatHalo halo;
+    halo.w = w;
+    halo.bx = bx;
+    halo.by = by;
     ElementId(*el)[HALO] = halo.el;
     float(*tp)[HALO] = halo.tp;
     float(*cap)[HALO] = halo.cap;
@@ -216,14 +240,15 @@ static void apply_chunk(void *user, int index) {
             float cp = g_elem_defs[e < ELEM_COUNT ? e : 0].heat_cap;
             ElementId to = e;
             float t_new = t;
-            // Gas cells have no phase change of their own (water vapour condenses in sim.c).
+            // Gas cells have no phase change of their own (vapour condenses in sim.c).
             float m = g_elem_mass[e];
             if (up->temp > 0.0f && t > up->temp && cp * (t - up->temp) >= up->latent) {
-                // Melting or boiling. Boiling water keeps its mass: one cell of water vapour at
-                // very high pressure, which then expands (about 1700 cells at 1 atm).
+                // Melting or boiling. A boiling cell keeps its mass: one cell of vapour at very
+                // high pressure, which then expands (water: about 1700 cells at 1 atm).
                 to = up->to;
                 float rest = m * (cp * (t - up->temp) - up->latent); // J
-                float cp_new = to == ELEM_GAS ? g_species_cp[GAS_H2O] : g_elem_cp[to];
+                int species = g_boil_species[e]; // (to == ELEM_GAS)
+                float cp_new = to == ELEM_GAS ? g_species_cp[species] : g_elem_cp[to];
                 float m_new = to == ELEM_GAS ? m : g_elem_mass[to];
                 t_new = up->temp + rest / (m_new * cp_new);
             } else if (down->temp > 0.0f && t < down->temp &&
@@ -243,7 +268,7 @@ static void apply_chunk(void *user, int index) {
                 w->cells[i] = c;
                 w->temp[i] = t_new;
                 if (to == ELEM_GAS) {
-                    w->gas[i] = gas_mix_pure(GAS_H2O, m);
+                    w->gas[i] = gas_mix_pure(g_boil_species[e], m);
                 }
                 job->phase++;
                 int lx = x - bx, ly = y - by;

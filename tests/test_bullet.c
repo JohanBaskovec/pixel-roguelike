@@ -20,9 +20,9 @@ void test_bullet_damage_comes_from_solids(void);
 static World *range(uint64_t seed, int *player) {
     World *w = test_world_box(192, 128, seed);
     for (int y = 1; y <= 126; y++) {
-        Edit air = {1, y, 190, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
+        Edit air = {1, y, 190, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &air);
-        Edit rock = {160, y, 190, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
+        Edit rock = {160, y, 190, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &rock);
     }
     *player = scene_spawn_player(w, 40);
@@ -154,7 +154,7 @@ void test_example_bomb_bullet_burns(void) {
     World *w = range(174, &pl);
     // A wall 25 cells in front of the muzzle.
     for (int y = 1; y <= 126; y++) {
-        Edit wall = {70, y, 80, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f};
+        Edit wall = {70, y, 80, y, 0, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &wall);
     }
     double h2 = 0.0;

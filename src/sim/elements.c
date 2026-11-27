@@ -36,6 +36,14 @@ const ElementDef g_elem_defs[ELEM_COUNT] = {
     [ELEM_WALKER_CORPSE] = {"Walker corpse", BEHAVIOR_STATIC, 985.0f, 3500.0f, 0.5f,  293.15f, 0x2C4A2A, 255, 12,  0},
     [ELEM_FLYER_CORPSE]  = {"Flyer corpse",  BEHAVIOR_STATIC, 985.0f, 3500.0f, 0.5f,  293.15f, 0x4A2C55, 255, 12,  0},
     [ELEM_BLOOD]    = {"Blood",          BEHAVIOR_LIQUID, 1060.0f,  3600.0f,  0.5f,    293.15f, 0x8A0F14, 235, 12,  3},
+    [ELEM_LIQUID_OXYGEN]   = {"Liquid oxygen",   BEHAVIOR_LIQUID, 1141.0f, 1700.0f, 0.15f, 85.0f,  0x8CC4F4, 190, 10,  6},
+    [ELEM_SOLID_OXYGEN]    = {"Solid oxygen",    BEHAVIOR_STATIC, 1300.0f, 1440.0f, 0.2f,  45.0f,  0x6FA8E8, 255, 10,  0},
+    [ELEM_LIQUID_NITROGEN] = {"Liquid nitrogen", BEHAVIOR_LIQUID, 808.0f,  2040.0f, 0.14f, 72.0f,  0xC4D2F0, 170, 10,  6},
+    [ELEM_SOLID_NITROGEN]  = {"Solid nitrogen",  BEHAVIOR_STATIC, 947.0f,  1640.0f, 0.2f,  50.0f,  0xDCE4F4, 255,  8,  0},
+    [ELEM_LIQUID_HYDROGEN] = {"Liquid hydrogen", BEHAVIOR_LIQUID, 70.8f,   9700.0f, 0.1f,  18.0f,  0xF0C8EC, 160, 10,  7},
+    [ELEM_SOLID_HYDROGEN]  = {"Solid hydrogen",  BEHAVIOR_STATIC, 86.0f,   2800.0f, 0.9f,  10.0f,  0xF6DDF3, 255,  8,  0},
+    [ELEM_DRY_ICE]         = {"Dry ice",         BEHAVIOR_POWDER, 1562.0f, 1200.0f, 0.4f,  190.0f, 0xE4E8EA, 255, 10,  0},
+    [ELEM_ROCK_VAPOUR]     = {"Rock vapour",     BEHAVIOR_GAS,    1.79f,   1000.0f, 0.1f,  3200.0f, 0xE8A060, 150, 30, 2},
     // A gas cell: its properties come from its mixture; these (air's) stand for any gas in the
     // tables (buoyancy against liquids, conduction tables).
     [ELEM_GAS]      = {"Gas",            BEHAVIOR_GAS,    1.2922f,  1005.0f,  0.026f,  293.15f, 0x9CC8F0, 110, 30,  3},
@@ -50,6 +58,9 @@ const PhaseChange g_elem_below[ELEM_COUNT] = {
     [ELEM_MOLTEN_LEAD] = {600.6f,  ELEM_LEAD,  23.0e3f}, // solidifying
     [ELEM_MOLTEN_BRASS] = {1208.0f, ELEM_BRASS, 168e3f}, // solidifying
     [ELEM_BURNING_WOOD] = {WOOD_OUT_K, ELEM_WOOD, 0.0f}, // goes out
+    [ELEM_LIQUID_OXYGEN]   = {54.36f, ELEM_SOLID_OXYGEN,   13.9e3f}, // freezing (gases condense: sim.c)
+    [ELEM_LIQUID_NITROGEN] = {63.15f, ELEM_SOLID_NITROGEN, 25.7e3f},
+    [ELEM_LIQUID_HYDROGEN] = {13.99f, ELEM_SOLID_HYDROGEN, 58.0e3f},
 };
 const PhaseChange g_elem_above[ELEM_COUNT] = {
     [ELEM_ICE]   = {273.15f, ELEM_WATER,       334e3f},  // melting
@@ -61,6 +72,14 @@ const PhaseChange g_elem_above[ELEM_COUNT] = {
     [ELEM_CASING] = {1208.0f, ELEM_MOLTEN_BRASS, 168e3f}, // melting
     [ELEM_BRASS] = {1208.0f, ELEM_MOLTEN_BRASS, 168e3f}, // melting
     [ELEM_WOOD]  = {WOOD_IGNITE_K, ELEM_BURNING_WOOD, 0.0f}, // catches fire (sim.c)
+    [ELEM_LAVA]  = {3000.0f, ELEM_GAS, 6.0e6f}, // boiling: into rock vapour
+    [ELEM_SOLID_OXYGEN]    = {54.36f, ELEM_LIQUID_OXYGEN,   13.9e3f},
+    [ELEM_SOLID_NITROGEN]  = {63.15f, ELEM_LIQUID_NITROGEN, 25.7e3f},
+    [ELEM_SOLID_HYDROGEN]  = {13.99f, ELEM_LIQUID_HYDROGEN, 58.0e3f},
+    [ELEM_LIQUID_OXYGEN]   = {90.19f, ELEM_GAS, 213e3f},
+    [ELEM_LIQUID_NITROGEN] = {77.36f, ELEM_GAS, 199e3f},
+    [ELEM_LIQUID_HYDROGEN] = {20.28f, ELEM_GAS, 446e3f},
+    [ELEM_DRY_ICE]         = {194.7f, ELEM_GAS, 571e3f}, // sublimes
 };
 // clang-format on
 
@@ -73,17 +92,41 @@ uint8_t g_reaction_of[256];
 uint8_t g_gas_slot[256];
 float g_min_ignite_k = 1e30f;
 const ElementId g_species_elem[GAS_SPECIES] = {ELEM_OXYGEN, ELEM_CO2, ELEM_HYDROGEN, ELEM_STEAM,
-                                               ELEM_NITROGEN};
-// Densities of the liquid gases, kg/m^3 (at their boiling points; carbon dioxide's at its triple
-// point).
-static float liquid_density(ElementId e) {
-    switch (e) {
-        case ELEM_HYDROGEN: return 70.8f;
-        case ELEM_NITROGEN: return 808.0f;
-        case ELEM_OXYGEN: return 1141.0f;
-        case ELEM_CO2: return 1178.0f;
-        default: return 1000.0f;
+                                               ELEM_NITROGEN, ELEM_ROCK_VAPOUR};
+const ElementId g_species_condensed[GAS_SPECIES] = {ELEM_LIQUID_OXYGEN,   ELEM_DRY_ICE,
+                                                    ELEM_LIQUID_HYDROGEN, ELEM_WATER,
+                                                    ELEM_LIQUID_NITROGEN, ELEM_LAVA};
+float g_species_boil[GAS_SPECIES];
+float g_species_latent[GAS_SPECIES];
+uint8_t g_boil_species[ELEM_COUNT];
+
+float gas_max_mass(ElementId e) {
+    PR_ASSERT(elem_species(e) >= 0);
+    return g_elem_mass[g_species_condensed[elem_species(e)]];
+}
+
+ElementId elem_form_at(ElementId e, float t) {
+    int s = elem_species(e);
+    if (s >= 0) {
+        if (t >= g_species_boil[s]) {
+            return e;
+        }
+        e = g_species_condensed[s];
     }
+    for (int k = 0; k < 4 && e < ELEM_COUNT; k++) {
+        const PhaseChange *up = &g_elem_above[e], *down = &g_elem_below[e];
+        if (up->temp > 0.0f && t >= up->temp) {
+            if (up->to == ELEM_GAS) {
+                return g_species_elem[g_boil_species[e]];
+            }
+            e = up->to;
+        } else if (down->temp > 0.0f && t < down->temp) {
+            e = down->to;
+        } else {
+            break;
+        }
+    }
+    return e;
 }
 
 float gas_max_pressure(ElementId e, float t) {
@@ -91,7 +134,7 @@ float gas_max_pressure(ElementId e, float t) {
         return water_saturation_pressure(t);
     }
     // p = rho R T / M for the liquid's density.
-    return liquid_density(e) * GAS_R * t / g_elem_molar_mass[e];
+    return gas_max_mass(e) / CELL_VOLUME_M3 * GAS_R * t / g_elem_molar_mass[e];
 }
 
 float g_species_molar[GAS_SPECIES];
@@ -103,6 +146,7 @@ float g_species_k[GAS_SPECIES];
 static const float k_molar_mass[ELEM_COUNT] = {
     [ELEM_OXYGEN] = 0.031999f, [ELEM_CO2] = 0.04401f,       [ELEM_HYDROGEN] = 0.002016f,
     [ELEM_STEAM] = 0.018015f,  [ELEM_NITROGEN] = 0.028014f,
+    [ELEM_ROCK_VAPOUR] = 0.04409f, // SiO
 };
 
 // Buoyancy density of any element (gases: ELEM_GAS as air at 0 degC; species: at 0 degC, steam
@@ -149,6 +193,26 @@ float water_saturation_pressure(float t) {
     return g_sat[k] + (g_sat[k + 1] - g_sat[k]) * f;
 }
 
+float gas_saturation_pressure(int s, float t) {
+    if (s == GAS_H2O) {
+        return water_saturation_pressure(t);
+    }
+    float k = g_species_latent[s] * g_species_molar[s] / GAS_R; // K
+    return P_ATM * expf(PR_CLAMP(k / g_species_boil[s] - k / PR_MAX(t, 1.0f), -80.0f, 20.0f));
+}
+
+float gas_dew_point(int s, float p) {
+    if (s == GAS_H2O) {
+        float lg = log10f(PR_MAX(p, 1.0f) / 133.322f);
+        float c = lg < 8.07131f - 1730.63f / (233.426f + 99.0f)
+                      ? 1730.63f / (8.07131f - lg) - 233.426f
+                      : 1810.94f / (8.14019f - lg) - 244.485f;
+        return c + 273.15f;
+    }
+    float k = g_species_latent[s] * g_species_molar[s] / GAS_R;
+    return 1.0f / PR_MAX(1.0f / g_species_boil[s] - logf(PR_MAX(p, 1e-6f) / P_ATM) / k, 1e-6f);
+}
+
 void elements_init(void) {
     static bool initialised = false;
     if (initialised) {
@@ -166,6 +230,10 @@ void elements_init(void) {
         g_species_inv_molar[s] = 1.0f / k_molar_mass[e];
         g_species_cp[s] = g_elem_defs[e].heat_cap;
         g_species_k[s] = g_elem_defs[e].conduct;
+        ElementId to = g_species_condensed[s];
+        g_species_boil[s] = g_elem_above[to].temp;
+        g_species_latent[s] = g_elem_above[to].latent;
+        g_boil_species[to] = (uint8_t)s;
     }
     for (int r = 0; r < REACTION_COUNT; r++) {
         g_reaction_of[g_reactions[r].a] = (uint8_t)(r + 1);

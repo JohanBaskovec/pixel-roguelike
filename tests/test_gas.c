@@ -15,6 +15,9 @@ void test_gas_pressure_equalizes(void);
 void test_sealed_gas_pressure_follows_temperature(void);
 void test_boiling_keeps_mass(void);
 void test_vapour_condenses_below_dew_point(void);
+void test_cryogenic_liquids_boil_and_keep_mass(void);
+void test_cold_gases_condense(void);
+void test_rock_boils_and_condenses(void);
 void test_steam_condenses_on_cold_iron(void);
 void test_steam_stays_beside_hot_iron(void);
 void test_air_stays_mixed(void);
@@ -32,7 +35,7 @@ void test_trapped_air_is_compressed(void);
 
 static void paint(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }
@@ -119,7 +122,7 @@ void test_boiling_keeps_mass(void) {
     // boiled cell becomes water vapour with the water's mass (at very high pressure), which
     // pushes the air aside and expands. The vapour's mass equals the mass of water lost.
     World *w = test_world_box(128, 128, 44);
-    Edit air = {1, 1, 126, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
+    Edit air = {1, 1, 126, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f, 0.0f};
     for (int y = 1; y <= 126; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);
@@ -204,6 +207,126 @@ void test_vapour_condenses_below_dew_point(void) {
     world_destroy(w);
 }
 
+void test_cryogenic_liquids_boil_and_keep_mass(void) {
+    // Liquid oxygen, nitrogen and hydrogen, solid hydrogen, and dry ice, in a room as warm as 20 degC,
+    // become their gas, of the same mass.
+    static const struct {
+        ElementId paint, cell;
+        float t;
+        int species;
+    } k[] = {
+        {ELEM_OXYGEN, ELEM_LIQUID_OXYGEN, 85.0f, GAS_O2},
+        {ELEM_NITROGEN, ELEM_LIQUID_NITROGEN, 72.0f, GAS_N2},
+        {ELEM_HYDROGEN, ELEM_LIQUID_HYDROGEN, 18.0f, GAS_H2},
+        {ELEM_CO2, ELEM_DRY_ICE, 190.0f, GAS_CO2},
+    };
+    for (int i = 0; i < (int)PR_ARRAY_COUNT(k); i++) {
+        World *w = test_world_box(64, 64, 48);
+        Edit e = {32, 61, 32, 61, 1, EDIT_SQUARE, k[i].paint, 0, EDIT_PAINT, k[i].t, 0.0f};
+        sim_apply_edit(w, &e);
+        int64_t n0 = test_count(w, k[i].cell);
+        EXPECT(n0 == 9);
+        bool boiled = false;
+        for (int t = 0; t < 6000 && !boiled; t++) { // heat on it, as from a hot floor
+            for (int c = 0; c < w->width * w->height; c++) {
+                w->temp[c] += w->cells[c].element == k[i].cell ? 2.0f : 0.0f;
+            }
+            world_wake_heat(w, 0, 0, 63, 63);
+            sim_tick(w, NULL);
+            boiled = test_count(w, k[i].cell) == 0;
+        }
+        EXPECT(boiled);
+        double m = 0.0;
+        for (int c = 0; c < w->width * w->height; c++) {
+            m += w->cells[c].element == ELEM_GAS ? (double)w->gas[c].m[k[i].species] : 0.0;
+        }
+        double expect = 9.0 * (double)g_elem_mass[k[i].cell];
+        EXPECT(fabs(m / expect - 1.0) < 1e-3);
+        world_destroy(w);
+    }
+}
+
+void test_cold_gases_condense(void) {
+    // Dense oxygen, nitrogen, hydrogen and CO2 around an iron bar colder than their boiling point
+    // condense on it: the liquid (dry ice for CO2) holds the gas lost, on average.
+    static const struct {
+        ElementId paint, liquid, solid;
+        float t, t_iron;
+        int species;
+    } k[] = {
+        {ELEM_OXYGEN, ELEM_LIQUID_OXYGEN, ELEM_SOLID_OXYGEN, 100.0f, 5.0f, GAS_O2},
+        {ELEM_NITROGEN, ELEM_LIQUID_NITROGEN, ELEM_SOLID_NITROGEN, 90.0f, 5.0f, GAS_N2},
+        {ELEM_HYDROGEN, ELEM_LIQUID_HYDROGEN, ELEM_SOLID_HYDROGEN, 25.0f, 5.0f, GAS_H2},
+        {ELEM_CO2, ELEM_DRY_ICE, ELEM_DRY_ICE, 210.0f, 5.0f, GAS_CO2},
+    };
+    for (int i = 0; i < (int)PR_ARRAY_COUNT(k); i++) {
+        World *w = test_world_box(64, 64, 49);
+        float cell = 0.1f * g_elem_mass[k[i].liquid]; // a tenth of the liquid's density
+        for (int y = 1; y <= 62; y++) {
+            Edit e = {1, y, 62, y, 0, EDIT_SQUARE, k[i].paint, 0, EDIT_PAINT, k[i].t, cell};
+            sim_apply_edit(w, &e);
+        }
+        paint(w, 16, 28, 47, 35, ELEM_IRON);
+        double m0 = 0.0, m1 = 0.0;
+        for (int c = 0; c < w->width * w->height; c++) {
+            w->temp[c] = w->cells[c].element == ELEM_IRON ? k[i].t_iron : k[i].t;
+            m0 += (double)w->gas[c].m[k[i].species];
+        }
+        world_wake_heat(w, 0, 0, 63, 63);
+        sim_run_ticks(w, 1200);
+        for (int c = 0; c < w->width * w->height; c++) {
+            m1 += (double)w->gas[c].m[k[i].species];
+        }
+        int64_t drops = test_count(w, k[i].liquid);
+        if (k[i].solid != k[i].liquid) {
+            drops += test_count(w, k[i].solid);
+        }
+        double expect = (m0 - m1) / (double)g_elem_mass[k[i].liquid];
+        EXPECT(drops > 5);
+        EXPECT(fabs((double)drops - expect) < 4.0 * sqrt(expect) + 2.0);
+        world_destroy(w);
+    }
+}
+
+void test_rock_boils_and_condenses(void) {
+    // Rock heated beyond 3000 K becomes rock vapour of the same mass (walls as hot, so it stays);
+    // beside cold walls the vapour becomes lava, then rock again.
+    World *w = test_world_box(64, 64, 50);
+    for (int c = 0; c < w->width * w->height; c++) {
+        w->temp[c] = w->cells[c].element == ELEM_VOID ? 0.0f : 2900.0f;
+    }
+    for (int c = 0; c < w->width * w->height; c++) {
+        if (w->cells[c].element != ELEM_VOID) {
+            w->cells[c].element = ELEM_IRON; // (the box itself must not melt away: held below)
+        }
+    }
+    Edit e = {32, 61, 32, 61, 1, EDIT_SQUARE, ELEM_ROCK, 0, EDIT_PAINT, 3300.0f, 0.3f};
+    sim_apply_edit(w, &e);
+    double m0 = 0.0, m1 = 0.0;
+    for (int c = 0; c < w->width * w->height; c++) {
+        m0 += (double)w->gas[c].m[GAS_ROCK];
+    }
+    EXPECT(fabs(m0 - 9.0 * 0.3) < 1e-3);
+    for (int t = 0; t < 1200; t++) {
+        for (int c = 0; c < w->width * w->height; c++) {
+            if (w->cells[c].element == ELEM_IRON) {
+                w->temp[c] = 300.0f;
+            }
+        }
+        world_wake_heat(w, 0, 0, 63, 63);
+        sim_tick(w, NULL);
+    }
+    for (int c = 0; c < w->width * w->height; c++) {
+        m1 += (double)w->gas[c].m[GAS_ROCK];
+    }
+    // (Lava that touches the cold box becomes rock.)
+    double drops = (double)(test_count(w, ELEM_LAVA) + test_count(w, ELEM_ROCK));
+    double expect = (m0 - m1) / (double)g_elem_mass[ELEM_LAVA];
+    EXPECT(m1 < 0.5 * m0);
+    EXPECT(fabs(drops - expect) < 4.0 * sqrt(expect) + 2.0);
+    world_destroy(w);
+}
+
 // A sealed room (walls at 100 degC) of steam at 100 degC and `atm` atmospheres, with a bar of iron
 // at t_iron in the middle. After `ticks`: the vapour before and left (kg), the water and ice made
 // (kg), and the heat the iron gained over the latent heat of the vapour lost.
@@ -260,7 +383,7 @@ void test_air_stays_mixed(void) {
     // Painted air is the same mixture in every cell (20.95% oxygen, 0.04% CO2, the rest
     // nitrogen): it does not unmix, and a room of still air goes to sleep at once.
     World *w = test_world_box(64, 128, 46);
-    Edit air = {1, 1, 62, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
+    Edit air = {1, 1, 62, 1, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f, 0.0f};
     for (int y = 1; y <= 126; y++) {
         air.y0 = air.y1 = y;
         sim_apply_edit(w, &air);

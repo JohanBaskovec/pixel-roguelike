@@ -34,7 +34,8 @@ implemented. The game is an action roguelike: a maze of air-filled rooms carved 
 world, a player (drawn at half size: 85 cm, D-038) who runs, jumps, flies with an infinite jetpack (hold the jump key), has 100 hp (health crates to walk on), and fires a gun of 1 to 10 bullet slots that the player draws pixel by pixel in a Tab menu (solids, liquids, gases, heat; released on impact or gradually) (wood burns: needs 16% oxygen, makes CO2 and water; logs are rigid bodies that fall, tip and are cut by bullets) whose bullets are real
 pixels (they fly, dig, stir the air and pile up with their casings, and melt; each shot blows
 hot muzzle gas), synthesised sound (D-049) and spawn buttons, a single save loaded at every start (D-048), a toolbar to paint water,
-steam, oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron and ice (or erase, dig, heat,
+oxygen, CO2, hydrogen, nitrogen, air, dirt, rock, iron, sand, oil and wood at a chosen temperature (the form follows: ice, water
+or vapour; liquid and solid oxygen, nitrogen and hydrogen; dry ice; lava and rock vapour, D-057) and gases at a chosen mass (or erase, dig, heat,
 cool), a multithreaded chunked simulation, water pressure,
 heat conduction, convection and phase changes, gases with mass and pressure (pushing on
 liquids; each gas cell a mixture of gases that diffuse, rise and sink by real density, and

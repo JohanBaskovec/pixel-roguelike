@@ -31,6 +31,7 @@ static const float k_zoom[] = {0.25f, 1.0f / 3.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f,
 
 static const char *const k_gas_short[GAS_SPECIES] = {
     [GAS_O2] = "O2", [GAS_CO2] = "CO2", [GAS_H2] = "H2", [GAS_H2O] = "H2O", [GAS_N2] = "N2",
+    [GAS_ROCK] = "Rock",
 };
 
 typedef struct Tool {
@@ -43,29 +44,39 @@ typedef struct Tool {
 
 #define TOOL_RIFLE 0xFF // the player's rifle (M6a): the left button fires
 
+// One tool per substance: the form it is painted in (ice, water, vapour) follows from the
+// temperature (D-057).
 static const Tool k_tools[] = {
     {ELEM_BULLET, "Rifle", TOOL_RIFLE, SDLK_E, 0x50545C},
     {ELEM_WATER, NULL, EDIT_PAINT, SDLK_1, 0},
     {ELEM_OXYGEN, NULL, EDIT_PAINT, SDLK_2, 0},
     {ELEM_CO2, "CO2", EDIT_PAINT, SDLK_3, 0},
     {ELEM_HYDROGEN, NULL, EDIT_PAINT, SDLK_4, 0},
-    {ELEM_STEAM, NULL, EDIT_PAINT, SDLK_5, 0},
     {ELEM_NITROGEN, NULL, EDIT_PAINT, SDLK_N, 0},
     {EDIT_AIR, "Air", EDIT_PAINT, SDLK_G, 0x8FA4C8},
     {ELEM_DIRT, NULL, EDIT_PAINT, SDLK_6, 0},
     {ELEM_ROCK, NULL, EDIT_PAINT, SDLK_7, 0},
     {ELEM_IRON, NULL, EDIT_PAINT, SDLK_8, 0},
-    {ELEM_ICE, NULL, EDIT_PAINT, SDLK_9, 0},
     {ELEM_SAND, NULL, EDIT_PAINT, SDLK_J, 0},
-    {ELEM_LAVA, NULL, EDIT_PAINT, SDLK_L, 0},
     {ELEM_OIL, NULL, EDIT_PAINT, SDLK_O, 0x6A5030},
     {ELEM_WOOD, NULL, EDIT_PAINT, SDLK_V, 0},
     {ELEM_VOID, "Dig", EDIT_DIG, SDLK_X, 0xA07850},
-    {ELEM_VOID, "Eraser", EDIT_PAINT, SDLK_0, UI_NO_SWATCH},
+    {ELEM_VOID, "Eraser", EDIT_PAINT, SDLK_5, UI_NO_SWATCH},
     {ELEM_VOID, "Heat", EDIT_HEAT, SDLK_H, 0xFF5020},
     {ELEM_VOID, "Cool", EDIT_COOL, SDLK_C, 0x40A0FF},
 };
 #define TOOL_COUNT ((int)PR_ARRAY_COUNT(k_tools))
+_Static_assert(PR_ARRAY_COUNT(k_tools) <= APP_MAX_TOOLS, "raise APP_MAX_TOOLS");
+
+// By position: on AZERTY these are the keys ) and = (temperature) and ç and à (mass); on QWERTY -,
+// =, 9 and 0.
+#define KEY_TEMP_DOWN SDL_SCANCODE_MINUS
+#define KEY_TEMP_UP   SDL_SCANCODE_EQUALS
+#define KEY_MASS_DOWN SDL_SCANCODE_9
+#define KEY_MASS_UP   SDL_SCANCODE_0
+
+#define PAINT_TEMP_MIN 1.0f
+#define PAINT_MASS_MIN 1e-7f // kg
 
 // What the spawn buttons place at the cursor (a click in the world; the right button or a tool
 // ends it).
@@ -264,7 +275,10 @@ bool app_init(App *app, const AppConfig *cfg) {
     app->cfg = *cfg;
     app->player = -1;
     app->brush_radius = 8;
-    app->gas_atm = 1.0f;
+    for (int i = 0; i < TOOL_COUNT; i++) {
+        app->tool_temp[i] = T_ROOM;
+        app->tool_mass[i] = 0.0f; // 1 atm
+    }
     gunmenu_init(&app->menu);
     app->running = true;
 
@@ -351,6 +365,94 @@ static int radius_step(int r) {
     return PR_MAX(1, r / 8);
 }
 
+// ---- What a tool paints: temperature and mass (D-057) ----
+
+static bool tool_paints(int tool) {
+    return k_tools[tool].mode == EDIT_PAINT && k_tools[tool].element != ELEM_VOID;
+}
+
+// The element the tool paints at its temperature (EDIT_AIR for air).
+static ElementId tool_form(const App *app, int tool) {
+    ElementId e = k_tools[tool].element;
+    return e == EDIT_AIR || !tool_paints(tool) ? e : elem_form_at(e, app->tool_temp[tool]);
+}
+
+static bool form_is_gas(ElementId e) {
+    return e == EDIT_AIR || elem_species(e) >= 0;
+}
+
+// Mass (kg) of a cell of gas `e` at 1 atm, and the most a cell can be painted with.
+static float form_mass_atm(ElementId e, float t) {
+    if (e == EDIT_AIR) {
+        GasMix air = gas_mix_air(P_ATM, t);
+        return gas_total(&air);
+    }
+    return gas_mass_at(e, P_ATM, t);
+}
+
+static float form_mass_max(ElementId e) {
+    return gas_max_mass(e == EDIT_AIR ? ELEM_NITROGEN : e);
+}
+
+// Steps that are fine where it matters (1 degC near absolute zero) and round in degC; going up and
+// back down returns to the same value.
+static void step_temp(App *app, int dir) {
+    if (!tool_paints(app->tool)) {
+        return;
+    }
+    static const float k_step[][2] = {
+        {-245.0f, 1.0f}, {-120.0f, 5.0f}, {230.0f, 10.0f}, {1230.0f, 50.0f}, {1e9f, 100.0f}};
+    float c = roundf(app->tool_temp[app->tool] - 273.15f);
+    for (int i = 0; i < (int)PR_ARRAY_COUNT(k_step); i++) {
+        if (dir > 0 ? c < k_step[i][0] : c <= k_step[i][0]) {
+            c += (float)dir * k_step[i][1];
+            break;
+        }
+    }
+    app->tool_temp[app->tool] = PR_CLAMP(c + 273.15f, PAINT_TEMP_MIN, EDIT_HEAT_MAX_K);
+}
+
+// The next round mass up or down (10, 12, 15, 20, ... 80, 100), stopping at 1 atm on the way.
+static void step_mass(App *app, int dir) {
+    ElementId e = tool_form(app, app->tool);
+    if (!tool_paints(app->tool) || !form_is_gas(e)) {
+        return; // solids and liquids: the mass of their density
+    }
+    static const float k_round[] = {1.0f, 1.2f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};
+    float atm = form_mass_atm(e, app->tool_temp[app->tool]);
+    float *mass = &app->tool_mass[app->tool];
+    float m = *mass > 0.0f ? PR_MIN(*mass, form_mass_max(e)) : atm;
+    float next = dir > 0 ? 1e9f : 0.0f;
+    float decade = powf(10.0f, floorf(log10f(m)) - 1.0f);
+    for (int d = 0; d < 3; d++, decade *= 10.0f) {
+        for (int i = 0; i < (int)PR_ARRAY_COUNT(k_round); i++) {
+            float r = k_round[i] * decade;
+            if (dir > 0 && r > m * 1.001f) {
+                next = PR_MIN(next, r);
+            } else if (dir < 0 && r < m * 0.999f) {
+                next = PR_MAX(next, r);
+            }
+        }
+    }
+    next = PR_CLAMP(next, PAINT_MASS_MIN, form_mass_max(e));
+    bool crossed = dir > 0 ? m < atm * 0.999f && next > atm * 0.999f
+                           : m > atm * 1.001f && next < atm * 1.001f;
+    *mass = crossed ? 0.0f : next;
+}
+
+static void format_mass(char *out, size_t n, float kg) {
+    if (kg >= 1e-3f) {
+        SDL_snprintf(out, n, "%.4g g", (double)kg * 1e3);
+    } else {
+        SDL_snprintf(out, n, "%.3g mg", (double)kg * 1e6);
+    }
+}
+
+// A key's name on the player's keyboard layout, by its position.
+static const char *scancode_name(SDL_Scancode sc) {
+    return SDL_GetKeyName(SDL_GetKeyFromScancode(sc, SDL_KMOD_NONE, false));
+}
+
 static void queue_segment(App *app, int wx, int wy) {
     Edit e = {0};
     e.x0 = app->last_wx;
@@ -362,7 +464,10 @@ static void queue_segment(App *app, int wx, int wy) {
     e.element = app->paint_button == SDL_BUTTON_RIGHT ? ELEM_VOID : k_tools[app->tool].element;
     e.mode = app->paint_button == SDL_BUTTON_RIGHT ? EDIT_PAINT : k_tools[app->tool].mode;
     e.only_void = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0 && e.element != ELEM_VOID;
-    e.pressure = app->gas_atm;
+    if (e.element != ELEM_VOID && e.mode == EDIT_PAINT) {
+        e.temp = app->tool_temp[app->tool];
+        e.mass = app->tool_mass[app->tool];
+    }
     if (!edit_queue_push(&app->edits, &e)) {
         sim_apply_edits(app->world, &app->edits);
         edit_queue_push(&app->edits, &e);
@@ -406,6 +511,15 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             break;
         case SDL_EVENT_KEY_DOWN: {
             SDL_Keycode k = ev->key.key;
+            SDL_Scancode sc = ev->key.scancode;
+            if (sc == KEY_TEMP_DOWN || sc == KEY_TEMP_UP) {
+                step_temp(app, sc == KEY_TEMP_UP ? 1 : -1);
+                break;
+            }
+            if (sc == KEY_MASS_DOWN || sc == KEY_MASS_UP) {
+                step_mass(app, sc == KEY_MASS_UP ? 1 : -1);
+                break;
+            }
             int tool = -1;
             for (int i = 0; i < TOOL_COUNT; i++) {
                 if (k_tools[i].key == k) {
@@ -471,10 +585,6 @@ void app_handle_event(App *app, const SDL_Event *ev) {
             } else if (k == SDLK_M) {
                 app->audio.muted = !app->audio.muted;
                 toast(app, app->audio.muted ? "Sound off" : "Sound on");
-            } else if (k == SDLK_MINUS) {
-                app->gas_atm = PR_MAX(app->gas_atm * 0.5f, 1.0f / 16.0f); // gas brush: less dense
-            } else if (k == SDLK_EQUALS || k == SDLK_PLUS) {
-                app->gas_atm = PR_MIN(app->gas_atm * 2.0f, 4096.0f); // denser (up to the liquid's)
             } else if (k == SDLK_ESCAPE) {
                 app->running = false;
             }
@@ -648,7 +758,7 @@ static void draw_panel(App *app) {
         char label[48];
         SDL_snprintf(label, sizeof(label), "%s %s", SDL_GetKeyName(t->key),
                      t->label ? t->label : elem_name(t->element));
-        uint32_t swatch = t->swatch ? t->swatch : g_elem_defs[t->element].color;
+        uint32_t swatch = t->swatch ? t->swatch : g_elem_defs[tool_form(app, i)].color;
         // Two columns.
         float bw = (w - 4.0f) * 0.5f, bx = x + (float)(i % 2) * (bw + 4.0f);
         if (ui_button(ui, (SDL_FRect){bx, y, bw, 19.0f}, label, swatch, app->tool == i)) {
@@ -679,14 +789,24 @@ static void draw_panel(App *app) {
     y += 14.0f;
     ui_text(ui, x, y, 0xE8E8E8, "%s, radius %d", app->brush_square ? "Square" : "Circle",
             app->brush_radius);
-    ElementId te = k_tools[app->tool].element;
-    if (k_tools[app->tool].mode == EDIT_PAINT && (te == EDIT_AIR || elem_species(te) >= 0)) {
+    if (tool_paints(app->tool)) {
+        ElementId form = tool_form(app, app->tool);
+        float t = app->tool_temp[app->tool];
+        char mass[32];
         y += 12.0f;
-        float limit = gas_max_pressure(te == EDIT_AIR ? ELEM_NITROGEN : te,
-                                       g_elem_defs[te == EDIT_AIR ? ELEM_GAS : te].spawn_temp) /
-                      P_ATM;
-        ui_text(ui, x, y, 0xE8E8E8, "Gas %.3g atm (max %.3g)", (double)PR_MIN(app->gas_atm, limit),
-                (double)limit);
+        ui_text(ui, x, y, 0xE8E8E8, "%s", form == EDIT_AIR ? "Air" : elem_name(form));
+        y += 12.0f;
+        ui_text(ui, x, y, 0xE8E8E8, "Temp %.0f C (%.0f K)", (double)(t - 273.15f), (double)t);
+        y += 12.0f;
+        if (form_is_gas(form)) {
+            float m = app->tool_mass[app->tool], atm = form_mass_atm(form, t);
+            m = m > 0.0f ? PR_MIN(m, form_mass_max(form)) : PR_MIN(atm, form_mass_max(form));
+            format_mass(mass, sizeof(mass), m);
+            ui_text(ui, x, y, 0xE8E8E8, "Mass %s (%.3g atm)", mass, (double)(m / atm));
+        } else {
+            format_mass(mass, sizeof(mass), g_elem_mass[form]);
+            ui_text(ui, x, y, 0xE8E8E8, "Mass %s (fixed)", mass);
+        }
     }
     y += 22.0f;
 
@@ -798,6 +918,13 @@ static void draw_panel(App *app) {
         }
     }
 
+    char keys_temp[48], keys_mass[48];
+    SDL_snprintf(keys_temp, sizeof(keys_temp), "%s ", scancode_name(KEY_TEMP_DOWN));
+    SDL_strlcat(keys_temp, scancode_name(KEY_TEMP_UP), sizeof(keys_temp));
+    SDL_strlcat(keys_temp, "  paint temperature", sizeof(keys_temp));
+    SDL_snprintf(keys_mass, sizeof(keys_mass), "%s ", scancode_name(KEY_MASS_DOWN));
+    SDL_strlcat(keys_mass, scancode_name(KEY_MASS_UP), sizeof(keys_mass));
+    SDL_strlcat(keys_mass, "  paint mass (gas)", sizeof(keys_mass));
     const char *help[] = {
         "A D  run  W  jump, hold: jetpack",
         "Tab  gun menu: design bullets",
@@ -805,7 +932,9 @@ static void draw_panel(App *app) {
         "RMB  erase",
         "Shift  only into void",
         "Wheel [ ]  brush size",
-        "B square/circle  - = gas atm",
+        "B  square/circle",
+        keys_temp,
+        keys_mass,
         "MMB drag, arrows  pan",
         "F  follow player",
         "Ctrl+wheel  zoom",

@@ -271,14 +271,13 @@ problem altogether, and is also cheaper (no gradient traces).
 
 ### Gases (M4; mixtures since M6a, D-035)
 
-**Painting gas at a pressure.** The Gas and Air brushes replace a cell with gas at `Edit.pressure`
-atmospheres (1 by default; `-` and `=` halve and double it in the game). The simulation itself has
-no cap on how much gas a cell holds: a sealed cell keeps any pressure (tested at 100 atm). The brush
-limits what it paints to `gas_max_pressure()`: the density of the gas's liquid (hydrogen 70.8 kg/m³,
-nitrogen 808, oxygen 1141, carbon dioxide 1178: about 860 atm of hydrogen at 20 °C), and for steam its
-saturation pressure at its temperature, above which it would condense. (Hydrogen, nitrogen and
-oxygen cannot really be liquefied by pressure at room temperature; there is no liquid of them in
-the game, so this is the densest a gas can be.)
+**Painting at a temperature and a mass (D-057).** A brush paints at `Edit.temp` (K; the game's
+`)` and `=` keys on AZERTY), and the substance takes its form at it at 1 atm (`elem_form_at`):
+painting water at −10 °C paints ice, at 120 °C water vapour. A gas is painted with `Edit.mass` kg
+per cell (`ç` and `à`; 0: 1 atm at its temperature). The simulation itself has no cap on how much
+gas a cell holds: a sealed cell keeps any pressure (tested at 100 atm). The brush limits what it
+paints to `gas_max_mass()`, the mass of a cell of the gas's liquid (hydrogen 8.9 g, about 860 atm
+at 20 °C; dry ice for CO₂; air as nitrogen).
 
 Code: `update_gas()` and the functions before it in `src/sim/sim.c`; `GasMix` and its helpers in
 `src/sim/world.h`.
@@ -927,7 +926,8 @@ rises at about 0.2 m/s).
 ### Phase changes
 
 Ice ↔ water at 0 °C (L = 334 kJ/kg), water → water vapour at 100 °C (L = 2257 kJ/kg), rock ↔ lava at
-1500 K (L = 400 kJ/kg) and iron ↔ molten iron at 1811 K (L = 247 kJ/kg; M5); lead (spent bullets,
+1500 K (L = 400 kJ/kg), lava → rock vapour at 3000 K (L = 6 MJ/kg; D-057), the solids, liquids and
+gases of oxygen, nitrogen and hydrogen, and dry ice → CO₂ (sublimes at 194.7 K; ELEMENTS) and iron ↔ molten iron at 1811 K (L = 247 kJ/kg; M5); lead (spent bullets,
 solid lead) ↔ molten lead at 600.6 K (327 °C, L = 23 kJ/kg) and brass (casings, solid brass) ↔
 molten brass at 1208 K (935 °C, between cartridge brass's solidus and liquidus; L ≈ 168 kJ/kg;
 M6a). Molten metal solidifies into a solid block (lead, brass), not back into bullets or casings.
@@ -941,7 +941,11 @@ acts as a natural hysteresis (no flicker). A melted, frozen or boiled cell wakes
 (movement, rendering, water pressure).
 
 **Boiling** water keeps its 125 g: the cell becomes a gas cell of water vapour alone at very high
-pressure (about 1700 atm), which expands within ticks. **Water vapour condenses at its dew point**
+pressure (about 1700 atm), which expands within ticks. Every liquid that boils does the same, into
+its gas species (`g_boil_species`). **Every gas condenses** the way water vapour does, below
+(D-057): each species at its dew point for its share of the gas, into its liquid (dry ice for CO₂,
+lava for rock vapour), and onto colder matter by film condensation; a gas cell is only checked when
+it holds water or rock vapour or is colder than 195 K (`gas_may_condense`). **Water vapour condenses at its dew point**
 (D-035; `condense()` in `src/sim/sim.c`): in a gas cell whose vapour is beyond saturation (Antoine's
 equation, tabulated: 2.3 kPa at 20 °C, 1 atm at 100 °C), as much vapour condenses as warms the cell
 back to the dew point (the latent heat goes into the gas) and no more than the excess, so it keeps

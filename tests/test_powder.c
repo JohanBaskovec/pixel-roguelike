@@ -17,7 +17,7 @@ void test_oil_manometer(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }
@@ -74,9 +74,9 @@ void test_digging_makes_rubble(void) {
     fill(w, 20, 40, 80, 60, ELEM_ROCK);
     fill(w, 95, 70, 120, 75, ELEM_DIRT);
     int64_t rock = test_count(w, ELEM_ROCK);
-    Edit dig = {50, 55, 50, 55, 6, EDIT_CIRCLE, ELEM_VOID, 0, EDIT_DIG, 0.0f}; // reaches the underside
+    Edit dig = {50, 55, 50, 55, 6, EDIT_CIRCLE, ELEM_VOID, 0, EDIT_DIG, 0.0f, 0.0f}; // reaches the underside
     sim_apply_edit(w, &dig);
-    Edit dig2 = {107, 72, 107, 72, 3, EDIT_SQUARE, ELEM_VOID, 0, EDIT_DIG, 0.0f}; // through the dirt
+    Edit dig2 = {107, 72, 107, 72, 3, EDIT_SQUARE, ELEM_VOID, 0, EDIT_DIG, 0.0f, 0.0f}; // through the dirt
     sim_apply_edit(w, &dig2);
     int64_t rubble = test_count(w, ELEM_RUBBLE);
     EXPECT(rubble > 0);

@@ -11,6 +11,8 @@
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_video.h>
 
+#define APP_MAX_TOOLS 32
+
 typedef struct AppConfig {
     int world_w, world_h;
     uint64_t seed;
@@ -40,7 +42,10 @@ typedef struct App {
     int tool; // index into the toolbar
     int brush_radius;
     bool brush_square;
-    float gas_atm; // pressure the gas and air brushes paint at, atm (- and =)
+    // What each tool paints (D-057): the temperature (K; `)` and `=`), and for a gas the mass per
+    // cell (kg; 0: 1 atm at that temperature; `ç` and `à`).
+    float tool_temp[APP_MAX_TOOLS];
+    float tool_mass[APP_MAX_TOOLS];
     bool paused;
     bool step_once;
     bool running;

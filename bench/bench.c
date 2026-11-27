@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
         for (int k = 0; k < 2 && lava; k++) {
             int y = player->y + player->h - 1 - k; // on the floor the player stands on
             Edit film = {player->x + 20, y, player->x + 320, y, 0, EDIT_SQUARE, ELEM_LAVA, 0,
-                         EDIT_PAINT, 0.0f};
+                         EDIT_PAINT, 0.0f, 0.0f};
             sim_apply_edit(w, &film);
         }
     } else {

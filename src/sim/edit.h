@@ -30,8 +30,10 @@ typedef struct Edit {
     ElementId element; // EDIT_PAINT: ELEM_VOID erases; EDIT_AIR paints air
     uint8_t only_void; // EDIT_PAINT: only replace void cells
     uint8_t mode;      // EditMode
-    float pressure;    // EDIT_PAINT of a gas or air: the pressure it is painted at, atm (0: 1 atm),
-                       // at most what the gas can hold before it turns liquid (gas_max_pressure)
+    float temp;        // EDIT_PAINT: temperature (K), and the element takes its form at it
+                       // (elem_form_at); 0: the element's spawn temperature, as it is
+    float mass;        // EDIT_PAINT of a gas or air: mass per cell (kg), at most gas_max_mass; 0:
+                       // 1 atm. Solids and liquids have the mass of their density
 } Edit;
 
 #define EDIT_QUEUE_CAP 256

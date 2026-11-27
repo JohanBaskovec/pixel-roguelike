@@ -71,21 +71,21 @@ ctest --test-dir build/release -j4 --output-on-failure   # each test on its own,
 | Right mouse | Erase (paint void), including the box walls |
 | Shift + left mouse | Paint only into empty (void) cells |
 | Mouse wheel, `[` / `]` | Brush radius 0–256 px (0 = one pixel) |
-| `-` / `=` | Gas and Air brushes: paint at half / twice the pressure (1 atm to start; limited to what the gas can hold before it would be liquid: steam its saturation pressure, the others the density of their liquid, e.g. about 860 atm of hydrogen) |
+| `)` / `=` on AZERTY (`-` / `=` on QWERTY) | Temperature the tool paints at (20 °C to start; 1 K to 5000 K). The substance takes its form at it: water is ice below 0 °C and vapour from 100 °C, rock is lava from 1500 K and vapour from 3000 K, oxygen, nitrogen and hydrogen are liquid or solid when cold, CO2 dry ice below −78 °C |
+| `ç` / `à` on AZERTY (`9` / `0` on QWERTY) | Mass per pixel a gas (or Air) is painted with (1 atm at its temperature to start, shown in the panel with its pressure), up to the mass of a pixel of its liquid. Solids and liquids have the mass of their density |
 | `B` | Toggle circle / square brush |
-| `-` / `=` | Gas and Air brushes: paint at half / twice the pressure (1 atm to start, shown in the panel), up to what the gas can hold before it would turn liquid: steam its saturation pressure, the others the density of their liquid (about 860 atm of hydrogen) |
 | Middle mouse drag, arrows | Pan the view (stops following the player) |
 | `F` | Follow the player again |
 | `Ctrl` + mouse wheel | Zoom in / out around the cursor (1/4× to 8×; starts at 2×) |
 | `Home` | Show the whole world |
 | `P` | Pressure view: water coloured by depth below its surface, gas by pressure (log scale, green = 1 atm) |
 | `T` | Temperature view |
-| `1`–`9`, `0` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Water vapour, Dirt, Rock, Iron, Ice, Eraser |
-| `N` / `G` | Nitrogen / Air (every pixel the same mixture: 21% oxygen, 0.04% CO2, the rest nitrogen), at 1 atm |
+| `1`–`4`, `6`–`8`, `5` or click the toolbar | Water, Oxygen, CO2, Hydrogen, Dirt, Rock, Iron, Eraser: one tool per substance, in the form its temperature gives |
+| `N` / `G` | Nitrogen / Air (every pixel the same mixture: 21% oxygen, 0.04% CO2, the rest nitrogen) |
 | `M` | Mute / unmute the sound |
 | `K` | Put a wandering test creature at the cursor (it breathes the air around it) |
 | `I` | A log (a rigid body: it falls, tips and rolls, and a bullet cuts it in two) at the cursor |
-| `J` / `L` / `O` / `V` | Sand / Lava (1600 K) / Oil / Wood (burns from 250 °C, needs 16% oxygen, gives CO₂ and water: light it with the Heat brush or lava) |
+| `J` / `O` / `V` | Sand / Oil / Wood (burns from 250 °C, needs 16% oxygen, gives CO₂ and water: light it with the Heat brush or lava) |
 | `X` | Dig: loosens dirt into loose soil and rock into rubble, which fall |
 | `H` / `C` | Heat / Cool brush: hold to raise or lower temperatures (8 K per frame). Heat lights hydrogen mixed with oxygen (773 K) |
 | `Space` | Pause / resume |

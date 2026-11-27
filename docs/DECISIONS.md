@@ -937,3 +937,22 @@ to watch).
   freshly boiled cell (1700 atm) at once, which D-035 avoids. Not done.
 - **Consequences:** Steam rains on cold walls and floors, and steam over cold water condenses into it.
   16 kg of the same steam now condenses in a minute. No cost in the benchmark scenes.
+
+## D-057 — Paint at a temperature; every gas condenses; rock vapour as a 6th gas
+
+- **Status:** Accepted (2026-11-27), asked for by the user: a temperature and a mass to paint with,
+  one tool per substance, and solid and liquid hydrogen, CO2, oxygen, and vaporised rock.
+- **Decision:** An edit carries a temperature and a mass (`Edit.temp`, `Edit.mass`, replacing
+  `Edit.pressure`); the painted element takes its form at that temperature at 1 atm. Ice, Water
+  vapour and Lava leave the toolbar (Water and Rock paint them). New elements: liquid and solid
+  oxygen, nitrogen and hydrogen, dry ice (a powder), and rock vapour, a 6th gas species. Boiling
+  and condensing work for every species (`g_species_condensed`, `g_boil_species`); film
+  condensation (D-056) for every species too. Keys by position, so they are `)` `=` `ç` `à` on
+  AZERTY and `-` `=` `9` `0` on QWERTY; the Eraser moves to `5`.
+- **Alternatives:** liquid CO2 at 1 atm (it does not exist there: it waits for pressure-dependent
+  boiling points); a gas species for every element that can boil: each costs about 5% of the gas
+  time and 4 bytes per cell (measured for rock vapour), so the next step is about 5 slots for rare
+  gases, read only where some is present (ROADMAP).
+- **Consequences:** Saves from before are refused (`GasMix` grew). A gas cell colder than 195 K, or
+  holding water or rock vapour, is checked for condensing. Mass is conserved on average where
+  something condenses, as for water.

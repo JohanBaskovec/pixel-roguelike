@@ -476,10 +476,9 @@ static void update_liquid(TickCtx *c, int x, int y) {
 // multiplies it by 1 + GAS_TURB_PER_WIND * speed (eddy diffusivity, as for heat), up to 1/2 (the
 // pair evens out).
 #define GAS_DIFFUSE_K 0.0333f
-// Water vapour condenses when its fraction exceeds saturation (at 1 atm total, D-035), into a
-// droplet of water with probability (mass condensed) / (mass of a water cell): mass is conserved on
-// average (docs/SIMULATION.md -> Phase changes). Latent heat (J/kg) is released into the gas.
-#define VAPOUR_LATENT 2257e3f
+// A vapour condenses when its fraction exceeds saturation (at 1 atm total, D-035), into a droplet of
+// its liquid with probability (mass condensed) / (mass of such a cell): mass is conserved on
+// average (docs/SIMULATION.md -> Phase changes). Latent heat is released into the gas.
 // The gas a droplet displaces goes into the gas within this many cells.
 #define CONDENSE_RADIUS 4
 #define CONDENSE_CELLS  32
@@ -1044,53 +1043,46 @@ static void update_burning_wood(TickCtx *c, int x, int y) {
     c->stats.reactions++;
 }
 
-// ---- Condensation of water vapour (D-035) ----
+// ---- Condensation (D-035, D-057) ----
 
-// Dew point (K) for a vapour partial pressure p (Pa): Antoine's equation inverted.
-static float dew_point(float p) {
-    float lg = log10f(PR_MAX(p, 1.0f) / 133.322f);
-    float c = lg < 8.07131f - 1730.63f / (233.426f + 99.0f) ? 1730.63f / (8.07131f - lg) - 233.426f
-                                                            : 1810.94f / (8.14019f - lg) - 244.485f;
-    return c + 273.15f;
-}
-
-// Water vapour at (x, y) beyond saturation condenses: as much as warms the cell back to the dew
-// point (latent heat) and no more than the excess. The condensed water becomes a droplet (a water
-// cell, the gas pushed into the gas around) with probability mass / mass of a water cell; else it
-// is gone (mass is conserved on average). Saturation is taken at 1 atm total pressure (D-035), so
-// a compressed cell of steam just boiled off does not condense back at once. Returns true if the
-// cell became water.
-static bool condense(TickCtx *c, int x, int y) {
+// Vapour of species s at (x, y) beyond saturation condenses: as much as warms the cell back to the
+// dew point (latent heat) and no more than the excess. The condensed mass becomes a droplet (a cell
+// of the liquid, or dry ice; the gas pushed into the gas around) with probability mass / mass of
+// such a cell; else it is gone (mass is conserved on average). Saturation is taken at 1 atm total
+// pressure (D-035), so a compressed cell of vapour just boiled off does not condense back at once.
+// Returns true if the cell became a droplet.
+static bool condense_species(TickCtx *c, int x, int y, int s) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
     GasMix *g = gas_at(w, i);
     float n = gas_moles(g);
-    float nv = g->m[GAS_H2O] * g_species_inv_molar[GAS_H2O];
+    float nv = g->m[s] * g_species_inv_molar[s];
     float t = w->temp[i];
     float pv = nv / n * P_ATM; // the vapour's partial pressure at 1 atm total
-    float psat = water_saturation_pressure(t);
+    float psat = gas_saturation_pressure(s, t);
     if (pv <= psat * (1.0f + GAS_EQ_TOL)) {
         return false;
     }
     // Vapour that may stay at this temperature: nv_max / (n_other + nv_max) = psat / P_ATM.
     float xs = PR_MIN(psat / P_ATM, 0.999f);
     float nv_max = xs / (1.0f - xs) * (n - nv);
-    float excess = (nv - nv_max) * g_species_molar[GAS_H2O];
+    float excess = (nv - nv_max) * g_species_molar[s];
     // As much as brings the cell to the dew point: (C t + dm L) / (C - dm cp_v) = t_dew.
-    float t_dew = dew_point(pv);
-    float warm = gas_heat_cap(g) * (t_dew - t) / (VAPOUR_LATENT + g_species_cp[GAS_H2O] * t_dew);
-    float dm = PR_CLAMP(PR_MIN(excess, warm), 0.0f, g->m[GAS_H2O]);
+    float t_dew = gas_dew_point(s, pv);
+    float latent = g_species_latent[s];
+    float warm = gas_heat_cap(g) * (t_dew - t) / (latent + g_species_cp[s] * t_dew);
+    float dm = PR_CLAMP(PR_MIN(excess, warm), 0.0f, g->m[s]);
     if (dm <= 0.0f) {
         return false;
     }
-    float energy = gas_heat_cap(g) * t + dm * VAPOUR_LATENT;
-    g->m[GAS_H2O] -= dm;
+    float energy = gas_heat_cap(g) * t + dm * latent;
+    g->m[s] -= dm;
     float cap = gas_heat_cap(g);
     w->temp[i] = cap > 0.0f ? energy / cap : t;
     ctx_arrive(c, x, y, w->cells[i], w->temp[i]);
     keep_alive(c, x, y);
-    float m_water = g_elem_mass[ELEM_WATER];
-    if (rng_unit(&c->rng) >= dm / m_water) {
+    ElementId to = g_species_condensed[s];
+    if (rng_unit(&c->rng) >= dm / g_elem_mass[to]) {
         if (gas_total(g) <= 0.0f) {
             gas_clear(w, i);
             ctx_wake(c, x - 1, y - 1, x + 1, y + 1, true, false);
@@ -1112,13 +1104,32 @@ static bool condense(TickCtx *c, int x, int y) {
     }
     float tw = w->temp[i];
     gas_mix_clear(g);
-    w->cells[i] = (Cell){ELEM_WATER, c->stamp, (uint8_t)rng_next(&c->rng), 0};
+    w->cells[i] = (Cell){to, c->stamp, (uint8_t)rng_next(&c->rng), 0};
     w->temp[i] = tw;
     ctx_arrive(c, x, y, w->cells[i], tw);
     ctx_wake(c, x - CONDENSE_RADIUS - 1, y - CONDENSE_RADIUS - 1, x + CONDENSE_RADIUS + 1,
              y + CONDENSE_RADIUS + 1, true, true);
     c->stats.reactions++;
     return true;
+}
+
+// Condenses whatever is beyond saturation at (x, y). Returns true if the cell became a droplet or
+// emptied.
+static bool condense(TickCtx *c, int x, int y) {
+    World *w = c->w;
+    size_t i = world_index(w, x, y);
+    for (int s = 0; s < GAS_SPECIES; s++) {
+        // (At 1 atm nothing condenses above its boiling point; water's dew point is Antoine's,
+        // a hair off its boiling point: 1 K of room.)
+        if (w->gas[i].m[s] > 0.0f && w->temp[i] < g_species_boil[s] + 1.0f &&
+            condense_species(c, x, y, s)) {
+            return true;
+        }
+        if (w->cells[i].element != ELEM_GAS) {
+            return true; // all of it condensed
+        }
+    }
+    return false;
 }
 
 // ---- Gas currents: moving matter stirs the air. docs/SIMULATION.md -> Gas currents ----
@@ -1321,7 +1332,7 @@ static void update_gas(TickCtx *c, int x, int y, int step) {
     World *w = c->w;
     size_t i = world_index(w, x, y);
     Cell self = w->cells[i];
-    if (self.aux == 0 && !c->may_react && w->gas[i].m[GAS_H2O] <= 0.0f &&
+    if (self.aux == 0 && !c->may_react && !gas_may_condense(w->gas[i].m, w->temp[i]) &&
         gas_same_as_around(w, x, y, i)) {
         return; // still and like its neighbours: sleeps
     }
@@ -1330,11 +1341,11 @@ static void update_gas(TickCtx *c, int x, int y, int step) {
     if (self.aux != 0 && gas_follow_wind(c, x, y)) {
         return;
     }
-    // 0. Burning, only where something is hot enough to ignite; condensing water vapour.
+    // 0. Burning, only where something is hot enough to ignite; condensing vapour.
     if (c->may_react && react(c, x, y)) {
         return;
     }
-    if (w->gas[i].m[GAS_H2O] > 0.0f && condense(c, x, y)) {
+    if (gas_may_condense(w->gas[i].m, w->temp[i]) && condense(c, x, y)) {
         return;
     }
     GasMix *g = gas_at(w, i);

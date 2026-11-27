@@ -12,7 +12,7 @@ void test_monster_dies_of_heat(void);
 
 static void fill_air(World *w) {
     for (int y = 1; y <= w->height - 2; y++) {
-        Edit ed = {1, y, w->width - 2, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f};
+        Edit ed = {1, y, w->width - 2, y, 0, EDIT_SQUARE, EDIT_AIR, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }

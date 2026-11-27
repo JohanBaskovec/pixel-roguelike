@@ -40,6 +40,15 @@ enum {
     ELEM_SAWDUST = 28,      // wood crumbs (D-045): a powder, what slivers cut from a log become
     ELEM_WALKER_CORPSE = 29, // flesh of a dead walker (D-046): static, part of a rigid body
     ELEM_FLYER_CORPSE = 30,  // flesh of a dead flyer
+    // The gases as liquids and solids (D-057).
+    ELEM_LIQUID_OXYGEN = 31,
+    ELEM_SOLID_OXYGEN = 32,
+    ELEM_LIQUID_NITROGEN = 33,
+    ELEM_SOLID_NITROGEN = 34,
+    ELEM_LIQUID_HYDROGEN = 35,
+    ELEM_SOLID_HYDROGEN = 36,
+    ELEM_DRY_ICE = 37,     // solid CO2: a powder (no liquid CO2 at 1 atm)
+    ELEM_ROCK_VAPOUR = 38, // a gas species: boiled lava
     ELEM_COUNT,
 
     // Pseudo element returned for coordinates outside the world. Behaves as an immovable wall.
@@ -162,8 +171,8 @@ extern float g_min_ignite_k; // lowest ignition temperature of any reaction
 #define WOOD_CO2_PER_KG (1.0f + WOOD_O2_PER_KG - WOOD_H2O_PER_KG) // mass is conserved exactly
 
 // Gas species (D-035): a gas cell holds a mass of each, in this order.
-#define GAS_SPECIES 5
-enum { GAS_O2 = 0, GAS_CO2 = 1, GAS_H2 = 2, GAS_H2O = 3, GAS_N2 = 4 };
+#define GAS_SPECIES 6
+enum { GAS_O2 = 0, GAS_CO2 = 1, GAS_H2 = 2, GAS_H2O = 3, GAS_N2 = 4, GAS_ROCK = 5 };
 extern const ElementId g_species_elem[GAS_SPECIES]; // the element naming each species
 // Species index + 1 of a species element (ELEM_OXYGEN..ELEM_NITROGEN); 0 for any other element.
 extern uint8_t g_gas_slot[256];
@@ -175,6 +184,16 @@ extern float g_species_molar[GAS_SPECIES];     // kg/mol
 extern float g_species_inv_molar[GAS_SPECIES]; // mol/kg
 extern float g_species_cp[GAS_SPECIES];        // J/(kg K)
 extern float g_species_k[GAS_SPECIES];         // W/(m K)
+// What each species condenses to (dry ice for CO2: it has no liquid at 1 atm), the temperature it
+// does so at 1 atm (K) and the heat it gives off (J/kg).
+extern const ElementId g_species_condensed[GAS_SPECIES];
+extern float g_species_boil[GAS_SPECIES];
+extern float g_species_latent[GAS_SPECIES];
+// The species an element boils (or sublimes) into (elements whose g_elem_above is ELEM_GAS).
+extern uint8_t g_boil_species[ELEM_COUNT];
+// Below this every gas cell may hold something that condenses; above it only water vapour and
+// rock vapour do.
+#define GAS_CRYO_K 195.0f
 // Air as the Air brush paints it, by mole fraction: 78.1% N2 + 0.9% argon (counted as N2), 20.95%
 // O2, 0.04% CO2; dry.
 #define AIR_O2_FRAC  0.2095f
@@ -275,6 +294,25 @@ static inline float gas_mass_at(ElementId e, float p, float t) {
 // liquid; hydrogen, nitrogen and oxygen cannot be liquefied by pressure at room temperature, so
 // this is a limit of the painting tool, not of the simulation, which has no cap).
 float gas_max_pressure(ElementId e, float t);
+
+// Saturation pressure (Pa) of species s at temperature t (K), and the temperature at which a partial
+// pressure p (Pa) of it saturates (dew point): water by Antoine's equation, the others by
+// Clausius-Clapeyron from the boiling point (above liquid and solid alike, an approximation).
+float gas_saturation_pressure(int s, float t);
+float gas_dew_point(int s, float p);
+
+// Can this mixture hold vapour that condenses at temperature t? (Cheap: called per gas cell.)
+static inline bool gas_may_condense(const float *m, float t) {
+    return m[GAS_H2O] > 0.0f || m[GAS_ROCK] > 0.0f || t < GAS_CRYO_K;
+}
+
+// The form element e takes at temperature t (K) at 1 atm: water is ice, water or water vapour; rock
+// is rock, lava or rock vapour; oxygen is solid, liquid or gas. Returns the species element for a
+// gas.
+ElementId elem_form_at(ElementId e, float t);
+
+// The most gas species element e a cell may be painted with (kg): the mass of its liquid.
+float gas_max_mass(ElementId e);
 
 // Saturation pressure of water vapour (Pa) at temperature t (K): Antoine's equation, two ranges
 // (1-100 degC, 99-374 degC); at or below 0 degC it is extrapolated (over ice it would be a little

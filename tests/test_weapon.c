@@ -32,7 +32,7 @@ void test_bullets_and_casings_melt(void);
 
 static void fill(World *w, int x0, int y0, int x1, int y1, ElementId e) {
     for (int y = y0; y <= y1; y++) {
-        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f};
+        Edit ed = {x0, y, x1, y, 0, EDIT_SQUARE, e, 0, EDIT_PAINT, 0.0f, 0.0f};
         sim_apply_edit(w, &ed);
     }
 }
@@ -205,7 +205,7 @@ void test_small_clumps_fall(void) {
     fill(w, 30, 10, 35, 14, ELEM_ROCK); // 30 cells, floating
     fill(w, 50, 10, 53, 13, ELEM_DIRT); // 16 cells, on an iron post
     fill(w, 51, 14, 51, 30, ELEM_IRON);
-    Edit dig = {10, 10, 10, 10, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_DIG, 0.0f}; // a corner of each
+    Edit dig = {10, 10, 10, 10, 0, EDIT_SQUARE, ELEM_VOID, 0, EDIT_DIG, 0.0f, 0.0f}; // a corner of each
     sim_apply_edit(w, &dig);
     dig.x0 = dig.x1 = 30;
     sim_apply_edit(w, &dig);

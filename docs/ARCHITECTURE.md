@@ -113,7 +113,7 @@ typedef struct World {
 **Why a hybrid SoA.** The movement pass mostly reads `element` and `flags`, so a 4-byte `Cell`
 puts 16 cells in a cache line. The heat pass reads `element` (to look up properties) and the
 temperature. Keeping temperature in its own array lets it be double-buffered and streamed. A gas
-cell's mixture (`GasMix`: 5 floats, 20 bytes) is its own array too, read only for gas cells. When
+cell's mixture (`GasMix`: 6 floats, 24 bytes) is its own array too, read only for gas cells. When
 a cell moves, the code swaps its `Cell`, its `temp` entry, its `gas` and its `rho`. See
 `DECISIONS.md` D-011 and D-035.
 
